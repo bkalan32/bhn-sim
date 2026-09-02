@@ -188,19 +188,6 @@ def activate(req: ActivateRequest):
             LATENCY.labels(status="error").observe(elapsed)
             return PlainTextResponse("fraud service unavailable", status_code=503)
 
-        # --- velocity check (Day 6 bad release) BEGIN ---
-        # velocity check: block suspicious high-value activations
-        # Tests pass: they only ever activate $25 cards. Production sends 25/50/100.
-        if req.amount >= 50:
-            elapsed = time.perf_counter() - start
-            fields.update(status="error", reason="velocity_check_blocked",
-                          latency_ms=round(elapsed * 1000))
-            log.error("activation failed", extra={"extra": fields})
-            REQUESTS.labels(status="error").inc()
-            LATENCY.labels(status="error").observe(elapsed)
-            return PlainTextResponse("velocity check", status_code=403)
-
-        # --- velocity check (Day 6 bad release) END ---
         if random.random() < ERROR_RATE:
             elapsed = time.perf_counter() - start
             fields.update(status="error", reason="issuer_declined",
