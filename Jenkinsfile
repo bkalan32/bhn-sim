@@ -81,7 +81,10 @@ pipeline {
           kubectl -n ${NS} annotate deployment/${params.SERVICE} kubernetes.io/change-cause="build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}" --overwrite
           kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s
         """
-        script { grafanaAnnotate("deploy", "build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}") }
+        script {
+          env.DEPLOYED = 'true'
+          grafanaAnnotate("deploy", "build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}")
+        }
       }
     }
 
@@ -98,7 +101,10 @@ pipeline {
           }
           def e = err.toFloat()
           def b = (env.BASELINE_ERR == 'nodata') ? 0.0 : env.BASELINE_ERR.toFloat()
-          def limit = Math.max(params.ERROR_THRESHOLD.toFloat(), 3 * b)
+          // Jenkins' Groovy sandbox rejects java.lang.Math.max (and most Java statics)
+          // unless an admin approves it. A comparison needs no approval.
+          def t = params.ERROR_THRESHOLD.toFloat()
+          def limit = (t > 3 * b) ? t : 3 * b
           if (e > limit) {
             // FIX: a flag set here, not env.STAGE_NAME in post{} — the PDF's own
             // troubleshooting notes that STAGE_NAME is unreliable there.
@@ -120,8 +126,12 @@ pipeline {
           sh "kubectl -n ${NS} annotate deployment/${params.SERVICE} kubernetes.io/change-cause=\"AUTO-ROLLBACK of build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}\" --overwrite"
           grafanaAnnotate("rollback", "AUTO-ROLLBACK build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}")
           echo "ROLLED BACK ${params.SERVICE} to previous revision"
+        } else if (env.DEPLOYED == 'true') {
+          echo "WARNING: build ${env.BUILD_NUMBER} WAS deployed but Verify errored before reaching a verdict."
+          echo "It has NOT been rolled back. Check the dashboard now; roll back by hand if needed:"
+          echo "  kubectl -n ${NS} rollout undo deployment/${params.SERVICE}"
         } else {
-          echo "Build failed before Verify — nothing was deployed, nothing to roll back"
+          echo "Build failed before Deploy — nothing was deployed, nothing to roll back"
         }
       }
     }
@@ -149,12 +159,17 @@ def grafanaAnnotate(String tag, String text) {
   // FIX: the PDF fetches the Grafana password INSIDE a kubectl-run pod that has no
   // kubectl -> 401. Fetch it here, on the agent, then exec into the Grafana pod which
   // has curl and can reach itself on localhost.
-  def pw = sh(returnStdout: true, script: "kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d").trim()
+  // The password travels in an env var with `set +x`, so it never appears in the build
+  // log. Jenkins echoes every sh command line by default — a secret on the command line
+  // is a secret in the log.
+  def pw = sh(returnStdout: true, script: "set +x; kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d").trim()
   def body = groovy.json.JsonOutput.toJson([tags: [tag, params.SERVICE], text: text])
-  def rc = sh(returnStatus: true, script: """
-    kubectl -n monitoring exec deploy/kps-grafana -c grafana -- \\
-      curl -sf -u 'admin:${pw}' -H 'Content-Type: application/json' \\
-      -X POST http://localhost:3000/api/annotations -d '${body}' >/dev/null
-  """)
+  def rc = 1
+  withEnv(["GRAFANA_PW=${pw}", "ANN_BODY=${body}"]) {
+    rc = sh(returnStatus: true, script: '''set +x
+      kubectl -n monitoring exec deploy/kps-grafana -c grafana -- \\
+        curl -sf -u "admin:$GRAFANA_PW" -H 'Content-Type: application/json' \\
+        -X POST http://localhost:3000/api/annotations -d "$ANN_BODY" >/dev/null''')
+  }
   if (rc != 0) { echo "WARNING: Grafana annotation failed (rc=${rc}) — deploy continues" }
 }
