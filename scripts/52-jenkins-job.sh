@@ -5,11 +5,14 @@ source "$(dirname "$0")/lib.sh"
 U="${JENKINS_USER:-admin}"; P="${JENKINS_PASS:-}"
 [[ -n "$P" ]] || { read -rsp "Jenkins password for $U: " P; echo; }
 J=http://localhost:8081
+# Jenkins binds the CSRF crumb to the session that requested it. Without a cookie jar
+# the second request is a new session and gets HTTP 403 even with valid credentials.
+JAR=$(mktemp); trap 'rm -f "$JAR"' EXIT
 step "Crumb"
-CRUMB=$(curl -fsS -u "$U:$P" "$J/crumbIssuer/api/json" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["crumbRequestField"]+":"+d["crumb"])' 2>/dev/null || true)
+CRUMB=$(curl -fsS -c "$JAR" -u "$U:$P" "$J/crumbIssuer/api/json" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["crumbRequestField"]+":"+d["crumb"])' 2>/dev/null || true)
 [[ -n "$CRUMB" ]] || die "could not authenticate to Jenkins as $U. Create the job in the UI instead (see DAY6.md Step 4)."
 step "Creating job deploy-service"
-CODE=$(curl -s -o /dev/null -w '%{http_code}' -u "$U:$P" -H "$CRUMB" -H 'Content-Type: application/xml' \
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -u "$U:$P" -H "$CRUMB" -H 'Content-Type: application/xml' \
        --data-binary @"$LAB_ROOT/ci/deploy-service.job.xml" "$J/createItem?name=deploy-service")
 case "$CODE" in
   200) ok "created: $J/job/deploy-service" ;;

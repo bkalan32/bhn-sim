@@ -24,9 +24,13 @@ ok "built — docker, kubectl, kind, git, python3 all present"
 
 step "Replacing the Day 1 container"
 docker rm -f jenkins >/dev/null 2>&1 || true
+# ALLOW_LOCAL_CHECKOUT: the git plugin refuses to clone from a local path (like /repo)
+# by default — a 2022 hardening, since a local checkout could read anything on the
+# controller. Lab-only; in production the SCM is a real remote.
 docker run -d --name jenkins --network kind -u root \
   -p 8081:8080 -p 50000:50000 \
   --restart unless-stopped \
+  -e JAVA_OPTS="-Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true" \
   -v jenkins_home:/var/jenkins_home \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$LAB_ROOT":/repo \
@@ -43,8 +47,15 @@ docker exec jenkins kubectl get nodes --no-headers 2>&1 | sed 's/^/  /' \
   && ok "kubectl works inside jenkins" || die "kubectl inside jenkins failed — is the container on the kind network? docker inspect jenkins | grep -A3 Networks"
 docker exec jenkins docker ps --format '  {{.Names}}' 2>&1 | head -3 \
   && ok "docker works inside jenkins" || die "docker socket not usable inside jenkins"
-docker exec jenkins git -C /repo log -1 --format='  repo HEAD: %h %s' 2>&1 \
-  && ok "git can read /repo (safe.directory set)" || die "git refuses /repo — dubious ownership; the Dockerfile should have set safe.directory"
+if OUT=$(docker exec jenkins git -C /repo log -1 --format='  repo HEAD: %h %s' 2>&1); then
+  echo "$OUT"; ok "git can read /repo"
+elif echo "$OUT" | grep -q 'not a git repository'; then
+  die "$LAB_ROOT is not a git repository yet. Run:  git init -b main && git add -A && git commit -m 'lab state'"
+elif echo "$OUT" | grep -q 'dubious ownership'; then
+  die "git dubious-ownership — the Dockerfile's safe.directory setting did not apply; rebuild the image"
+else
+  die "git failed: $OUT"
+fi
 
 step "Next: create the pipeline job"
 say "  http://localhost:8081  ->  New Item  ->  name: deploy-service  ->  Pipeline  ->  OK"

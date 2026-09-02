@@ -41,17 +41,22 @@ def base_url():
         cwd=APP_DIR, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
     url = f"http://127.0.0.1:{port}"
-    for _ in range(60):
+    # Up to 90s. A cold venv with the OpenTelemetry package set can take 20-40s to
+    # import on WSL the first time (pyc compilation + antivirus scanning of ~1,500
+    # files). Subsequent starts are ~2s.
+    deadline = time.time() + 90
+    while time.time() < deadline:
         try:
             urllib.request.urlopen(f"{url}/healthz", timeout=1)
             break
         except Exception:
             if proc.poll() is not None:
                 raise RuntimeError("server died:\n" + proc.stdout.read().decode())
-            time.sleep(0.25)
+            time.sleep(0.5)
     else:
         proc.kill()
-        raise RuntimeError("server never became ready")
+        out = proc.stdout.read().decode(errors="replace")
+        raise RuntimeError(f"server never became ready in 90s. Its output so far:\n{out[-2000:]}")
     yield url
     proc.terminate()
     try:

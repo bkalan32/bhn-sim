@@ -10,7 +10,7 @@ case "${1:-}" in
     step "Inserting the velocity check"
     python3 ci/velocity_check.py apply
     step "Running the unit tests — watch them pass"
-    ( cd services/activation && [[ -d .venv ]] || python3 -m venv services/activation/.venv )
+    [[ -d services/activation/.venv ]] || python3 -m venv services/activation/.venv
     ( cd services/activation && . .venv/bin/activate && pip install -q -r requirements.txt -r requirements-dev.txt && python -m pytest -q tests/ ) \
       && ok "GREEN. The test activates a \$25 card. The bug bites at \$50. This is the most common shape of a real bad release." \
       || die "tests failed — that is not the scenario. Is TEST_PRODUCTION_AMOUNTS set?"
