@@ -1,0 +1,40 @@
+# A NodePort front door for the activation service.
+#
+# WHY THIS EXISTS: `kubectl port-forward svc/activation` resolves the Service to ONE
+# pod and pins it for the life of the connection. Two consequences, both bad:
+#
+#   1. It does not survive a rollout. `kubectl set env deployment/activation ...`
+#      restarts the pods, the pinned pod goes away, and the port-forward dies. Your
+#      load generator goes 100% unreachable in the middle of the incident drill --
+#      exactly when you need traffic most.
+#   2. It does not load-balance. One replica takes everything, the other idles, so
+#      the two-replica resilience the Deployment describes is never exercised.
+#
+# A NodePort routes through kube-proxy instead: it load-balances across every ready
+# pod and it re-resolves continuously, so a rolling restart is invisible to callers.
+# The kind cluster config already maps host port 30080 to node port 30080.
+#
+# This is also closer to production truth: real traffic arrives through a load
+# balancer or ingress, never through a port-forward off an engineer's laptop.
+apiVersion: v1
+kind: Service
+metadata:
+  name: activation-nodeport
+  namespace: payments
+  labels:
+    # FIX: deliberately NOT `app: activation`. The ServiceMonitor selects Services by
+    # that label, so carrying it here made Prometheus discover this Service too and
+    # scrape every pod twice -- which doubled every sum(rate(...)) on the dashboard.
+    # metadata.labels (what selectors find) and spec.selector (which pods this routes
+    # to) are different things; only the second one needs to say `app: activation`.
+    role: front-door
+    for: activation
+spec:
+  type: NodePort
+  selector:
+    app: activation
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30080
+      name: http

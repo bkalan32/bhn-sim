@@ -1,0 +1,2 @@
+# Test-only dependencies. Kept out of the image.
+pytest

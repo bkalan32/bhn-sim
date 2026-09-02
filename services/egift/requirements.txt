@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+prometheus-client
+requests
+opentelemetry-distro
+opentelemetry-exporter-otlp

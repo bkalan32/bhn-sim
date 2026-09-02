@@ -1,0 +1,134 @@
+# activation service — namespace, deployment, service, and Prometheus scrape config.
+#
+# FIX: the YAML printed in the PDF does not apply. Two separate indentation faults:
+#   1. `readinessProbe` and `resources` sit one level deeper than `env`, so they are
+#      parsed as children of the env list rather than of the container.
+#   2. Everything from the first `---` onward is indented, including the document
+#      separators themselves. An indented `---` is not a document separator, so the
+#      Service and ServiceMonitor are swallowed into the Deployment document.
+# Either one alone makes `kubectl apply -f` fail. See CORRECTIONS-DAY2.md B1.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: activation
+  namespace: payments
+  labels:
+    app: activation
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: activation
+  template:
+    metadata:
+      labels:
+        app: activation
+        version: "0.3"
+    spec:
+      containers:
+        - name: activation
+          image: activation:0.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            # Your incident controls. Change these to cause outages on purpose.
+            - name: ERROR_RATE
+              value: "0.02"
+            - name: BASE_LATENCY_MS
+              value: "80"
+            - name: FRAUD_SVC_DOWN
+              value: "false"
+            - name: APP_VERSION
+              value: "0.3"
+            # ---- Day 4: OpenTelemetry -------------------------------------------
+            - name: OTEL_SERVICE_NAME
+              value: activation
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              # One token. The PDF line-wraps this across "otel-opentelemetry-" and
+              # "collector.tracing:4317" -- paste that and the exporter dials nothing.
+              value: http://otel-opentelemetry-collector.tracing:4317
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: grpc
+            - name: OTEL_TRACES_EXPORTER
+              value: otlp
+            - name: OTEL_METRICS_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+            # FIX: without this, every /metrics scrape (2 pods x every 15s) and every
+            # probe becomes a trace. Tempo fills with noise and "search by service"
+            # shows you kubelet probes instead of customer requests.
+            - name: OTEL_PYTHON_FASTAPI_EXCLUDED_URLS
+              value: "healthz,readyz,metrics"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            # FIX: generous, deliberately. On Day 4+ you set FRAUD_SVC_DOWN=true, which
+            # makes every request hang 3s. A tight liveness probe would then decide the
+            # pod is dead and restart it, turning your controlled latency drill into a
+            # CrashLoopBackOff and hiding the symptom you were trying to observe.
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: activation
+  namespace: payments
+  labels:
+    app: activation
+spec:
+  selector:
+    app: activation
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: activation
+  namespace: payments
+  labels:
+    # This label is the whole ball game. kube-prometheus-stack only scrapes
+    # ServiceMonitors carrying the release name of its Helm release. Get it wrong and
+    # your service is silently ignored — no error, no warning, just a target that
+    # never appears. Classic real-world observability bug.
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app: activation
+  namespaceSelector:
+    matchNames:
+      - payments
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

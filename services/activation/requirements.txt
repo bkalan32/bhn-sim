@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+prometheus-client
+# Day 4 -- OpenTelemetry. `opentelemetry-bootstrap -a install` (run by the build
+# script) adds the per-library instrumentation packages on top of these.
+opentelemetry-distro
+opentelemetry-exporter-otlp

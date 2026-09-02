@@ -1,0 +1,60 @@
+# Fluent Bit -> Splunk HEC.  Rendered by scripts/22-fluent-bit.sh, which substitutes
+# __SPLUNK_IP__ and __SPLUNK_TOKEN__. Do not edit the rendered copy; edit this.
+#
+# FIX vs the PDF: the PDF tails /var/log/containers/*.log — EVERY container on the node,
+# including the whole kube-prometheus-stack, CoreDNS, the kubelet's own pods and Fluent
+# Bit itself (which is a nice feedback loop). Splunk's Enterprise Trial is 500 MB/day,
+# exactly the same as the Free licence — the trial buys you alerting and 60 days, not
+# volume. Shipping the entire cluster will burn that quota in about a day, and five
+# violations in a rolling 30-day window blocks search.
+# So: tail the payments namespace only. (CORRECTIONS-DAY3.md B4)
+config:
+  inputs: |
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*_payments_*.log
+        Parser            cri
+        Tag               kube.*
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+        Refresh_Interval  5
+
+  filters: |
+    # FIX: the cri parser stores the container's log line in a field called `message`,
+    # but the kubernetes filter's Merge_Log only ever inspects a field called `log`.
+    # Names do not match, so Merge_Log finds nothing, does nothing, and says nothing --
+    # your JSON arrives in Splunk as an unparsed string inside `message` and every
+    # app.* search returns zero. The PDF's config has the identical fault.
+    # Rename it first, so the kubernetes filter below can actually see it.
+    [FILTER]
+        Name                modify
+        Match               kube.*
+        Rename              message log
+
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Merge_Log           On
+        Merge_Log_Key       app
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+  outputs: |
+    [OUTPUT]
+        Name             splunk
+        Match            kube.*
+        Host             __SPLUNK_IP__
+        Port             8088
+        TLS              __TLS__
+        TLS.Verify       Off
+        Splunk_Token     __SPLUNK_TOKEN__
+        Splunk_Send_Raw  Off
+        # FIX: without this, events land as sourcetype "httpevent", which Splunk treats
+        # as opaque text. It never parses the JSON, so app.service / app.status do not
+        # exist as fields and every search in the PDF returns nothing -- while the
+        # pipeline is actually working perfectly. "_json" makes Splunk auto-extract the
+        # nested keys as dotted fields. (CORRECTIONS-DAY3.md B10)
+        event_sourcetype _json
+        event_source     kube:payments
+        Retry_Limit      3

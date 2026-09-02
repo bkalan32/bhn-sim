@@ -1,0 +1,29 @@
+# Registers Tempo as a Grafana datasource -- as code, not clicks.
+#
+# kube-prometheus-stack's Grafana runs a sidecar that watches for ConfigMaps in its
+# own namespace carrying the label grafana_datasource: "1" and loads them. So this
+# file IS the "Connections > Data sources > Add" step from the PDF, except it survives
+# a Grafana restart and lives in git. (CORRECTIONS-DAY4.md B3)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource-tempo
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  tempo.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.tracing:3200
+        isDefault: false
+        editable: true
+        jsonData:
+          nodeGraph:
+            enabled: true
+          search:
+            hide: false

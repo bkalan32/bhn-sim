@@ -1,0 +1,42 @@
+# Settlement CronJob — every 5 minutes stands in for "nightly".
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: settlement
+  namespace: payments
+  labels:
+    app: settlement
+spec:
+  schedule: "*/5 * * * *"
+  # FIX vs the PDF: without this, a slow run overlapping the next tick gives you two
+  # settlements at once — which in real finance is a double payment.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # A hung job must not run forever; 4 minutes leaves room before the next tick.
+      activeDeadlineSeconds: 240
+      template:
+        metadata:
+          labels:
+            app: settlement
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: settlement
+              image: settlement:0.1
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: SETTLEMENT_FAIL_MODE
+                  value: "none"          # none | crash | silent
+                - name: SETTLEMENT_STRICT
+                  value: "false"         # flip to "true" for INC-0005's fix
+                - name: PUSHGATEWAY
+                  value: pushgateway-prometheus-pushgateway.monitoring:9091
+                - name: APP_VERSION
+                  value: "0.1"
+              resources:
+                requests: {cpu: 20m, memory: 32Mi}
+                limits:   {cpu: 200m, memory: 96Mi}

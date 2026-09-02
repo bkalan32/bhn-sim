@@ -1,0 +1,37 @@
+# OpenTelemetry Collector — apps send here, it forwards to Tempo.
+#
+# Why a Collector at all, when apps could send straight to Tempo: in real platforms
+# it sits in the middle so you can swap backends, sample, and enrich without touching
+# application code. Learn the shape now.
+mode: deployment
+replicaCount: 1
+image:
+  repository: otel/opentelemetry-collector-k8s
+resources:
+  requests: {cpu: 50m, memory: 96Mi}
+  limits:   {cpu: 500m, memory: 256Mi}
+# The chart's default config carries jaeger/zipkin receivers and a debug exporter.
+# `config:` MERGES with those defaults; the traces pipeline below replaces the default
+# one. The leftover logs/metrics pipelines are harmless.
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc: {endpoint: 0.0.0.0:4317}
+        http: {endpoint: 0.0.0.0:4318}
+  processors:
+    batch: {}
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+  exporters:
+    otlp/tempo:
+      endpoint: tempo.tracing:4317
+      tls: {insecure: true}
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlp/tempo]

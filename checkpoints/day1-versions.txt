@@ -1,0 +1,29 @@
+bhn-sim Day 1 checkpoint
+generated: 2026-09-01T15:40:33-05:00
+host:      Linux 6.18.33.2-microsoft-standard-WSL2 x86_64
+distro:    Ubuntu 24.04.4 LTS
+
+docker:
+Docker version 29.7.2, build a7dcaa6
+
+kubectl:
+Client Version: v1.36.1
+Kustomize Version: v5.8.1
+
+kind:
+kind version 0.33.0
+
+helm:
+version.BuildInfo{Version:"v3.21.4", GitCommit:"813176c51bb5c181dbbd7901298ddcc104cd3417", GitTreeState:"clean", GoVersion:"go1.26.5"}
+
+terraform:
+Terraform v1.16.0
+on linux_amd64
+
+python:
+Python 3.12.3
+
+git:
+git version 2.43.0
+
+docker daemon: reachable

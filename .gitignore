@@ -1,0 +1,16 @@
+# Secrets captured by the Day 1 scripts — never commit these.
+checkpoints/day1-grafana-credentials.txt
+checkpoints/day1-jenkins-unlock.txt
+
+# Local noise
+*.log
+.DS_Store
+Thumbs.db
+.venv/
+__pycache__/
+k8s/fluent-bit-values.yaml
+checkpoints/day3-splunk.txt
+ci/kubeconfig-internal.yaml
+services/*/.venv/
+services/*/requirements.lock.txt
+.pytest_cache/

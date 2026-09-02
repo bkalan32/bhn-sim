@@ -1,0 +1,17 @@
+# Grafana Tempo — trace backend. Single-binary mode, sized for a laptop.
+# Chart: grafana/tempo (verified 1.24.x / Tempo 2.9 on 2026-09-02).
+#
+# Ports that matter (CORRECTIONS-DAY4.md B2):
+#   3200  Tempo HTTP API  <- the Grafana datasource URL. The PDF says 3100, which is
+#         Loki's port; "Save & test" fails against it.
+#   4317  OTLP gRPC       <- where the Collector exports to
+#   4318  OTLP HTTP
+tempo:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits:   {cpu: 500m, memory: 512Mi}
+  retention: 24h
+  # Metrics generator is off by default; keeping it off saves RAM. It is what powers
+  # Grafana's service graph — nice to have, not needed for Day 4.
+persistence:
+  enabled: false

@@ -1,0 +1,168 @@
+# Prometheus alert rules for the activation service.
+#
+# FIX: the PDF's version does not parse. Under ActivationHighLatency, `for:`, `labels:`
+# and `annotations:` are indented deeper than `expr:`, so YAML sees them as continuation
+# of the expr block rather than sibling keys. Confirmed with a parser:
+#   ParserError: expected <block end>, but found '<scalar>'
+# Same class of fault as the Day 2 manifest. (CORRECTIONS-DAY3.md B1)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: activation-alerts
+  namespace: payments
+  labels:
+    # Same rule as the ServiceMonitor: without the release label matching the Helm
+    # release, the Operator silently ignores this file. No error, no rule, no page.
+    release: kps
+spec:
+  groups:
+    - name: activation
+      rules:
+        - alert: ActivationHighErrorRate
+          # FIX: clamp_min on the denominator. The PDF divides by a bare sum(rate(...)),
+          # which is 0 whenever traffic stops — and 0/0 is NaN. A rule that evaluates to
+          # NaN never fires and never shows as pending. So "the load generator died" and
+          # "everything is fine" look identical to your alerting. Silent gap.
+          expr: |
+            100 * sum(rate(activation_requests_total{status="error"}[2m]))
+                / clamp_min(sum(rate(activation_requests_total[2m])), 0.001) > 10
+          for: 2m
+          labels:
+            severity: critical
+            service: activation
+          annotations:
+            summary: "Activation error rate above 10%"
+            description: "Error rate is {{ $value | printf \"%.1f\" }}% over the last 2 minutes. Cards are being declined at the till."
+            runbook: "Check Grafana 'Activation Service', then Splunk: index=main app.service=activation app.status=error | stats count by app.reason"
+
+        - alert: ActivationHighLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(activation_latency_seconds_bucket[2m])) by (le)) > 0.5
+          for: 2m
+          labels:
+            severity: warning
+            service: activation
+          annotations:
+            summary: "Activation p95 latency above 500ms"
+            description: "p95 is {{ $value | printf \"%.2f\" }}s. Checkout budget is well under a second; queues build at this level."
+            runbook: "Usually a slow dependency. Check FRAUD_SVC_DOWN and the fraud_service_timeout reason in Splunk."
+
+        # ADDED: the alert the PDF does not have, and the one that would have caught
+        # your Day 2 failure. If traffic stops entirely, every other rule here goes
+        # quiet — not because the service is healthy, but because there is nothing to
+        # measure. "No data" must be its own alert or it is a blind spot.
+        - alert: ActivationNoTraffic
+          expr: sum(rate(activation_requests_total[5m])) < 0.1
+          for: 5m
+          labels:
+            severity: warning
+            service: activation
+          annotations:
+            summary: "Activation is receiving no traffic"
+            description: "Fewer than 0.1 req/s for 5 minutes. Either the load generator stopped, or callers cannot reach the service at all."
+            runbook: "Check the load generator terminal and: kubectl get pods -n payments"
+
+    # ======================================================================
+    # Day 5 — SLIs, SLOs, error budgets
+    # ======================================================================
+    - name: activation-slo
+      interval: 30s
+      rules:
+        # ---- recording rules: service:sli_name:ratio_rateWINDOW -----------
+        - record: activation:sli_availability:ratio_rate5m
+          expr: |
+            sum(rate(activation_requests_total{status="ok"}[5m]))
+              / clamp_min(sum(rate(activation_requests_total[5m])), 0.001)
+        - record: activation:sli_availability:ratio_rate1h
+          expr: |
+            sum(rate(activation_requests_total{status="ok"}[1h]))
+              / clamp_min(sum(rate(activation_requests_total[1h])), 0.001)
+        - record: activation:sli_availability:ratio_rate6h
+          expr: |
+            sum(rate(activation_requests_total{status="ok"}[6h]))
+              / clamp_min(sum(rate(activation_requests_total[6h])), 0.001)
+        - record: activation:sli_latency:ratio_rate5m
+          expr: |
+            sum(rate(activation_latency_seconds_bucket{le="0.3"}[5m]))
+              / clamp_min(sum(rate(activation_latency_seconds_count[5m])), 0.001)
+        # Burn rate as its own series, so the dashboard and alerts agree exactly.
+        - record: activation:error_budget_burn_rate:1h
+          expr: (1 - activation:sli_availability:ratio_rate1h) / 0.005
+        - record: activation:error_budget_burn_rate:5m
+          expr: (1 - activation:sli_availability:ratio_rate5m) / 0.005
+        - record: activation:error_budget_burn_rate:6h
+          expr: (1 - activation:sli_availability:ratio_rate6h) / 0.005
+
+        # ---- multi-window, multi-burn-rate alerts (Google SRE Workbook) --
+        # The crude "error rate > 10%" rule from Day 3 catches catastrophes. It misses
+        # the slow bleed: 1.5% errors for two days never trips it, yet burns 3x the
+        # monthly budget. Long window = sustained. Short window = still happening.
+        - alert: ActivationErrorBudgetBurnFast
+          expr: |
+            activation:error_budget_burn_rate:1h > 14.4
+            and
+            activation:error_budget_burn_rate:5m > 14.4
+          for: 2m
+          labels:
+            severity: critical
+            service: activation
+            slo: availability
+          annotations:
+            summary: "Activation burning error budget at {{ $value | printf \"%.0f\" }}x — whole month gone in ~2 days"
+            description: "1h error rate is 14.4x the 0.5% budget and it is still happening (5m window agrees). At this pace the 30-day budget is exhausted in about 2 days."
+            runbook: "Check Grafana 'Activation SLO' burn-rate panel, then Splunk: index=main app.service=activation app.status=error | stats count by app.reason"
+        - alert: ActivationErrorBudgetBurnSlow
+          expr: |
+            activation:error_budget_burn_rate:6h > 6
+            and
+            activation:error_budget_burn_rate:5m > 6
+          for: 15m
+          labels:
+            severity: warning
+            service: activation
+            slo: availability
+          annotations:
+            summary: "Activation burning error budget at {{ $value | printf \"%.0f\" }}x — whole month gone in ~5 days"
+            description: "Sustained over 6 hours and still happening. Not a page — a ticket for tomorrow morning."
+
+    # ======================================================================
+    # Day 5 — the settlement batch job: alert on ABSENCE, not presence
+    # ======================================================================
+    - name: settlement
+      rules:
+        # The important pattern: alert when a good thing STOPS happening, not only
+        # when a bad thing starts. Any "expected every N minutes" process needs one.
+        - alert: SettlementStale
+          expr: time() - settlement_last_success_timestamp > 900
+          for: 1m
+          labels:
+            severity: critical
+            service: settlement
+          annotations:
+            summary: "No successful settlement in 15 minutes (expected every 5)"
+            description: "Either the job is not running, is crashing, or is running and not succeeding. If this fires alone, check kubectl get jobs -n payments."
+        - alert: SettlementZeroRecords
+          expr: settlement_records_processed == 0
+          for: 1m
+          labels:
+            severity: critical
+            service: settlement
+          annotations:
+            summary: "Settlement ran but reconciled zero records"
+            description: "Kubernetes says Succeeded. The log says 'settlement complete'. The job processed nothing. Without this rule you find out from finance."
+        # FIX vs the PDF: bare `kube_job_status_failed > 0` never resolves. Kubernetes
+        # keeps the last failedJobsHistoryLimit (3) Job objects around forever, so the
+        # metric stays 1 for each of them long after the cause is fixed. This version
+        # only counts jobs that STARTED in the last 15 minutes.
+        - alert: SettlementJobFailed
+          expr: |
+            (kube_job_status_failed{namespace="payments", job_name=~"settlement.*"} > 0)
+            and on (job_name)
+            (time() - kube_job_status_start_time{namespace="payments", job_name=~"settlement.*"} < 900)
+          for: 1m
+          labels:
+            severity: warning
+            service: settlement
+          annotations:
+            summary: "Settlement job crashed ({{ $labels.job_name }})"
+            description: "A settlement Job pod exited non-zero in the last 15 minutes. kubectl logs -n payments job/{{ $labels.job_name }}"
