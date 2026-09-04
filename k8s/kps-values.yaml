@@ -1,0 +1,52 @@
+# Alertmanager routing for kube-prometheus-stack (release "kps").
+#
+# Apply with ./scripts/81-alertmanager-route.sh, which pins the chart version you already
+# run and passes --reuse-values. Helm merges this over the chart defaults: the keys you
+# name here replace the chart's, everything else (inhibit rules, templates) stays.
+#
+# Three differences from the PDF's file, all in CORRECTIONS-DAY8.md:
+#
+#  B1  Default receiver is "null", not the bot. The PDF sends EVERYTHING to the bot:
+#      Watchdog (fires forever by design) and the nine kube-system false positives a kind
+#      cluster carries (scheduler/controller-manager/proxy "down") would each become a
+#      permanent open incident within a minute of the upgrade. Only alerts carrying one
+#      of OUR service labels reach the bot.
+#
+#  B2  No severity sub-route. Alertmanager's group key includes the route that matched,
+#      so "critical -> one route, warning -> the default" splits one outage's alerts into
+#      two groups, two webhooks, two incidents — the opposite of the PDF's own design
+#      note. One route per service family; group_wait is short for everyone because in
+#      this lab seconds cost nothing. Critical-vs-warning is still in the record (the
+#      bot ranks severity); it just does not fragment the ticket.
+#
+#  D1  group_by: ["service"], not ["alertname", "service"]. The PDF offers both and says
+#      "pick an opinion". Opinion: one incident per service outage. Alert names are inside
+#      the record; a responder wants one ticket for "activation is broken", not three.
+#      Flip it back to see the difference — it is a real design choice.
+alertmanager:
+  config:
+    route:
+      receiver: "null"
+      group_by: ["service"]
+      group_wait: 15s
+      group_interval: 2m
+      repeat_interval: 4h
+      routes:
+        # Watchdog is the "Alertmanager is alive" heartbeat. It must fire forever; it
+        # must never become a ticket.
+        - matchers: ['alertname = "Watchdog"']
+          receiver: "null"
+        # Everything with one of our service labels becomes an incident.
+        - matchers: ['service =~ "activation|egift|settlement|incident-bot|smoke-test"']
+          receiver: incident-bot
+          continue: false
+    receivers:
+      - name: "null"
+      - name: incident-bot
+        webhook_configs:
+          - url: "http://incident-bot.payments:8020/alertmanager"
+            send_resolved: true
+            # Alertmanager retries a failed webhook with backoff, so a bot restart does
+            # not lose the notification. Keep the handler fast (Day 9: AI calls go in
+            # the background, never inside this request).
+            max_alerts: 0

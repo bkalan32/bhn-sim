@@ -169,3 +169,13 @@ build_service() {
     ok "${name}:${tag} built and loaded into kind"
   )
 }
+
+# ---------------------------------------------------------------- Day 8 -----
+# The API server can proxy plain HTTP to any Service. No port-forward, no pinned pod,
+# works wherever kubectl works. Used for the incident bot and for reading Alertmanager.
+BOT_PROXY="/api/v1/namespaces/${PAYMENTS_NS}/services/incident-bot:8020/proxy"
+bot_get()  { kubectl --context "$KUBE_CONTEXT" get --raw "${BOT_PROXY}$1" 2>/dev/null || true; }
+alertmanager_get() {
+  local svc; svc="$(alertmanager_svc || true)"; [[ -n "$svc" ]] || return 0
+  kubectl --context "$KUBE_CONTEXT" get --raw "/api/v1/namespaces/${MONITORING_NS}/services/${svc}:9093/proxy$1" 2>/dev/null || true
+}

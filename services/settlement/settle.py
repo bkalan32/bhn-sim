@@ -9,9 +9,9 @@ It has no request rate, no latency, no 500s. It either ran correctly or it did n
 "did not" can be COMPLETELY SILENT. That is the failure mode this job exists to teach.
 
     SETTLEMENT_FAIL_MODE   none | crash | silent
-    SETTLEMENT_STRICT      "true" -> refuse to report success on zero records
-                           (the real fix; off by default so you can SEE the silent
-                           failure first, then turn it on for INC-0005's follow-up)
+    SETTLEMENT_STRICT      refuse to report success on zero records. DEFAULT "true"
+                           since Day 8 (INC-0005's follow-up shipped). Set "false" to
+                           see the Day 5 silent failure again.
     PUSHGATEWAY            host:port of the Pushgateway
 """
 
@@ -25,9 +25,9 @@ import time
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 FAIL_MODE = os.getenv("SETTLEMENT_FAIL_MODE", "none").strip().lower()
-STRICT = os.getenv("SETTLEMENT_STRICT", "false").strip().lower() == "true"
+STRICT = os.getenv("SETTLEMENT_STRICT", "true").strip().lower() != "false"
 GATEWAY = os.getenv("PUSHGATEWAY", "pushgateway-prometheus-pushgateway.monitoring:9091")
-VERSION = os.getenv("APP_VERSION", "0.1")
+VERSION = os.getenv("APP_VERSION", "0.2")
 
 
 def log(level, msg, **fields):
@@ -78,9 +78,12 @@ mismatches.set(bad)
 duration.set(time.time() - start)
 
 if records == 0 and STRICT:
-    # The real fix. A settlement that reconciles nothing is not a success, and the
-    # job should be the first thing to say so — not an alert, and not finance.
-    log("ERROR", "settlement produced zero records — refusing to report success",
+    # The real fix (INC-0005, default since Day 8). A settlement that reconciles nothing
+    # is not a success, and the job should be the first thing to say so — not an alert,
+    # and not finance. Metrics are still pushed (records=0, status=0) but last_success is
+    # NOT touched, so SettlementStale and SettlementZeroRecords remain the backstop if
+    # this check ever regresses. Defence in depth: the job self-checks AND the alerts watch.
+    log("ERROR", "refusing to report success: zero records reconciled",
         records=0, reason="zero_records")
     push(ok=False)
     sys.exit(2)

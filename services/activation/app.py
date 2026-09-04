@@ -16,6 +16,7 @@ v0.2 (Day 3) adds structured JSON logging. Metrics answer "is something wrong?";
 logs answer "what exactly went wrong?"
 v0.3 (Day 4) adds the trace ID to every log line. Traces answer "WHERE in the chain
 did the time go?" -- and the trace ID is the key that joins all three together.
+v0.4 (Day 7) fails fast on the fraud dependency -- INC-0001's follow-up, engineered away.
 
 Differences from the version printed in the PDF are marked FIX: and explained in
 CORRECTIONS-DAY2.md and CORRECTIONS-DAY3.md.
@@ -40,7 +41,7 @@ from pydantic import BaseModel
 # span is a no-op and trace_id is simply omitted -- nothing breaks.
 from opentelemetry import trace
 
-VERSION = os.getenv("APP_VERSION", "0.3")
+VERSION = os.getenv("APP_VERSION", "0.4")
 
 app = FastAPI(title="activation", version=VERSION)
 
@@ -96,6 +97,13 @@ BASE_LATENCY_MS = float(os.getenv("BASE_LATENCY_MS", "80"))
 LATENCY_JITTER_MS = float(os.getenv("LATENCY_JITTER_MS", "20"))
 FRAUD_SVC_DOWN = os.getenv("FRAUD_SVC_DOWN", "false").strip().lower() == "true"
 FRAUD_TIMEOUT_S = float(os.getenv("FRAUD_TIMEOUT_S", "3"))
+# Day 7 — INC-0001's permanent fix. FRAUD_TIMEOUT_S is how long the DEPENDENCY hangs
+# when it is down (we do not control that). FRAUD_CLIENT_TIMEOUT_S is how long WE are
+# willing to wait for it -- and that we do control. In a real codebase this is a client
+# timeout plus a circuit breaker; in the sim the sleep is the call, so capping it is the
+# honest equivalent. Requests still fail -- correctly. The fix is not pretending fraud
+# checks are optional; it is failing cheaply instead of expensively.
+FRAUD_CLIENT_TIMEOUT_S = float(os.getenv("FRAUD_CLIENT_TIMEOUT_S", "0.3"))
 
 # --------------------------------------------------------------- metrics ----
 # Counters only go up (requests, errors). Histograms record distributions
@@ -179,11 +187,13 @@ def activate(req: ActivateRequest):
         time.sleep(_simulated_work_seconds())
 
         if FRAUD_SVC_DOWN:
-            time.sleep(FRAUD_TIMEOUT_S)  # fraud service timeout
+            # We wait at most FRAUD_CLIENT_TIMEOUT_S, however long the dependency hangs.
+            time.sleep(min(FRAUD_TIMEOUT_S, FRAUD_CLIENT_TIMEOUT_S))
             elapsed = time.perf_counter() - start
             fields.update(status="error", reason="fraud_service_timeout",
-                          latency_ms=round(elapsed * 1000))
-            log.error("activation failed", extra={"extra": fields})
+                          latency_ms=round(elapsed * 1000),
+                          client_timeout_s=FRAUD_CLIENT_TIMEOUT_S)
+            log.error("activation failed fast", extra={"extra": fields})
             REQUESTS.labels(status="error").inc()
             LATENCY.labels(status="error").observe(elapsed)
             return PlainTextResponse("fraud service unavailable", status_code=503)

@@ -15,11 +15,15 @@ fi
 ok "daemon up"
 
 step "Containers"
-for c in bhn-sim-control-plane splunk; do
+for c in bhn-sim-control-plane splunk jenkins; do
   st=$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null || echo missing)
   case "$st" in
     running) ok "$c running" ;;
-    missing) [[ "$c" == splunk ]] && warn "splunk container not created yet (Day 3)" || die "kind node container missing — ./scripts/03-cluster-up.sh" ;;
+    missing) case "$c" in
+               splunk)  warn "splunk container not created yet (Day 3)" ;;
+               jenkins) warn "jenkins container not created yet (Day 1/6)" ;;
+               *)       die "kind node container missing — ./scripts/03-cluster-up.sh" ;;
+             esac ;;
     *) if (( CHECK_ONLY )); then warn "$c is $st"; else docker start "$c" >/dev/null && ok "$c started (was $st)"; fi ;;
   esac
 done
@@ -61,6 +65,18 @@ if (( drift )) && (( ! CHECK_ONLY )); then
   ok "reset"
 fi
 
+step "Ticket layer (Day 8)"
+if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then
+  [[ -n "$(bot_get /healthz)" ]] && ok "incident-bot answering" || warn "incident-bot deployed but not answering via proxy"
+  alertmanager_get /api/v2/status | grep -q 'incident-bot.payments:8020' && ok "Alertmanager -> incident-bot route live" || warn "Alertmanager not routing to the bot — ./scripts/81-alertmanager-route.sh"
+  n=$(bot_get '/incidents?status=open' | python3 -c 'import json,sys
+try: print(len(json.load(sys.stdin)))
+except Exception: print("?")' 2>/dev/null || echo "?")
+  [[ "$n" == 0 ]] && ok "no open incidents" || warn "$n open incident(s): python3 tools/inc.py list open"
+else
+  warn "incident-bot not deployed yet (Day 8)"
+fi
+
 step "Front doors"
 for p in 30080 30443; do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://localhost:$p/healthz" || echo 000)
@@ -74,5 +90,6 @@ powershell.exe -NoProfile -Command 'Get-PSDrive C | ForEach-Object { "  C: free 
 step "Not automated — start these in their own terminals"
 say "  #2  ./scripts/12-loadgen.sh          activation traffic"
 say "  #6  ./scripts/33-loadgen-egift.sh    egift orders           (Day 4+)"
+say "      python3 tools/inc.py list        incidents, any time     (Day 8+)"
 say "  #3  ./scripts/06-grafana.sh          Grafana on :3000"
 dim "Port-forwards and load generators do not survive a Docker restart; everything else now does."

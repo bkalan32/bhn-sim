@@ -1,0 +1,330 @@
+"""
+incident-bot — the ticketing layer, built by hand.
+
+Alertmanager POSTs one webhook per *notification group*. This service turns those
+webhooks into incident records: it opens an incident when a group starts firing,
+appends every later webhook to an append-only timeline, and closes the incident when
+Alertmanager says the group has resolved. Everything the AI work on Days 9 and 10
+reads comes from these records.
+
+Differences from the PDF's version (details in CORRECTIONS-DAY8.md):
+
+  * JOIN KEY. The PDF keys incidents on Alertmanager's groupKey. But the group key
+    contains the *route* that matched, so its own severity sub-route puts critical and
+    warning alerts for the same outage into two groups — and therefore two incidents.
+    Here the default join is the service label (INCIDENT_JOIN=service): one outage,
+    one incident. Each group is still tracked inside the incident, so the incident
+    only resolves when *every* group has resolved.
+  * SEVERITY. The PDF does max("critical", "warning") — string comparison, which
+    always says "warning". Ranked here.
+  * TIMES. Alert startsAt is recorded (that is when Prometheus saw it), not only the
+    time the webhook arrived. Day 10's time-to-detect needs it. ISO strings sit next to
+    every epoch so a human — or a model — can read the timeline.
+  * SAFETY. Atomic file writes, a lock, and a startup pass that recomputes the gauges
+    from disk. Records live on a PersistentVolume, not an emptyDir (see the manifest).
+
+Endpoints
+  POST   /alertmanager           Alertmanager webhook receiver
+  GET    /incidents              summary list  (?status=open|resolved)
+  GET    /incidents/{id}         full record with timeline
+  POST   /incidents/{id}/note    {"text": "..."} — the bridge scribe (used from Day 9)
+  DELETE /incidents/{id}         lab convenience, used by the smoke test
+  GET    /healthz  /readyz  /metrics
+"""
+
+import datetime as _dt
+import json
+import logging
+import os
+import re
+import sys
+import threading
+import time
+import uuid
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
+
+VERSION = os.getenv("APP_VERSION", "0.1")
+DATA_DIR = os.getenv("DATA_DIR", "/data")
+INCIDENT_JOIN = os.getenv("INCIDENT_JOIN", "service").strip().lower()   # service | group
+os.makedirs(DATA_DIR, exist_ok=True)
+
+app = FastAPI(title="incident-bot", version=VERSION)
+_lock = threading.Lock()
+
+SEV_RANK = {"critical": 3, "warning": 2, "info": 1, "none": 0}
+
+
+# --------------------------------------------------------------- logging ----
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": _dt.datetime.fromtimestamp(record.created, tz=_dt.timezone.utc)
+                  .isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "level": record.levelname, "service": "incident-bot", "version": VERSION,
+            "msg": record.getMessage(),
+        }
+        extra = getattr(record, "extra", None)
+        if isinstance(extra, dict):
+            payload.update(extra)
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, separators=(",", ":"))
+
+
+_h = logging.StreamHandler(sys.stdout)
+_h.setFormatter(JsonFormatter())
+log = logging.getLogger("incident-bot")
+log.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+log.addHandler(_h)
+log.propagate = False
+
+
+# --------------------------------------------------------------- metrics ----
+CREATED = Counter("incidents_created_total", "Incidents created")
+RESOLVED = Counter("incidents_resolved_total", "Incidents resolved")
+OPEN = Gauge("incidents_open", "Currently open incidents")
+WEBHOOKS = Counter("alertmanager_webhooks_total", "Webhooks received from Alertmanager", ["status"])
+LAST_DURATION = Gauge("incident_last_duration_minutes", "Duration of the most recently resolved incident")
+BUILD_INFO = Gauge("incident_bot_build_info", "Build metadata", ["version"])
+BUILD_INFO.labels(version=VERSION).set(1)
+
+
+# --------------------------------------------------------------- storage ----
+def _now():
+    return time.time()
+
+
+def _iso(ts: float) -> str:
+    return _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _path(iid: str) -> str:
+    if "/" in iid or ".." in iid:
+        raise HTTPException(400, "bad incident id")
+    return os.path.join(DATA_DIR, f"{iid}.json")
+
+
+def _load(iid: str) -> dict:
+    p = _path(iid)
+    if not os.path.exists(p):
+        raise HTTPException(404, f"no incident {iid}")
+    with open(p) as f:
+        return json.load(f)
+
+
+def _save(inc: dict) -> None:
+    # Atomic: a crash mid-write must not leave a half-written record for the next
+    # webhook to choke on.
+    p = _path(inc["id"])
+    tmp = f"{p}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(inc, f, indent=2)
+    os.replace(tmp, p)
+
+
+def _all() -> list:
+    out = []
+    for name in os.listdir(DATA_DIR):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(DATA_DIR, name)) as f:
+                out.append(json.load(f))
+        except Exception as e:  # noqa: BLE001 — one bad file must not hide the rest
+            log.error("unreadable incident file", extra={"extra": {"file": name, "error": str(e)}})
+    return sorted(out, key=lambda i: i.get("opened_at", 0), reverse=True)
+
+
+def _open_incidents() -> list:
+    return [i for i in _all() if i.get("status") == "open"]
+
+
+def _find_open(join_key: str):
+    for inc in _open_incidents():
+        if inc.get("join_key") == join_key:
+            return inc
+    return None
+
+
+def _refresh_open_gauge():
+    OPEN.set(len(_open_incidents()))
+
+
+_refresh_open_gauge()
+
+
+# ---------------------------------------------------------------- helpers ---
+def _parse_ts(s):
+    """Alertmanager sends RFC3339 with nanoseconds; Python wants microseconds."""
+    if not s or s.startswith("0001-"):
+        return None
+    try:
+        s = s.replace("Z", "+00:00")
+        s = re.sub(r"\.(\d{1,6})\d*", lambda m: "." + m.group(1).ljust(6, "0"), s)
+        return _dt.datetime.fromisoformat(s).timestamp()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _summarise_alerts(alerts: list) -> list:
+    out = []
+    for a in alerts:
+        labels, ann = a.get("labels", {}), a.get("annotations", {})
+        out.append({
+            "name": labels.get("alertname"),
+            "severity": labels.get("severity", "none"),
+            "service": labels.get("service"),
+            "status": a.get("status"),
+            "summary": ann.get("summary"),
+            "description": ann.get("description"),
+            "runbook": ann.get("runbook"),
+            "starts_at": _parse_ts(a.get("startsAt")),
+            "starts_at_iso": a.get("startsAt"),
+            "ends_at_iso": a.get("endsAt") if a.get("status") == "resolved" else None,
+        })
+    return out
+
+
+def _max_severity(names) -> str:
+    best = "none"
+    for s in names:
+        if SEV_RANK.get(s or "none", 0) > SEV_RANK[best]:
+            best = s
+    return best
+
+
+def _event(kind: str, **fields) -> dict:
+    ts = _now()
+    return {"ts": ts, "ts_iso": _iso(ts), "event": kind, **fields}
+
+
+# --------------------------------------------------------------- receiver ---
+@app.post("/alertmanager")
+async def receive(request: Request):
+    payload = await request.json()
+    status = payload.get("status", "firing")          # firing | resolved
+    group_key = payload.get("groupKey", "")
+    alerts = _summarise_alerts(payload.get("alerts", []))
+    WEBHOOKS.labels(status=status).inc()
+    if not alerts:
+        return {"ok": True, "note": "empty webhook"}
+
+    service = (payload.get("groupLabels", {}).get("service")
+               or next((a["service"] for a in alerts if a.get("service")), None))
+    join_key = service if (INCIDENT_JOIN == "service" and service) else group_key
+
+    with _lock:
+        inc = _find_open(join_key)
+
+        if status == "firing":
+            if not inc:
+                opened = _now()
+                first_seen = min((a["starts_at"] for a in alerts if a.get("starts_at")), default=opened)
+                iid = f"INC-{int(opened)}-{uuid.uuid4().hex[:4]}"
+                inc = {
+                    "id": iid, "status": "open", "service": service, "join_key": join_key,
+                    "severity": _max_severity(a["severity"] for a in alerts),
+                    "opened_at": opened, "opened_at_iso": _iso(opened),
+                    # When Prometheus first saw the condition — before group_wait, before
+                    # the webhook. This is "time detected" for the KPI table on Day 10.
+                    "first_alert_at": first_seen, "first_alert_at_iso": _iso(first_seen),
+                    "alerts": [], "groups": {}, "timeline": [],
+                }
+                CREATED.inc()
+                log.info("incident opened", extra={"extra": {
+                    "incident": iid, "incident_service": service, "severity": inc["severity"],
+                    "alerts": [a["name"] for a in alerts]}})
+            inc["groups"][group_key] = "firing"
+            inc["alerts"] = sorted(set(inc["alerts"]) | {a["name"] for a in alerts if a.get("name")})
+            inc["severity"] = _max_severity([inc["severity"]] + [a["severity"] for a in alerts])
+            inc["timeline"].append(_event("alerts_firing", group_key=group_key, alerts=alerts))
+
+        else:  # resolved
+            if not inc:
+                log.info("resolved webhook for no open incident", extra={"extra": {
+                    "incident_service": service, "alerts": [a["name"] for a in alerts]}})
+                return {"ok": True, "note": "resolved for unknown incident"}
+            inc["groups"][group_key] = "resolved"
+            inc["timeline"].append(_event("alerts_resolved", group_key=group_key, alerts=alerts))
+            if all(v == "resolved" for v in inc["groups"].values()):
+                inc["status"] = "resolved"
+                inc["resolved_at"] = _now()
+                inc["resolved_at_iso"] = _iso(inc["resolved_at"])
+                inc["duration_min"] = round((inc["resolved_at"] - inc["opened_at"]) / 60, 1)
+                inc["timeline"].append(_event("incident_resolved", duration_min=inc["duration_min"]))
+                RESOLVED.inc()
+                LAST_DURATION.set(inc["duration_min"])
+                log.info("incident resolved", extra={"extra": {
+                    "incident": inc["id"], "incident_service": service, "duration_min": inc["duration_min"]}})
+
+        _save(inc)
+        _refresh_open_gauge()
+    return {"ok": True, "incident": inc["id"], "status": inc["status"]}
+
+
+# ------------------------------------------------------------------ reads ---
+SUMMARY_KEYS = ("id", "status", "service", "severity", "alerts", "opened_at_iso",
+                "resolved_at_iso", "duration_min")
+
+
+@app.get("/incidents")
+def list_incidents(status: str | None = None):
+    incs = _all()
+    if status:
+        incs = [i for i in incs if i.get("status") == status]
+    return [{k: i.get(k) for k in SUMMARY_KEYS} for i in incs]
+
+
+@app.get("/incidents/{iid}")
+def get_incident(iid: str):
+    return _load(iid)
+
+
+# ------------------------------------------------------------------ notes ---
+@app.post("/incidents/{iid}/note")
+async def add_note(iid: str, request: Request):
+    body = await request.json()
+    text = (body or {}).get("text", "").strip()
+    if not text:
+        raise HTTPException(400, "note needs a non-empty 'text'")
+    with _lock:
+        inc = _load(iid)
+        inc["timeline"].append(_event("note", text=text, author=(body or {}).get("author", "responder")))
+        _save(inc)
+    log.info("note added", extra={"extra": {"incident": iid}})
+    return {"ok": True, "incident": iid, "events": len(inc["timeline"])}
+
+
+@app.delete("/incidents/{iid}")
+def delete_incident(iid: str):
+    # Lab only. A real ticketing system never deletes; it closes with a reason.
+    p = _path(iid)
+    if not os.path.exists(p):
+        raise HTTPException(404, f"no incident {iid}")
+    with _lock:
+        os.remove(p)
+        _refresh_open_gauge()
+    return {"ok": True, "deleted": iid}
+
+
+# ----------------------------------------------------------------- health ---
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok", "version": VERSION}
+
+
+@app.get("/readyz")
+def readyz():
+    # Ready means "can persist": if the volume is gone, refuse traffic so Alertmanager
+    # retries later instead of dropping the webhook into a black hole.
+    if not os.access(DATA_DIR, os.W_OK):
+        raise HTTPException(503, f"{DATA_DIR} not writable")
+    return {"status": "ready", "join": INCIDENT_JOIN, "open": len(_open_incidents())}
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

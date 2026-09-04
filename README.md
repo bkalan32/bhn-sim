@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File .\windows-setup.ps1
 
 ```bash
 # Ubuntu
-cp -r /mnt/c/Users/bkala/Downloads/bhn-sim ~/bhn-sim   # first time only
+cp -r /mnt/c/Users/bkala/Downloads/bhn-sim/. ~/bhn-sim/  # the /. copies .gitignore too
 cd ~/bhn-sim
 ./scripts/00-preflight.sh          # check the machine can host this
 ./scripts/01-install-tools.sh      # kubectl kind helm terraform python git
@@ -63,7 +63,7 @@ cd ~/bhn-sim
 ./scripts/41-burn-budget.sh        # ERROR_RATE=0.50, watch BurnFast fire & resolve
 ./scripts/42-install-pushgateway.sh
 ./scripts/43-build-settlement.sh   # CronJob every 5 min, runs one now
-./scripts/44-settlement-failure.sh crash|silent|strict|none
+./scripts/44-settlement-failure.sh crash|silent|none|lenient
 ./scripts/48-checkpoint-day5.sh
 
 # Day 6
@@ -73,6 +73,20 @@ cd ~/bhn-sim
 ./scripts/53-bad-deploy.sh apply|revert
 ./scripts/54-manual-rollback.sh    # timed drill
 ./scripts/58-checkpoint-day6.sh
+
+# Day 7
+./scripts/60-health-scores.sh      # load + read the four scores
+./scripts/61-score-sanity.sh       # prove the score moves (10% errors)
+./scripts/62-fail-fast-drill.sh    # INC-0001 re-run against v0.4, before/after
+./scripts/68-checkpoint-day7.sh
+
+# Day 8
+./scripts/80-build-incident-bot.sh # tests, image, PVC, deploy, synthetic webhook smoke test
+./scripts/81-alertmanager-route.sh # new rules + helm upgrade (pinned) + prove Alertmanager reloaded
+./scripts/82-incident-drill.sh     # fault -> alert -> webhook -> incident opens -> auto-resolves
+./scripts/83-settlement-strict.sh  # INC-0005 fix verified in all three modes
+./scripts/84-test-catches-bug.sh   # INC-0006 fix verified: velocity bug dies on a branch in seconds
+./scripts/88-checkpoint-day8.sh
 
 # Any time, after a Docker restart / reboot
 ./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, front doors
@@ -88,7 +102,7 @@ cd ~/bhn-sim
 | Cluster context | `kubectl config use-context kind-bhn-sim` |
 | Node health | `kubectl get nodes` |
 | Monitoring pods | `kubectl get pods -n monitoring` |
-| Grafana | `./scripts/06-grafana.sh` → http://localhost:3000 (admin) |
+| Grafana | `./scripts/06-grafana.sh` → http://localhost:3000 (admin) — **open Platform Overview first** |
 | Prometheus | `./scripts/13-verify-scrape.sh` (or look the name up: `kubectl get svc -n monitoring -l app.kubernetes.io/name=prometheus`) |
 | Alertmanager | `kubectl get svc -n monitoring -l app.kubernetes.io/name=alertmanager` then port-forward it on 9093 |
 | Jenkins | http://localhost:8081 |
@@ -97,6 +111,8 @@ cd ~/bhn-sim
 | Trace → logs | copy trace ID → Splunk `index=main app.trace_id=<id>` |
 | eGift API | http://localhost:30443/orders |
 | Service logs | `kubectl logs -n payments -l app=activation --tail=20 \| python3 tools/logfmt.py` |
+| **Incidents** | `python3 tools/inc.py list` · `timeline <id>` · `show <id>` · `note <id> "text"` |
+| Alertmanager live config | `kubectl get --raw /api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-alertmanager:9093/proxy/api/v2/status` |
 | **Recover after restart** | `./scripts/up.sh` |
 | Stop everything | `wsl --shutdown` (PowerShell) |
 
@@ -144,6 +160,7 @@ Run `./scripts/02-verify.sh` to regenerate `checkpoints/day1-versions.txt`.
 | 9093 | Alertmanager (port-forward) |
 | 30080 | activation NodePort |
 | 30443 | egift NodePort (not HTTPS — the second mapped slot) |
+| 8020 | incident-bot (in-cluster; reach it via `tools/inc.py` / API proxy) |
 | 3200 | Tempo HTTP (in-cluster; port-forward if needed) |
 | 4317 / 4318 | OTLP gRPC / HTTP |
 
@@ -160,6 +177,7 @@ Run `./scripts/02-verify.sh` to regenerate `checkpoints/day1-versions.txt`.
 | 5 | SLOs and silent failure | ☐ |
 | 6 | CI/CD, bad deploy, rollback | ☐ |
 | 7 | Health score and first fix | ☐ |
+| 8 | Alert routing + incident bot | ☐ |
 
 ---
 
@@ -186,6 +204,29 @@ Blue lines on dashboards = deploys. Red = rollbacks. Hover for the cause.
 
 Known gap: the pipeline deploys `<service>:<build#>` but `k8s/<service>.yaml` in git still pins the last hand-set tag. `kubectl apply -f` from the repo would revert to it. GitOps (committing the tag) is the fix; out of scope until later.
 
+## The incident bot (Day 8) — the ticket layer
+
+Alertmanager → `http://incident-bot.payments:8020/alertmanager` → one incident per **service**
+outage, append-only timeline, auto-resolve when every alert in it clears.
+
+| | |
+|---|---|
+| Code | `services/incident-bot/app.py` (tests in `tests/`) |
+| Manifest | `k8s/incident-bot.yaml` — Deployment (1 replica, Recreate) + **PVC** + Service + ServiceMonitor |
+| Routing | `k8s/kps-values.yaml` → `./scripts/81-alertmanager-route.sh` |
+| CLI | `python3 tools/inc.py list \| show \| timeline \| note \| delete \| webhook` |
+| Metrics | `incidents_open`, `incidents_created_total`, `alertmanager_webhooks_total{status}` — overview bottom row |
+| Alert | `IncidentBotDown` — monitor the monitor |
+
+**Routing opinions** (defend them): default receiver `null`; only alerts with a `service`
+label become tickets; `Watchdog` never does; `group_by: [service]`; `group_wait 15s`,
+`group_interval 2m`, `repeat_interval 4h`; `send_resolved: true`.
+
+⚠️ **Lab shortcuts, labelled:** records are JSON files on a single PVC (a real system uses a
+database and runs more than one replica); `DELETE /incidents/{id}` exists for the smoke test
+(real ticketing never deletes); no auth on the bot's API (it is only reachable in-cluster or
+via the API server's proxy, which *is* authenticated).
+
 ## The activation service (Day 2)
 
 The crown-jewel transaction: cashier scans a card, POS calls this API, card must
@@ -205,7 +246,9 @@ activate in well under a second.
 |---|---|---|
 | `ERROR_RATE` | `0.02` | outright failures (500s) |
 | `BASE_LATENCY_MS` | `80` | slow dependency |
-| `FRAUD_SVC_DOWN` | `false` | dependency timeout → 3s hang + 503 |
+| `FRAUD_SVC_DOWN` | `false` | dependency down → 503 |
+| `FRAUD_TIMEOUT_S` | `3` | how long the dependency hangs |
+| `FRAUD_CLIENT_TIMEOUT_S` | `0.3` | how long **we** wait (Day 7 fix) |
 
 **eGift knobs** — `kubectl set env deployment/egift -n payments <VAR>=<value>`
 
@@ -220,7 +263,7 @@ activate in well under a second.
 | Variable | Default | Simulates |
 |---|---|---|
 | `SETTLEMENT_FAIL_MODE` | `none` | `crash` (loud) · `silent` (zero records, exit 0) |
-| `SETTLEMENT_STRICT` | `false` | `true` = refuse to report success on zero records |
+| `SETTLEMENT_STRICT` | `true` (since Day 8) | `false` = the Day 5 behaviour: exit 0 on zero records |
 
 **The three queries, and what normal looks like**
 
@@ -240,5 +283,7 @@ activate in well under a second.
 - **[DAY4.md](DAY4.md)** · **[CORRECTIONS-DAY4.md](CORRECTIONS-DAY4.md)**
 - **[DAY5.md](DAY5.md)** · **[CORRECTIONS-DAY5.md](CORRECTIONS-DAY5.md)** · **[docs/slos.md](docs/slos.md)**
 - **[DAY6.md](DAY6.md)** · **[CORRECTIONS-DAY6.md](CORRECTIONS-DAY6.md)** · **[Jenkinsfile](Jenkinsfile)**
+- **[DAY7.md](DAY7.md)** · **[CORRECTIONS-DAY7.md](CORRECTIONS-DAY7.md)** · **[docs/health-score.md](docs/health-score.md)** · **[docs/week1-review.md](docs/week1-review.md)**
+- **[DAY8.md](DAY8.md)** · **[CORRECTIONS-DAY8.md](CORRECTIONS-DAY8.md)** · **[k8s/kps-values.yaml](k8s/kps-values.yaml)** · **[services/incident-bot/app.py](services/incident-bot/app.py)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up

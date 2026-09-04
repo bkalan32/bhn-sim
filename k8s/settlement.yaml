@@ -26,17 +26,17 @@ spec:
           restartPolicy: Never
           containers:
             - name: settlement
-              image: settlement:0.1
+              image: settlement:0.2
               imagePullPolicy: IfNotPresent
               env:
                 - name: SETTLEMENT_FAIL_MODE
                   value: "none"          # none | crash | silent
                 - name: SETTLEMENT_STRICT
-                  value: "false"         # flip to "true" for INC-0005's fix
+                  value: "true"          # Day 8: INC-0005's fix is the default. "false" = Day 5 behaviour
                 - name: PUSHGATEWAY
                   value: pushgateway-prometheus-pushgateway.monitoring:9091
                 - name: APP_VERSION
-                  value: "0.1"
+                  value: "0.2"
               resources:
                 requests: {cpu: 20m, memory: 32Mi}
                 limits:   {cpu: 200m, memory: 96Mi}

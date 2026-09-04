@@ -99,12 +99,11 @@ def test_metrics_exposed(base_url):
     assert "activation_latency_seconds_bucket" in txt
 
 
-# INC-0006's follow-up, implemented: the test suite should cover the amount
-# distribution production actually sees. This is exactly the test that would have
-# caught the velocity-check release. It is marked xfail-by-design until Day 6's
-# Step 7, when you enable it — so you can watch the bad deploy sail through first.
-@pytest.mark.skipif(os.getenv("TEST_PRODUCTION_AMOUNTS", "false") != "true",
-                    reason="enable with TEST_PRODUCTION_AMOUNTS=true after INC-0006")
+# INC-0006's follow-up: the test suite covers the amount distribution production
+# actually sees. This is exactly the test that would have caught the velocity-check
+# release. Day 6 gated it behind TEST_PRODUCTION_AMOUNTS so you could watch the bad
+# deploy sail through first; Day 7 turned it on in the pipeline; Day 8 removes the gate.
+# A test that only runs when someone remembers an env var is not a safety net.
 @pytest.mark.parametrize("amount", [25, 50, 100])
 def test_activate_all_production_amounts(base_url, amount):
     status, body = post(base_url, "/activate",

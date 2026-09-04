@@ -2,16 +2,21 @@
 # Day 5, Step 10 — run the settlement failure modes and watch which alerts notice.
 #
 #   ./scripts/44-settlement-failure.sh crash    loud: Job Failed, SettlementJobFailed
-#   ./scripts/44-settlement-failure.sh silent   quiet: Job Succeeded, "settlement complete", 0 records
+#   ./scripts/44-settlement-failure.sh silent   zero records. Day 5: quiet. Day 8+: the job refuses (strict default)
 #   ./scripts/44-settlement-failure.sh none     reset
-#   ./scripts/44-settlement-failure.sh strict   the FIX: silent mode + SETTLEMENT_STRICT=true
+#   ./scripts/44-settlement-failure.sh strict   zero records + SETTLEMENT_STRICT=true (same as silent since Day 8)
+#   ./scripts/44-settlement-failure.sh lenient  zero records + SETTLEMENT_STRICT=false — the Day 5 behaviour, for comparison
+#
+# Day 8: SETTLEMENT_STRICT defaults to true in k8s/settlement.yaml (INC-0005's fix
+# shipped). crash/silent/none no longer touch STRICT; only `lenient` turns it off.
 source "$(dirname "$0")/lib.sh"
 require_cluster
 MODE="${1:-}"
 case "$MODE" in
-  crash|silent|none) FAIL="$MODE"; STRICT=false ;;
-  strict) FAIL=silent; STRICT=true ;;
-  *) die "Usage: $0 crash|silent|none|strict" ;;
+  crash|silent|none) FAIL="$MODE"; STRICT=true ;;
+  strict)  FAIL=silent; STRICT=true ;;
+  lenient) FAIL=silent; STRICT=false ;;
+  *) die "Usage: $0 crash|silent|none|strict|lenient" ;;
 esac
 
 trap 'if [[ "$FAIL" != none ]]; then warn "leaving CronJob in mode=$FAIL strict=$STRICT — run: $0 none"; fi' EXIT
@@ -49,11 +54,12 @@ kill "$PF" 2>/dev/null || true
 
 case "$MODE" in
   crash)  say ""; say "  LOUD. Kubernetes: Failed. SettlementJobFailed fires now; SettlementStale joins after 15 min."; ;;
-  silent) say ""; say "  Kubernetes: Succeeded. Log: 'settlement complete'. Exit 0. Nothing red anywhere."
+  lenient) say ""; say "  Kubernetes: Succeeded. Log: 'settlement complete'. Exit 0. Nothing red anywhere."
           say "  Only SettlementZeroRecords knows. Without it, you find out from finance."
-          say "  This is INC-0005 — the most realistic failure in the series." ;;
-  strict) say ""; say "  Same silent fault, but now the JOB refuses to call it success: exit 2, Job Failed,"
-          say "  and the log names the reason. That is the fix from INC-0005's follow-up — the"
-          say "  alert becomes a backstop instead of the only line of defence." ;;
+          say "  This is INC-0005 as it happened on Day 5 — the most realistic failure in the series." ;;
+  silent|strict) say ""; say "  Zero records, but the JOB refuses to call it success: exit 2, Job Failed, and the"
+          say "  log names the reason. INC-0005's fix, default since Day 8. Kubernetes, the log,"
+          say "  SettlementJobFailed and SettlementZeroRecords all agree — four signals, not one."
+          say "  The alerts are now the backstop, not the only line of defence." ;;
   none)   say ""; ok "baseline restored. SettlementStale clears on the next successful run." ;;
 esac

@@ -128,6 +128,22 @@ server's service proxy. Works from anywhere kubectl works, no pods, no DNS.
 
 ---
 
+## Found live — two more
+
+**[PLATFORM] P2 — Debian 13 split `docker.io`.** The `jenkins:lts` base moved to trixie, where
+`docker.io` is now only the daemon; the client is a separate `docker-cli` package. `apt-get
+install docker.io` succeeds, the build goes green, and there is no `docker` command. Fixed by
+taking the CLI from Docker's static builds, and the build script now verifies every tool
+exists in the image before replacing the running container.
+
+**[BUG] B11 — The git plugin refuses local checkouts.** "Repository URL `/repo`" hits a 2022
+hardening: `Checkout of Git remote '/repo' aborted because it references a local directory`.
+Needs `-Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true` in `JAVA_OPTS`. Lab only.
+
+**[BUG] B12 — `Math.max` is rejected by the Groovy sandbox.** Replaced with a comparison.
+Also: the Grafana password was printed in the build log by `sh`'s command echo — now
+passed via env with `set +x`.
+
 ## Verified as correct
 
 - The five-stage framing and "the three questions on every bridge." Exactly right.

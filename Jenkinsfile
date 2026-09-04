@@ -1,5 +1,10 @@
 // bhn-sim deploy pipeline.
 //
+// Day 8: SERVICE now covers all four workloads. KIND (deployment|cronjob) and METRIC
+// (request counter or empty) decide how Deploy, Verify and rollback behave — see the
+// Verify stage. CORRECTIONS-DAY8.md B6 explains why the PDF's "ship both through the
+// pipeline" did not work as written.
+//
 // Five stages, five things a pipeline owes an on-call engineer:
 //   Test     no broken unit means no deploy. Cheap and first.
 //   Build    image tagged with the build number: "what version is running" is one kubectl away.
@@ -14,7 +19,7 @@ pipeline {
   options { timestamps(); disableConcurrentBuilds() }
 
   parameters {
-    choice(name: 'SERVICE', choices: ['activation', 'egift'], description: 'Service to deploy')
+    choice(name: 'SERVICE', choices: ['activation', 'egift', 'incident-bot', 'settlement'], description: 'Service to deploy (Day 8: incident-bot is a Deployment with no traffic metric; settlement is a CronJob)')
     string(name: 'CHANGE_CAUSE', defaultValue: 'routine release', description: 'Why this deploy is happening (goes into rollout history and the Grafana annotation)')
     string(name: 'ERROR_THRESHOLD', defaultValue: '10', description: 'Fail Verify if post-deploy error rate (%) exceeds this OR 3x the pre-deploy baseline')
   }
@@ -23,7 +28,10 @@ pipeline {
     NS      = 'payments'
     IMAGE   = "${params.SERVICE}:${env.BUILD_NUMBER}"
     // FIX: the PDF hardcodes activation_requests_total and admits egift breaks. Map it.
-    METRIC  = "${params.SERVICE == 'egift' ? 'egift_orders_total' : 'activation_requests_total'}"
+    // Day 8: services with no request metric get an empty METRIC and a different Verify.
+    METRIC  = "${params.SERVICE == 'egift' ? 'egift_orders_total' : params.SERVICE == 'activation' ? 'activation_requests_total' : ''}"
+    // Day 8: settlement is a CronJob. No rollout, no undo — Deploy and rollback differ.
+    KIND    = "${params.SERVICE == 'settlement' ? 'cronjob' : 'deployment'}"
     // Prometheus and Grafana via the API server's service proxy: works from anywhere
     // kubectl works, no helper pods, no cluster DNS needed from the Jenkins container.
     PROM_PROXY = '/api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-prometheus:9090/proxy'
@@ -51,6 +59,8 @@ pipeline {
             # FIX: the Dockerfile COPYs requirements.lock.txt, which is generated, not
             # committed. Freeze it here from the tested venv so Build has it.
             pip freeze > requirements.lock.txt
+            # INC-0006's follow-up: tests cover the amounts production sees (ungated since
+            # Day 8). The velocity-check release fails HERE, before anything is built.
             if [ -d tests ]; then python -m pytest -q tests/; else echo "no tests dir — skipping"; fi
           '''
         }
@@ -70,18 +80,26 @@ pipeline {
       steps {
         script {
           // Pre-deploy baseline, so Verify can compare rather than only use a fixed line.
-          env.BASELINE_ERR = promErrorRate()
+          env.BASELINE_ERR = env.METRIC ? promErrorRate() : 'n/a'
           echo "Pre-deploy error rate: ${env.BASELINE_ERR}%"
+          // Remember what is running now: a CronJob has no rollout history to undo to.
+          def imgPath = (env.KIND == 'cronjob') ? '.spec.jobTemplate.spec.template.spec.containers[0].image' : '.spec.template.spec.containers[0].image'
+          env.PREV_IMAGE = sh(returnStdout: true, script: "kubectl -n ${NS} get ${env.KIND}/${params.SERVICE} -o jsonpath='{${imgPath}}' 2>/dev/null || true").trim()
+          echo "Currently running: ${env.PREV_IMAGE ?: '(nothing — first deploy)'}"
         }
         // FIX: apply the MANIFEST with the tag substituted, not `kubectl set image`.
         // set image leaves the repo saying one thing and the cluster another (Day 3, B6).
         // Applying the manifest keeps every env var and probe in step with the file.
         sh """
           sed "s|image: ${params.SERVICE}:.*|image: ${IMAGE}|" src/k8s/${params.SERVICE}.yaml | kubectl -n ${NS} apply -f -
-          kubectl -n ${NS} annotate deployment/${params.SERVICE} kubernetes.io/change-cause="build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}" --overwrite
-          kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s
+          kubectl -n ${NS} annotate ${KIND}/${params.SERVICE} kubernetes.io/change-cause="build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}" --overwrite
         """
         script {
+          if (env.KIND == 'deployment') {
+            sh "kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s"
+          } else {
+            echo "CronJob updated — future runs use ${IMAGE}. Verify triggers one now."
+          }
           env.DEPLOYED = 'true'
           grafanaAnnotate("deploy", "build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}")
         }
@@ -91,6 +109,39 @@ pipeline {
     stage('Verify') {
       steps {
         script {
+          // Day 8: three kinds of verification, because "did the deploy work?" means
+          // something different for each shape of workload.
+          if (env.KIND == 'cronjob') {
+            // A batch job is verified by RUNNING it. Exit 0 within the deadline = good.
+            def job = "${params.SERVICE}-ci-${env.BUILD_NUMBER}"
+            sh "kubectl -n ${NS} create job ${job} --from=cronjob/${params.SERVICE}"
+            // A failed Job never reaches condition=complete, so a crash on the new image
+            // surfaces here as the 180s timeout (backoffLimit 1 = two attempts inside it).
+            def rc = sh(returnStatus: true, script: "kubectl -n ${NS} wait --for=condition=complete job/${job} --timeout=180s")
+            sh "kubectl -n ${NS} logs job/${job} || true"
+            if (rc != 0) {
+              env.VERIFY_FAILED = 'true'
+              error("Job ${job} did not complete successfully on ${IMAGE}")
+            }
+            echo "Job ${job} completed on ${IMAGE}"
+            return
+          }
+          if (!env.METRIC) {
+            // No traffic metric (incident-bot): healthy = still Ready after 30s and no
+            // container restarts on the new pods. A crash loop shows up here.
+            sleep 30
+            sh "kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=60s"
+            def restarts = sh(returnStdout: true, script: "kubectl -n ${NS} get pods -l app=${params.SERVICE} -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}'").trim()
+            echo "Container restarts on new pods: '${restarts}'"
+            // Plain loop, not .any{} — closures on Java arrays are a sandbox/CPS lottery.
+            for (String r : restarts.split(' ')) {
+              if (r && r != '0') {
+                env.VERIFY_FAILED = 'true'
+                error("New ${params.SERVICE} pods are restarting (${restarts}) — treating as failed")
+              }
+            }
+            return
+          }
           echo "Waiting 120s for the 2m rate window to fill with post-deploy traffic..."
           sleep 120
           def err = promErrorRate()
@@ -121,15 +172,23 @@ pipeline {
       script {
         if (env.VERIFY_FAILED == 'true') {
           echo "Verify failed — rolling back ${params.SERVICE}"
-          sh "kubectl -n ${NS} rollout undo deployment/${params.SERVICE}"
-          sh "kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s"
-          sh "kubectl -n ${NS} annotate deployment/${params.SERVICE} kubernetes.io/change-cause=\"AUTO-ROLLBACK of build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}\" --overwrite"
+          if (env.KIND == 'deployment') {
+            sh "kubectl -n ${NS} rollout undo deployment/${params.SERVICE}"
+            sh "kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s"
+          } else if (env.PREV_IMAGE) {
+            // No rollout history for a CronJob: re-apply the manifest with the image
+            // that was running before this build.
+            sh "sed 's|image: ${params.SERVICE}:.*|image: ${env.PREV_IMAGE}|' src/k8s/${params.SERVICE}.yaml | kubectl -n ${NS} apply -f -"
+          } else {
+            echo "No previous image recorded — nothing to roll the CronJob back to"
+          }
+          sh "kubectl -n ${NS} annotate ${KIND}/${params.SERVICE} kubernetes.io/change-cause=\"AUTO-ROLLBACK of build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}\" --overwrite"
           grafanaAnnotate("rollback", "AUTO-ROLLBACK build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}")
-          echo "ROLLED BACK ${params.SERVICE} to previous revision"
+          echo "ROLLED BACK ${params.SERVICE} to ${env.PREV_IMAGE ?: 'previous revision'}"
         } else if (env.DEPLOYED == 'true') {
           echo "WARNING: build ${env.BUILD_NUMBER} WAS deployed but Verify errored before reaching a verdict."
           echo "It has NOT been rolled back. Check the dashboard now; roll back by hand if needed:"
-          echo "  kubectl -n ${NS} rollout undo deployment/${params.SERVICE}"
+          echo "  kubectl -n ${NS} rollout undo deployment/${params.SERVICE}   (or re-apply k8s/${params.SERVICE}.yaml for the CronJob)"
         } else {
           echo "Build failed before Deploy — nothing was deployed, nothing to roll back"
         }

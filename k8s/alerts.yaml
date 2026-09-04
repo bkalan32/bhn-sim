@@ -166,3 +166,102 @@ spec:
           annotations:
             summary: "Settlement job crashed ({{ $labels.job_name }})"
             description: "A settlement Job pod exited non-zero in the last 15 minutes. kubectl logs -n payments job/{{ $labels.job_name }}"
+
+    # ======================================================================
+    # Day 8 — backlog #3 from the week-1 review: eGift had NO latency alert. Both
+    # Day 4 experiments (INC-0002/0003) were detected by a human watching a screen.
+    # ======================================================================
+    - name: egift
+      rules:
+        - alert: EgiftHighErrorRate
+          expr: |
+            100 * sum(rate(egift_orders_total{status="error"}[2m]))
+                / clamp_min(sum(rate(egift_orders_total[2m])), 0.001) > 10
+          for: 2m
+          labels:
+            severity: critical
+            service: egift
+          annotations:
+            summary: "eGift order error rate above 10%"
+            description: "{{ $value | printf \"%.1f\" }}% of corporate eGift orders are failing over the last 2 minutes."
+            runbook: "Splunk: index=main app.service=egift app.status=error | stats count by app.reason. If reason is activation_*, it is INC-0001's shape: look at activation first."
+        - alert: EgiftHighLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(egift_order_latency_seconds_bucket[5m])) by (le)) > 2
+          for: 5m
+          labels:
+            severity: warning
+            service: egift
+          annotations:
+            summary: "eGift p95 order latency above 2s"
+            description: "p95 is {{ $value | printf \"%.2f\" }}s over 5 minutes. Orders complete, slowly. The step alert (EgiftStepSlow) names the culprit."
+            runbook: "Grafana 'eGift Service' step panel, or Tempo: Search service=egift, sort by duration."
+        # Names the culprit. The per-step histogram exists for exactly this (Day 4 fix).
+        - alert: EgiftStepSlow
+          expr: |
+            histogram_quantile(0.95, sum(rate(egift_step_latency_seconds_bucket[5m])) by (le, step)) > 1.5
+          for: 5m
+          labels:
+            severity: warning
+            service: egift
+          annotations:
+            summary: "eGift step '{{ $labels.step }}' p95 above 1.5s"
+            description: "The '{{ $labels.step }}' step of an eGift order is taking {{ $value | printf \"%.2f\" }}s at p95. activate = the activation dependency (or the network to it); send_email = the email provider."
+
+    # ======================================================================
+    # Day 8 — monitor the monitor. If the bot is down, nothing becomes a ticket.
+    # ======================================================================
+    - name: incident-bot
+      rules:
+        - alert: IncidentBotDown
+          expr: |
+            up{job="incident-bot"} == 0 or absent(up{job="incident-bot"})
+          for: 2m
+          labels:
+            severity: critical
+            service: incident-bot
+          annotations:
+            summary: "incident-bot is not being scraped — alerts are not becoming incidents"
+            description: "Alertmanager will retry webhooks with backoff while the bot is down, so nothing is lost yet — but nobody is being told."
+            runbook: "kubectl get pods -n payments -l app=incident-bot; kubectl logs -n payments deploy/incident-bot | python3 tools/logfmt.py"
+
+    # ======================================================================
+    # Day 7 — health scores. The opinion lives in docs/health-score.md.
+    # Rules evaluate in group order, so these depend on activation-slo above.
+    # ======================================================================
+    - name: health-scores
+      interval: 30s
+      rules:
+        # Each term: linear from 0 at (target - 10 budgets) to 1 at target, clamped.
+        # FIX: the PDF normalises against the target itself (avail / 0.995), which
+        # leaves a 50% outage scoring 70. See docs/health-score.md for the arithmetic.
+        - record: activation:health_score
+          expr: |
+            clamp_min(clamp_max(
+                60 * clamp_max(clamp_min((activation:sli_availability:ratio_rate5m - 0.95) / 0.045, 0), 1)
+              + 40 * clamp_max(clamp_min((activation:sli_latency:ratio_rate5m      - 0.90) / 0.09,  0), 1)
+            , 100), 0)
+        - record: egift:health_score
+          expr: |
+            clamp_min(clamp_max(
+                70 * clamp_max(clamp_min((
+                      sum(rate(egift_orders_total{status="ok"}[5m]))
+                        / clamp_min(sum(rate(egift_orders_total[5m])), 0.001)
+                      - 0.95) / 0.045, 0), 1)
+              + 30 * clamp_max(clamp_min(
+                      (2.5 - histogram_quantile(0.95, sum(rate(egift_order_latency_seconds_bucket[5m])) by (le))) / 2.0
+                    , 0), 1)
+            , 100), 0)
+        # FIX: settlement metrics come via the Pushgateway and carry labels
+        # (job="settlement", instance=""). The activation/egift scores carry none. PromQL
+        # cannot add vectors whose labels differ, so the PDF's platform average silently
+        # returns NOTHING. max() strips the labels before the arithmetic.
+        - record: settlement:health_score
+          expr: |
+            clamp_min(clamp_max(
+                70 * (max(time() - settlement_last_success_timestamp) < bool 900)
+              + 30 * (max(settlement_records_processed) > bool 0)
+            , 100), 0)
+        - record: platform:health_score
+          expr: |
+            (activation:health_score + egift:health_score + settlement:health_score) / 3

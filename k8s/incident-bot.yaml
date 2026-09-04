@@ -1,0 +1,113 @@
+# incident-bot — the ticketing layer. Deployment + PVC + Service + ServiceMonitor.
+#
+# FIX vs the PDF: it mounts an emptyDir at /data. An emptyDir dies with the pod, and a
+# pod is replaced on EVERY deploy — Day 9 ships incident-bot:0.2 and Day 10 ships 0.3,
+# so you would lose every incident record you had just written about, twice. kind ships
+# the local-path provisioner as the default StorageClass, so a PersistentVolumeClaim
+# costs one stanza and the records survive restarts and rollouts. (CORRECTIONS-DAY8.md B3)
+#
+# One replica, strategy Recreate: the store is a directory, not a database. Two pods
+# writing the same files would corrupt them. The README says so in "lab shortcuts".
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: incident-bot-data
+  namespace: payments
+  labels:
+    app: incident-bot
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incident-bot
+  namespace: payments
+  labels:
+    app: incident-bot
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: incident-bot
+  template:
+    metadata:
+      labels:
+        app: incident-bot
+    spec:
+      # The image runs as uid 10001; fsGroup makes the mounted volume writable by it.
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: incident-bot
+          image: incident-bot:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8020
+              name: http
+          env:
+            - name: DATA_DIR
+              value: /data
+            # service = one incident per service outage (default here)
+            # group   = one incident per Alertmanager group (the PDF's behaviour)
+            - name: INCIDENT_JOIN
+              value: service
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8020}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8020}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: incident-bot-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incident-bot
+  namespace: payments
+  labels:
+    app: incident-bot
+spec:
+  selector:
+    app: incident-bot
+  ports:
+    - port: 8020
+      targetPort: 8020
+      name: http
+---
+# Monitor the monitor. incidents_open goes on the overview; IncidentBotDown alerts.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: incident-bot
+  namespace: payments
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app: incident-bot
+  namespaceSelector:
+    matchNames: [payments]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

@@ -46,8 +46,14 @@ spec:
               value: "80"
             - name: FRAUD_SVC_DOWN
               value: "false"
-            - name: APP_VERSION
+            # Day 7: how long the dependency hangs vs how long WE wait for it.
+            - name: FRAUD_TIMEOUT_S
+              value: "3"
+            - name: FRAUD_CLIENT_TIMEOUT_S
               value: "0.3"
+            # APP_VERSION deliberately NOT set here any more. The Dockerfile bakes it in
+            # (the pipeline passes the build number), and an env override here would make
+            # every pipeline build report "0.3" on the Running-versions panel.
             # ---- Day 4: OpenTelemetry -------------------------------------------
             - name: OTEL_SERVICE_NAME
               value: activation
