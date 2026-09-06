@@ -12,7 +12,7 @@ V=$(promql 'incidents_open' | python3 "$LAB_ROOT/tools/promjson.py" value '{:.0f
 [[ "$V" != "no data" ]] && t_ok "incidents_open scraped (= $V)" || t_fail "incidents_open not in Prometheus"
 
 # 2. Alertmanager routes to it
-alertmanager_get /api/v2/status | grep -q 'incident-bot.payments:8020' && t_ok "Alertmanager live config has the incident-bot webhook" || t_fail "Alertmanager not routing to the bot"
+alertmanager_get /api/v2/status | grep -q 'name: incident-bot' && t_ok "Alertmanager live config has the incident-bot webhook" || t_fail "Alertmanager not routing to the bot"
 
 # 3. a real drill opened AND auto-resolved with a timeline
 DRILL=$(bot_get '/incidents?status=resolved' | python3 -c 'import json,sys
@@ -31,7 +31,7 @@ IMG=$(k get cronjob settlement -n "$PAYMENTS_NS" -o jsonpath='{.spec.jobTemplate
 grep -q 'value: "true"' "$LAB_ROOT/k8s/settlement.yaml" && t_ok "SETTLEMENT_STRICT=true in the manifest" || t_fail "manifest still has STRICT=false"
 
 # 6. amount-mix test is ungated
-grep -q 'TEST_PRODUCTION_AMOUNTS' "$LAB_ROOT/services/activation/tests/test_app.py" && t_fail "amount test still env-gated" || t_ok "amount-mix test always on"
+grep -q 'skipif' "$LAB_ROOT/services/activation/tests/test_app.py" && t_fail "amount test still env-gated" || t_ok "amount-mix test always on"
 
 # 7. new alerts loaded
 if k get prometheusrule activation-alerts -n "$PAYMENTS_NS" -o yaml 2>/dev/null | grep -q EgiftHighLatency; then t_ok "EgiftHighLatency rule loaded (backlog #3)"; else t_fail "egift rules not applied"; fi

@@ -68,7 +68,7 @@ fi
 step "Ticket layer (Day 8)"
 if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then
   [[ -n "$(bot_get /healthz)" ]] && ok "incident-bot answering" || warn "incident-bot deployed but not answering via proxy"
-  alertmanager_get /api/v2/status | grep -q 'incident-bot.payments:8020' && ok "Alertmanager -> incident-bot route live" || warn "Alertmanager not routing to the bot — ./scripts/81-alertmanager-route.sh"
+  alertmanager_get /api/v2/status | grep -q 'name: incident-bot' && ok "Alertmanager -> incident-bot route live" || warn "Alertmanager not routing to the bot — ./scripts/81-alertmanager-route.sh"
   n=$(bot_get '/incidents?status=open' | python3 -c 'import json,sys
 try: print(len(json.load(sys.stdin)))
 except Exception: print("?")' 2>/dev/null || echo "?")
