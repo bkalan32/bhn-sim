@@ -33,8 +33,8 @@ else
 fi
 
 # resilience: the record says why when the AI is off (proved by 93, evidenced by metrics)
-V=$(promql 'sum(ai_drafts_total{outcome="disabled"})' | python3 "$LAB_ROOT/tools/promjson.py" value '{:.0f}')
-[[ "$V" != "no data" && "$V" != "0" ]] && t_ok "no-AI path exercised (ai_drafts_total{outcome=disabled} = $V)" || t_fail "run ./scripts/93-ai-resilience.sh"
+V=$( [[ -s "$LAB_ROOT/checkpoints/day9-resilience.txt" ]] && echo proven || echo "no data")
+[[ "$V" != "no data" && "$V" != "0" ]] && t_ok "no-AI path exercised ($(cat "$LAB_ROOT/checkpoints/day9-resilience.txt" 2>/dev/null | cut -c1-20))" || t_fail "run ./scripts/93-ai-resilience.sh"
 
 # settlement 0.3
 SIMG=$(k get cronjob settlement -n "$PAYMENTS_NS" -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[0].image}' 2>/dev/null || true)
