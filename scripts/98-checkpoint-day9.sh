@@ -32,9 +32,9 @@ else
   t_fail "docs/ai-eval.md not graded yet (needs the record ID and no '_fill in_' left)"
 fi
 
-# resilience: the record says why when the AI is off (proved by 93, evidenced by metrics)
-V=$( [[ -s "$LAB_ROOT/checkpoints/day9-resilience.txt" ]] && echo proven || echo "no data")
-[[ "$V" != "no data" && "$V" != "0" ]] && t_ok "no-AI path exercised ($(cat "$LAB_ROOT/checkpoints/day9-resilience.txt" 2>/dev/null | cut -c1-20))" || t_fail "run ./scripts/93-ai-resilience.sh"
+# resilience: proved by 93, which leaves its evidence on disk (the bot's counters reset
+# when the provider is restored, because that restarts the pod)
+[[ -s "$LAB_ROOT/checkpoints/day9-resilience.txt" ]] && t_ok "no-AI path exercised ($(cut -c1-20 "$LAB_ROOT/checkpoints/day9-resilience.txt"))" || t_fail "run ./scripts/93-ai-resilience.sh"
 
 # settlement 0.3
 SIMG=$(k get cronjob settlement -n "$PAYMENTS_NS" -o jsonpath='{.spec.jobTemplate.spec.template.spec.containers[0].image}' 2>/dev/null || true)

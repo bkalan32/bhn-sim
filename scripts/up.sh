@@ -77,6 +77,13 @@ except Exception: print("?")' 2>/dev/null || echo "?")
 try: d=json.load(sys.stdin); print(("%s/%s" % (d["provider"], d["model"])) if d.get("enabled") else "off")
 except Exception: print("?")' 2>/dev/null || echo "?")
   [[ "$AIP" == off ]] && warn "AI drafts off (no provider) — ./scripts/90-ai-secret.sh   (Day 9+)" || ok "AI drafts: $AIP"
+  # Day 10: Splunk's container IP moves on restart; the enrich-config secret pins it.
+  if k get secret enrich-config -n "$PAYMENTS_NS" >/dev/null 2>&1; then
+    SURL=$(k get secret enrich-config -n "$PAYMENTS_NS" -o jsonpath='{.data.SPLUNK_URL}' | base64 -d 2>/dev/null || true)
+    SIP=$(splunk_ip)
+    if [[ -n "$SIP" && "$SURL" == *"$SIP"* ]]; then ok "enrichment: Splunk at $SURL"
+    else warn "enrichment: secret says $SURL but Splunk is at ${SIP:-<not running>} — ./scripts/100-enrich-config.sh"; fi
+  fi
 else
   warn "incident-bot not deployed yet (Day 8)"
 fi

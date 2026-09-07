@@ -192,6 +192,62 @@ after the errors stopped. Correct behaviour, surprising the first time.
 
 ---
 
+## Eval 3 — the A/B drills, with context and the Day 9 prompt fixes (Day 10)
+
+Two things are measured at once here, so keep them apart:
+
+1. **Did the prompt fixes work?** (Evals 0–2 queued four rules: no invented actions,
+   preserve hedging, thresholds ≠ measurements, quote `duration_min`.) Check the *open* and
+   *resolution* drafts of both drills against those four. Zero ❌ of those species = the
+   fix worked.
+2. **Did enrichment produce two different, correct diagnoses from the same alert?** Check
+   the *hypothesis* of each drill against its own context block.
+
+### Drill A — `_fill in_` (dependency outage)
+
+**Open draft, prompt-fix check:** actions invented? _yes/no — quote_ · hedging preserved? _n/a or quote_
+
+| Hypothesis section | Claim | Mark | Note |
+|---|---|---|---|
+| What we know | | | every number should be in `context.metrics` or the alert |
+| Most likely cause | | | should be the fraud dependency; evidence = top reason |
+| Alternative | | | is it plausible, and is the confirming evidence real? |
+| Next checks | | | do they look like what you ran on Day 3? |
+| Confidence | | | high is right here — if a collector failed, did it say so and lower it? |
+
+Right cause? _yes/no_ · Usable? _yes/no_ · Invented: _N_
+
+### Drill B — `_fill in_` (bad deploy)
+
+**Open draft, prompt-fix check:** _same two questions_
+
+| Hypothesis section | Claim | Mark | Note |
+|---|---|---|---|
+| What we know | | | the deploy's age in minutes should be quoted |
+| Most likely cause | | | should be the deploy; the rollback (negative age) must NOT be called a cause |
+| Alternative | | | |
+| Next checks | | | `kubectl rollout history` should appear |
+| Confidence | | | |
+
+Right cause? _yes/no_ · Usable? _yes/no_ · Invented: _N_
+
+### The comparison
+| | Drill A | Drill B |
+|---|---|---|
+| Alert | ActivationHighErrorRate | ActivationHighErrorRate |
+| Context that decided it | | |
+| Hypothesis | | |
+| Confidence stated | | |
+| Right? | | |
+
+One sentence: same alert, two correct diagnoses — or not, and why.
+
+**Prompt-fix verdict:** across the four drafts of Evals 3, the "team is investigating"
+sentence appeared _N_ times (was 3/3 before). Hedging preserved _N/N_. Thresholds
+presented as measurements _N_. Durations computed from timestamps _N_.
+
+---
+
 ## Failures worth keeping
 
 Any draft with a ❌ goes here with the prompt version that produced it. A documented

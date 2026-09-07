@@ -96,6 +96,13 @@ cd ~/bhn-sim
 ./scripts/93-ai-resilience.sh      # provider off -> incident still records -> provider on
 ./scripts/98-checkpoint-day9.sh
 
+# Day 10
+./scripts/100-enrich-config.sh     # Grafana service-account token + Splunk REST creds -> secret; tests the 3 collectors
+./scripts/102-drill-a.sh           # dependency outage: ticket arrives with context + diagnosis (INC-0009)
+./scripts/103-drill-b.sh apply|revert  # bad deploy via pipeline, same alert, different diagnosis (INC-0010)
+python3 tools/kpis.py              # the KPI table for docs/ops-kpis.md
+./scripts/108-checkpoint-day10.sh
+
 # Any time, after a Docker restart / reboot
 ./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, front doors
 ./scripts/up.sh --check            # read-only
@@ -121,7 +128,8 @@ cd ~/bhn-sim
 | eGift API | http://localhost:30443/orders |
 | Service logs | `kubectl logs -n payments -l app=activation --tail=20 \| python3 tools/logfmt.py` |
 | **Incidents** | `python3 tools/inc.py list` · `timeline <id>` · `show <id>` · `note <id> "text"` |
-| **AI drafts** | `python3 tools/inc.py drafts <id>` · `draft <id> open\|resolved` (re-run) · `ai` (which provider) |
+| **AI drafts** | `python3 tools/inc.py drafts <id>` · `draft <id> open\|resolved\|hypothesis` (re-run) · `ai` (which provider) |
+| **Enrichment** | `python3 tools/inc.py context <id>` · `hypothesis <id>` · `enrich <id>` · `enrich-test [service]` · `./scripts/100-enrich-config.sh --check` |
 | Alertmanager live config | `kubectl get --raw /api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-alertmanager:9093/proxy/api/v2/status` |
 | **Recover after restart** | `./scripts/up.sh` |
 | Stop everything | `wsl --shutdown` (PowerShell) |
@@ -189,6 +197,7 @@ Run `./scripts/02-verify.sh` to regenerate `checkpoints/day1-versions.txt`.
 | 7 | Health score and first fix | ☐ |
 | 8 | Alert routing + incident bot | ☐ |
 | 9 | AI summaries and comms | ☐ |
+| 10 | Context-enriched alerts, first AI diagnosis | ☐ |
 
 ---
 
@@ -240,10 +249,18 @@ record only. *The AI drafts; a human decides.* Provider via `AI_PROVIDER`
 a file. Metrics `ai_drafts_total{kind,outcome}`, `ai_draft_latency_seconds`. Grades live in
 `docs/ai-eval.md`.
 
+**Context + diagnosis (Day 10).** At open, `enrich.py` fetches current metrics (Prometheus),
+recent deploys/rollbacks of the service with their age (Grafana annotations, via a Viewer
+service-account token) and top `app.reason` values (Splunk REST on 8089, admin login), attaches
+them as `context`, and `ai.hypothesize()` writes a diagnosis — **diagnosis only, never
+remediation.** Every collector degrades to an explanatory stub; `enrich_collector_total`
+counts it. Credentials live in `secret/enrich-config` (`100-enrich-config.sh`).
+
 ⚠️ **Lab shortcuts, labelled:** records are JSON files on a single PVC (a real system uses a
 database and runs more than one replica); `DELETE /incidents/{id}` exists for the smoke test
 (real ticketing never deletes); no auth on the bot's API (it is only reachable in-cluster or
-via the API server's proxy, which *is* authenticated).
+via the API server's proxy, which *is* authenticated); `SPLUNK_VERIFY=false` accepts Splunk's
+self-signed certificate for the REST lookups.
 
 ## The activation service (Day 2)
 
@@ -306,5 +323,6 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 - **[DAY7.md](DAY7.md)** · **[CORRECTIONS-DAY7.md](CORRECTIONS-DAY7.md)** · **[docs/health-score.md](docs/health-score.md)** · **[docs/week1-review.md](docs/week1-review.md)**
 - **[DAY8.md](DAY8.md)** · **[CORRECTIONS-DAY8.md](CORRECTIONS-DAY8.md)** · **[k8s/kps-values.yaml](k8s/kps-values.yaml)** · **[services/incident-bot/app.py](services/incident-bot/app.py)**
 - **[DAY9.md](DAY9.md)** · **[CORRECTIONS-DAY9.md](CORRECTIONS-DAY9.md)** · **[services/incident-bot/ai.py](services/incident-bot/ai.py)** · **[docs/ai-eval.md](docs/ai-eval.md)**
+- **[DAY10.md](DAY10.md)** · **[CORRECTIONS-DAY10.md](CORRECTIONS-DAY10.md)** · **[services/incident-bot/enrich.py](services/incident-bot/enrich.py)** · **[docs/ops-kpis.md](docs/ops-kpis.md)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up

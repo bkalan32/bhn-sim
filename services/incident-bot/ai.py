@@ -31,7 +31,19 @@ You write from the incident record only. If information is not in the record, sa
 'not yet known'. Never invent metrics, causes, or times. Card activation and eGift
 issuance are revenue-critical customer flows: activation errors mean cards are being
 declined at retail tills; eGift errors mean corporate orders are failing.
-Timestamps in the record are UTC. Quote them as given."""
+Timestamps in the record are UTC. Quote them as given.
+
+Rules added after grading real drafts (docs/ai-eval.md, Evals 0-2):
+- Do not describe any action by the team or responders unless a timeline entry of type
+  "note" records it. If there are no notes, write exactly: "no responder actions recorded
+  yet". Never write that the team is "investigating" or "working to restore" on its own.
+- Preserve the responder's hedging. If a note says "suspect", write "suspected"; do not
+  upgrade a suspicion into a cause.
+- Alert descriptions contain thresholds (e.g. "14.4x the budget"); thresholds are not
+  measurements. Quote measured values from the alert's summary line or the metrics
+  snapshot only.
+- Quote duration_min exactly as given. Do not compute durations from timestamps.
+- "What went well" may only cite facts on the record."""
 
 DEFAULT_MODELS = {"anthropic": "claude-sonnet-4-5", "ollama": "llama3.2"}
 
@@ -148,6 +160,33 @@ when the next update will come (say: within 30 minutes).
 
 Incident record:
 {_record(inc)}""", "open")
+
+
+def hypothesize(inc: dict):
+    """Day 10: the junior diagnostician. Diagnosis only — never remediation."""
+    ctx = inc.get("context") or {}
+    opened = inc.get("first_alert_at_iso") or inc.get("opened_at_iso")
+    return _call(f"""A production incident just opened. The current time is {_now()}; the
+first alert fired at {opened}. Using ONLY the incident record and its "context" section
+(metrics snapshot, recent deploys with their age in minutes before the first alert, and
+top error reasons from the logs), write:
+
+1. WHAT WE KNOW: 3-5 bullet facts drawn from the alerts, metrics snapshot, recent
+deploys and top error reasons. Cite the numbers as they appear.
+2. MOST LIKELY CAUSE: one hypothesis, with the evidence for it. If a deploy or rollback
+of this service occurred within 30 minutes BEFORE the first alert
+(minutes_before_first_alert between 0 and 30), weigh it heavily. A deploy hours old, or
+one that happened AFTER the alert (negative minutes), is not a cause.
+3. ALTERNATIVE: one other plausible cause and what evidence would confirm it.
+4. SUGGESTED NEXT CHECKS: 2-3 specific commands or queries a responder should run,
+using this platform's tools (kubectl, PromQL, Splunk search). Diagnostic commands only.
+5. CONFIDENCE: low / medium / high, one sentence why. If any context collector
+reported an error, say which and lower your confidence accordingly.
+
+Do not propose remediation actions. Diagnosis only.
+
+Incident record:
+{_record(inc)}""", "hypothesis", max_tokens=1200)
 
 
 def summarize_resolved(inc: dict):

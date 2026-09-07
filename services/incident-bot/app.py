@@ -28,7 +28,9 @@ Endpoints
   GET    /incidents              summary list  (?status=open|resolved)
   GET    /incidents/{id}         full record with timeline
   POST   /incidents/{id}/note    {"text": "..."} — the bridge scribe (Day 9)
-  POST   /incidents/{id}/draft   ?kind=open|resolved — (re)generate an AI draft (Day 9)
+  POST   /incidents/{id}/draft   ?kind=open|resolved|hypothesis — (re)generate an AI draft (Day 9/10)
+  POST   /incidents/{id}/enrich  re-run the context collectors on a record (Day 10)
+  GET    /enrich/test?service=x  run the collectors now and return what they see (Day 10)
   DELETE /incidents/{id}         lab convenience, used by the smoke test
   GET    /healthz  /readyz  /metrics  /ai
 
@@ -39,6 +41,13 @@ request: an LLM call takes 5-60s, Alertmanager would time out and retry (duplica
 processing), and — worse — a blocking call inside an `async def` handler freezes this
 whole process, health probes included, until it returns. (CORRECTIONS-DAY9.md B1)
 The AI is an enhancement layered on a system that works without it.
+
+Day 10 — context enrichment and a diagnosis. In the same background thread, BEFORE the
+open draft: enrich.py fetches current metrics, recent deploys and top log reasons and
+attaches them as `context`; then the open draft; then ai.hypothesize() writes a
+diagnosis (what we know / most likely cause / alternative / next checks / confidence)
+as `ai_hypothesis`. Diagnosis only, never remediation — that line is the central safety
+boundary of AI operations, crossed deliberately on a later day, not by accident here.
 """
 
 import datetime as _dt
@@ -56,8 +65,10 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 import ai
+import enrich
 
-VERSION = os.getenv("APP_VERSION", "0.2")
+VERSION = os.getenv("APP_VERSION", "0.3")
+ENRICH_ENABLED = os.getenv("ENRICH_ENABLED", "true").strip().lower() != "false"
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 INCIDENT_JOIN = os.getenv("INCIDENT_JOIN", "service").strip().lower()   # service | group
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -102,6 +113,9 @@ LAST_DURATION = Gauge("incident_last_duration_minutes", "Duration of the most re
 AI_DRAFTS = Counter("ai_drafts_total", "AI drafts attempted", ["kind", "outcome"])
 AI_LATENCY = Histogram("ai_draft_latency_seconds", "AI draft call latency", ["kind"],
                        buckets=[0.5, 1, 2, 5, 10, 20, 40, 60, 120])
+ENRICH = Counter("enrich_collector_total", "Context collector runs", ["collector", "outcome"])
+ENRICH_LATENCY = Histogram("enrich_latency_seconds", "Whole enrichment latency",
+                           buckets=[0.5, 1, 2, 5, 10, 20, 40])
 BUILD_INFO = Gauge("incident_bot_build_info", "Build metadata", ["version"])
 BUILD_INFO.labels(version=VERSION).set(1)
 
@@ -216,7 +230,42 @@ def _event(kind: str, **fields) -> dict:
 
 
 # --------------------------------------------------------------- AI drafts --
-DRAFT_FIELD = {"open": "ai_open_draft", "resolved": "ai_resolution_draft"}
+DRAFT_FIELD = {"open": "ai_open_draft", "resolved": "ai_resolution_draft", "hypothesis": "ai_hypothesis"}
+DRAFT_FN = {"open": ai.summarize_open, "resolved": ai.summarize_resolved, "hypothesis": ai.hypothesize}
+
+
+def _enrich(iid: str):
+    """Attach the three lookups to the record. Never raises; every collector degrades."""
+    try:
+        inc = _load(iid)
+    except HTTPException:
+        return
+    t0 = time.perf_counter()
+    ctx, meta = enrich.enrich(inc.get("service"), since_ts=inc.get("first_alert_at") or inc.get("opened_at"))
+    ENRICH_LATENCY.observe(time.perf_counter() - t0)
+    for name, m in meta.items():
+        ENRICH.labels(collector=name, outcome="ok" if m.get("ok") else "error").inc()
+    with _lock:
+        try:
+            inc = _load(iid)
+        except HTTPException:
+            return
+        inc["context"] = ctx
+        inc.setdefault("context_meta", {}).update(meta)
+        inc["timeline"].append(_event("context_attached",
+                                      collectors={k: ("ok" if v.get("ok") else "error") for k, v in meta.items()},
+                                      latency_ms=round((time.perf_counter() - t0) * 1000)))
+        _save(inc)
+    log.info("context attached", extra={"extra": {"incident": iid, **{f"{k}_ok": v.get("ok") for k, v in meta.items()}}})
+
+
+def _open_pipeline(iid: str):
+    """What happens in the background when a ticket opens: enrich -> summary -> diagnosis.
+    Order matters: the summary and the hypothesis both read the context."""
+    if ENRICH_ENABLED:
+        _enrich(iid)
+    _draft(iid, "open")
+    _draft(iid, "hypothesis")
 
 
 def _draft(iid: str, kind: str):
@@ -225,8 +274,7 @@ def _draft(iid: str, kind: str):
         inc = _load(iid)
     except HTTPException:
         return
-    fn = ai.summarize_open if kind == "open" else ai.summarize_resolved
-    text, meta = fn(inc)
+    text, meta = DRAFT_FN[kind](inc)
     AI_DRAFTS.labels(kind=kind, outcome="ok" if meta.get("ok") else "error").inc()
     if meta.get("latency_ms") is not None:
         AI_LATENCY.labels(kind=kind).observe(meta["latency_ms"] / 1000)
@@ -246,13 +294,19 @@ def _draft(iid: str, kind: str):
 def _schedule_draft(iid: str, kind: str):
     if not ai.enabled():
         # Attach the reason synchronously so the record says WHY there is no draft.
+        # Enrichment still runs (it needs no AI) — context is useful to a human too.
         with _lock:
             inc = _load(iid)
-            inc[DRAFT_FIELD[kind]] = "(AI draft unavailable: no provider configured)"
+            for k in ((kind, "hypothesis") if kind == "open" else (kind,)):
+                inc[DRAFT_FIELD[k]] = "(AI draft unavailable: no provider configured)"
             _save(inc)
         AI_DRAFTS.labels(kind=kind, outcome="disabled").inc()
+        if kind == "open" and ENRICH_ENABLED:
+            threading.Thread(target=_enrich, args=(iid,), daemon=True, name=f"enrich-{iid}").start()
         return
-    threading.Thread(target=_draft, args=(iid, kind), daemon=True, name=f"draft-{kind}-{iid}").start()
+    target = _open_pipeline if kind == "open" else _draft
+    args = (iid,) if kind == "open" else (iid, kind)
+    threading.Thread(target=target, args=args, daemon=True, name=f"draft-{kind}-{iid}").start()
 
 
 # --------------------------------------------------------------- receiver ---
@@ -365,7 +419,7 @@ def redraft(iid: str, kind: str = "open", wait: bool = False):
     """(Re)generate a draft — after notes were added, after a prompt change, or on a
     record written before the AI existed. wait=true blocks until done (tools/inc.py)."""
     if kind not in DRAFT_FIELD:
-        raise HTTPException(400, "kind must be open or resolved")
+        raise HTTPException(400, "kind must be open, resolved or hypothesis")
     _load(iid)
     if not ai.enabled():
         _schedule_draft(iid, kind)
@@ -373,13 +427,31 @@ def redraft(iid: str, kind: str = "open", wait: bool = False):
     if wait:
         _draft(iid, kind)
         return {"ok": True, "incident": iid, "kind": kind, "draft": _load(iid).get(DRAFT_FIELD[kind])}
-    _schedule_draft(iid, kind)
+    threading.Thread(target=_draft, args=(iid, kind), daemon=True).start()
     return {"ok": True, "incident": iid, "kind": kind, "note": "drafting in background; poll the record"}
+
+
+@app.post("/incidents/{iid}/enrich")
+def reenrich(iid: str, wait: bool = True):
+    """Re-run the collectors on a record (e.g. after fixing a collector's config)."""
+    _load(iid)
+    if wait:
+        _enrich(iid)
+        return {"ok": True, "incident": iid, "context": _load(iid).get("context")}
+    threading.Thread(target=_enrich, args=(iid,), daemon=True).start()
+    return {"ok": True, "incident": iid, "note": "enriching in background"}
+
+
+@app.get("/enrich/test")
+def enrich_test(service: str = "activation"):
+    """What would the collectors see right now? Used by scripts/100-enrich-config.sh."""
+    ctx, meta = enrich.enrich(service, since_ts=time.time())
+    return {"context": ctx, "collectors": meta}
 
 
 @app.get("/ai")
 def ai_status():
-    return {"enabled": ai.enabled(), **ai.describe()}
+    return {"enabled": ai.enabled(), **ai.describe(), "enrich": {"enabled": ENRICH_ENABLED, **enrich.configured()}}
 
 
 @app.delete("/incidents/{iid}")

@@ -10,6 +10,10 @@
     tools/inc.py drafts <id>                 print the AI drafts on a record (Day 9)
     tools/inc.py draft <id> <open|resolved>  (re)generate a draft now and print it (Day 9)
     tools/inc.py ai                          which provider/model the bot is using
+    tools/inc.py context <id>                the enrichment block: metrics, deploys, log reasons (Day 10)
+    tools/inc.py hypothesis <id>             the AI diagnosis (Day 10)
+    tools/inc.py enrich <id>                 re-run the collectors on a record (Day 10)
+    tools/inc.py enrich-test [service]       what the collectors see right now (Day 10)
 
 How it reaches the bot: the Kubernetes API server can proxy HTTP to any Service
 (`kubectl get --raw /api/v1/namespaces/payments/services/incident-bot:8020/proxy/...`).
@@ -108,6 +112,35 @@ def cmd_draft(iid, kind):
         print(json.dumps(r, indent=2))
 
 
+def cmd_context(iid):
+    inc = request("GET", f"/incidents/{iid}")
+    ctx = inc.get("context")
+    if not ctx:
+        print("  (no context on this record — tools/inc.py enrich %s)" % iid); return
+    meta = inc.get("context_meta", {})
+    print(f"  collected {ctx.get('collected_at')}  service={ctx.get('service')}")
+    print("  metrics      %s" % ("ok" if meta.get("metrics", {}).get("ok") else meta.get("metrics", {}).get("error", "?")))
+    for k, v in (ctx.get("metrics") or {}).items():
+        print(f"    {k:<24} {v}")
+    print("  deploys      %s" % ("ok" if meta.get("deploys", {}).get("ok") else meta.get("deploys", {}).get("error", "?")))
+    for d in ctx.get("recent_deploys") or []:
+        if "error" in d or "note" in d:
+            print("    " + (d.get("error") or d.get("note")))
+        else:
+            print(f"    {d['kind']:<9} {d['minutes_before_first_alert']:>7} min before alert  {d['at_iso']}  {d['text']}")
+    print("  log reasons  %s" % ("ok" if meta.get("logs", {}).get("ok") else meta.get("logs", {}).get("error", "?")))
+    for r in ctx.get("top_error_reasons") or []:
+        if "error" in r or "note" in r:
+            print("    " + (r.get("error") or r.get("note")))
+        else:
+            print(f"    {r['count']:>6}  {r['reason']}")
+
+
+def cmd_enrich_test(service):
+    r = request("GET", f"/enrich/test?service={service}")
+    print(json.dumps(r, indent=2))
+
+
 def cmd_webhook(status):
     """A synthetic webhook in Alertmanager's exact shape, service=smoke-test."""
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -138,6 +171,10 @@ def main(argv):
     elif c == "drafts":   cmd_drafts(a[0])
     elif c == "draft":    cmd_draft(a[0], a[1] if len(a) > 1 else "open")
     elif c == "ai":       print(json.dumps(request("GET", "/ai"), indent=2))
+    elif c == "context":  cmd_context(a[0])
+    elif c == "hypothesis": print(request("GET", f"/incidents/{a[0]}").get("ai_hypothesis") or "(none yet)")
+    elif c == "enrich":   request("POST", f"/incidents/{a[0]}/enrich"); cmd_context(a[0])
+    elif c == "enrich-test": cmd_enrich_test(a[0] if a else "activation")
     else:
         print(__doc__); return 2
     return 0

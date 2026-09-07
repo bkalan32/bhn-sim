@@ -31,8 +31,12 @@ def _free_port():
 def _start(extra_env):
     port = _free_port()
     data = tempfile.mkdtemp(prefix="incbot-")
-    env = {**os.environ, "DATA_DIR": data, "INCIDENT_JOIN": "service", **extra_env}
+    env = {**os.environ, "DATA_DIR": data, "INCIDENT_JOIN": "service",
+           # Day 10: collectors point at closed ports so enrichment degrades in milliseconds
+           "PROM_URL": "http://127.0.0.1:9", "GRAFANA_URL": "http://127.0.0.1:9", "ENRICH_TIMEOUT_S": "1",
+           **extra_env}
     env.pop("ANTHROPIC_API_KEY", None)          # tests never touch the network
+    env.pop("SPLUNK_URL", None)
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1",
          "--port", str(port), "--log-level", "warning"],
@@ -144,7 +148,7 @@ def test_full_lifecycle(base_url):
     assert set(inc["alerts"]) == {"ActivationHighErrorRate", "ActivationHighLatency"}
     assert inc["first_alert_at_iso"] == "2026-09-04T10:00:00Z"   # from startsAt, not receipt
     # (the fake provider may already have appended an ai_draft_attached event — ignore those)
-    assert [e["event"] for e in inc["timeline"] if not e["event"].startswith("ai_")] == ["alerts_firing", "alerts_firing"]
+    assert [e["event"] for e in inc["timeline"] if e["event"].startswith("alerts_")] == ["alerts_firing", "alerts_firing"]
 
     # 3. the scribe adds a note
     st, r = call(base_url, "POST", f"/incidents/{iid}/note", {"text": "Splunk: fraud_service_timeout on 100%"})
@@ -171,6 +175,22 @@ def test_full_lifecycle(base_url):
     assert inc["ai_resolution_draft"].startswith("[fake resolved draft]")
     assert inc["ai_meta"]["open"]["ok"] is True
     assert "ai_draft_attached" in [e["event"] for e in inc["timeline"]]
+    # Day 10: context was attached BEFORE the open draft, degraded gracefully, and the
+    # hypothesis followed
+    inc = wait_for(base_url, f"/incidents/{iid}", lambda i: i.get("ai_hypothesis"))
+    assert inc["ai_hypothesis"].startswith("[fake hypothesis draft]")
+    assert "context_attached" in [e["event"] for e in inc["timeline"]]
+    assert inc["context"]["service"] == "activation"
+    assert "metrics unavailable" in inc["context"]["metrics"]["error"]
+    assert "deploy lookup unavailable" in inc["context"]["recent_deploys"][0]["error"]
+    assert "not configured" in inc["context"]["top_error_reasons"][0]["error"]
+    events = [e["event"] for e in inc["timeline"]]
+    assert events.index("context_attached") < events.index("ai_draft_attached")
+    # re-enrich on demand
+    st, r = call(base_url, "POST", f"/incidents/{iid}/enrich")
+    assert st == 200 and r["context"]["service"] == "activation"
+    st, r = call(base_url, "GET", "/enrich/test?service=egift")
+    assert st == 200 and r["collectors"]["metrics"]["ok"] is False
     # a re-draft on demand, synchronously
     st, r = call(base_url, "POST", f"/incidents/{iid}/draft?kind=resolved&wait=true")
     assert st == 200 and r["draft"].startswith("[fake resolved draft]")
@@ -222,4 +242,8 @@ def test_works_without_ai(base_url_noai):
     st, inc = call(url, "GET", f"/incidents/{iid}")
     assert inc["status"] == "resolved" and inc["duration_min"] is not None
     assert inc["ai_resolution_draft"].startswith("(AI draft unavailable")
+    assert inc["ai_hypothesis"].startswith("(AI draft unavailable")
+    # enrichment needs no AI: context still arrives
+    inc = wait_for(url, f"/incidents/{iid}", lambda i: i.get("context"))
+    assert inc["context"]["service"] == "activation"
     call(url, "DELETE", f"/incidents/{iid}")

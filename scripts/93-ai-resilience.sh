@@ -33,6 +33,10 @@ print("  ai_open_draft:       ", d.get("ai_open_draft"))
 print("  ai_resolution_draft: ", d.get("ai_resolution_draft"))
 assert str(d.get("ai_open_draft","")).startswith("(AI draft unavailable"), "draft should say why it is missing"' \
   && ok "record complete; drafts say why they are missing" || die "record incomplete without AI"
+# Evidence on disk: the pod restarts when the provider comes back, taking its counters
+# with it. The checkpoint reads this file, not a metric that resets.
+echo "$(date -u +%FT%TZ) AI_PROVIDER=none: $ID opened+resolved with a full record; drafts said '(AI draft unavailable: no provider configured)'; provider restored" \
+  > "$CHECKPOINTS/day9-resilience.txt"
 python3 "$INC" delete "$ID" >/dev/null
 
 step "Putting the AI back (AI_PROVIDER=auto)"
