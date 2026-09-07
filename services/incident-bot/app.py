@@ -27,9 +27,18 @@ Endpoints
   POST   /alertmanager           Alertmanager webhook receiver
   GET    /incidents              summary list  (?status=open|resolved)
   GET    /incidents/{id}         full record with timeline
-  POST   /incidents/{id}/note    {"text": "..."} — the bridge scribe (used from Day 9)
+  POST   /incidents/{id}/note    {"text": "..."} — the bridge scribe (Day 9)
+  POST   /incidents/{id}/draft   ?kind=open|resolved — (re)generate an AI draft (Day 9)
   DELETE /incidents/{id}         lab convenience, used by the smoke test
-  GET    /healthz  /readyz  /metrics
+  GET    /healthz  /readyz  /metrics  /ai
+
+Day 9 — AI drafts. When an incident opens or resolves, ai.py drafts the internal summary,
+stakeholder update and review skeleton and the bot attaches them as ai_open_draft /
+ai_resolution_draft. The call runs in a BACKGROUND THREAD, never inside the webhook
+request: an LLM call takes 5-60s, Alertmanager would time out and retry (duplicate
+processing), and — worse — a blocking call inside an `async def` handler freezes this
+whole process, health probes included, until it returns. (CORRECTIONS-DAY9.md B1)
+The AI is an enhancement layered on a system that works without it.
 """
 
 import datetime as _dt
@@ -44,9 +53,11 @@ import uuid
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
-VERSION = os.getenv("APP_VERSION", "0.1")
+import ai
+
+VERSION = os.getenv("APP_VERSION", "0.2")
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 INCIDENT_JOIN = os.getenv("INCIDENT_JOIN", "service").strip().lower()   # service | group
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -88,6 +99,9 @@ RESOLVED = Counter("incidents_resolved_total", "Incidents resolved")
 OPEN = Gauge("incidents_open", "Currently open incidents")
 WEBHOOKS = Counter("alertmanager_webhooks_total", "Webhooks received from Alertmanager", ["status"])
 LAST_DURATION = Gauge("incident_last_duration_minutes", "Duration of the most recently resolved incident")
+AI_DRAFTS = Counter("ai_drafts_total", "AI drafts attempted", ["kind", "outcome"])
+AI_LATENCY = Histogram("ai_draft_latency_seconds", "AI draft call latency", ["kind"],
+                       buckets=[0.5, 1, 2, 5, 10, 20, 40, 60, 120])
 BUILD_INFO = Gauge("incident_bot_build_info", "Build metadata", ["version"])
 BUILD_INFO.labels(version=VERSION).set(1)
 
@@ -201,6 +215,46 @@ def _event(kind: str, **fields) -> dict:
     return {"ts": ts, "ts_iso": _iso(ts), "event": kind, **fields}
 
 
+# --------------------------------------------------------------- AI drafts --
+DRAFT_FIELD = {"open": "ai_open_draft", "resolved": "ai_resolution_draft"}
+
+
+def _draft(iid: str, kind: str):
+    """Generate a draft and attach it to the record. Runs in a background thread."""
+    try:
+        inc = _load(iid)
+    except HTTPException:
+        return
+    fn = ai.summarize_open if kind == "open" else ai.summarize_resolved
+    text, meta = fn(inc)
+    AI_DRAFTS.labels(kind=kind, outcome="ok" if meta.get("ok") else "error").inc()
+    if meta.get("latency_ms") is not None:
+        AI_LATENCY.labels(kind=kind).observe(meta["latency_ms"] / 1000)
+    with _lock:
+        try:
+            inc = _load(iid)                       # re-read: webhooks may have landed meanwhile
+        except HTTPException:
+            return
+        inc[DRAFT_FIELD[kind]] = text
+        inc.setdefault("ai_meta", {})[kind] = meta
+        inc["timeline"].append(_event("ai_draft_attached", draft=kind, ok=meta.get("ok", False),
+                                      model=meta.get("model"), latency_ms=meta.get("latency_ms")))
+        _save(inc)
+    log.info("ai draft attached", extra={"extra": {"incident": iid, "kind": kind, **{k: v for k, v in meta.items() if k != "kind"}}})
+
+
+def _schedule_draft(iid: str, kind: str):
+    if not ai.enabled():
+        # Attach the reason synchronously so the record says WHY there is no draft.
+        with _lock:
+            inc = _load(iid)
+            inc[DRAFT_FIELD[kind]] = "(AI draft unavailable: no provider configured)"
+            _save(inc)
+        AI_DRAFTS.labels(kind=kind, outcome="disabled").inc()
+        return
+    threading.Thread(target=_draft, args=(iid, kind), daemon=True, name=f"draft-{kind}-{iid}").start()
+
+
 # --------------------------------------------------------------- receiver ---
 @app.post("/alertmanager")
 async def receive(request: Request):
@@ -216,11 +270,13 @@ async def receive(request: Request):
                or next((a["service"] for a in alerts if a.get("service")), None))
     join_key = service if (INCIDENT_JOIN == "service" and service) else group_key
 
+    opened_now = resolved_now = False
     with _lock:
         inc = _find_open(join_key)
 
         if status == "firing":
             if not inc:
+                opened_now = True
                 opened = _now()
                 first_seen = min((a["starts_at"] for a in alerts if a.get("starts_at")), default=opened)
                 iid = f"INC-{int(opened)}-{uuid.uuid4().hex[:4]}"
@@ -250,6 +306,7 @@ async def receive(request: Request):
             inc["groups"][group_key] = "resolved"
             inc["timeline"].append(_event("alerts_resolved", group_key=group_key, alerts=alerts))
             if all(v == "resolved" for v in inc["groups"].values()):
+                resolved_now = True
                 inc["status"] = "resolved"
                 inc["resolved_at"] = _now()
                 inc["resolved_at_iso"] = _iso(inc["resolved_at"])
@@ -262,6 +319,11 @@ async def receive(request: Request):
 
         _save(inc)
         _refresh_open_gauge()
+    # Outside the lock, outside the request's critical path.
+    if opened_now:
+        _schedule_draft(inc["id"], "open")
+    if resolved_now:
+        _schedule_draft(inc["id"], "resolved")
     return {"ok": True, "incident": inc["id"], "status": inc["status"]}
 
 
@@ -296,6 +358,28 @@ async def add_note(iid: str, request: Request):
         _save(inc)
     log.info("note added", extra={"extra": {"incident": iid}})
     return {"ok": True, "incident": iid, "events": len(inc["timeline"])}
+
+
+@app.post("/incidents/{iid}/draft")
+def redraft(iid: str, kind: str = "open", wait: bool = False):
+    """(Re)generate a draft — after notes were added, after a prompt change, or on a
+    record written before the AI existed. wait=true blocks until done (tools/inc.py)."""
+    if kind not in DRAFT_FIELD:
+        raise HTTPException(400, "kind must be open or resolved")
+    _load(iid)
+    if not ai.enabled():
+        _schedule_draft(iid, kind)
+        return {"ok": False, "incident": iid, "kind": kind, "note": "no AI provider configured"}
+    if wait:
+        _draft(iid, kind)
+        return {"ok": True, "incident": iid, "kind": kind, "draft": _load(iid).get(DRAFT_FIELD[kind])}
+    _schedule_draft(iid, kind)
+    return {"ok": True, "incident": iid, "kind": kind, "note": "drafting in background; poll the record"}
+
+
+@app.get("/ai")
+def ai_status():
+    return {"enabled": ai.enabled(), **ai.describe()}
 
 
 @app.delete("/incidents/{iid}")

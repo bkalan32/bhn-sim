@@ -7,6 +7,9 @@
     tools/inc.py note <id> "what you did"    append a bridge note (Day 9)
     tools/inc.py delete <id>                 lab only
     tools/inc.py webhook <firing|resolved>   post a SYNTHETIC Alertmanager webhook (smoke test)
+    tools/inc.py drafts <id>                 print the AI drafts on a record (Day 9)
+    tools/inc.py draft <id> <open|resolved>  (re)generate a draft now and print it (Day 9)
+    tools/inc.py ai                          which provider/model the bot is using
 
 How it reaches the bot: the Kubernetes API server can proxy HTTP to any Service
 (`kubectl get --raw /api/v1/namespaces/payments/services/incident-bot:8020/proxy/...`).
@@ -85,6 +88,26 @@ def cmd_timeline(iid):
             print(f"  {e['ts_iso']}  {e['event']:<17} {json.dumps({k: v for k, v in e.items() if k not in ('ts', 'ts_iso', 'event')})}")
 
 
+def cmd_drafts(iid):
+    inc = request("GET", f"/incidents/{iid}")
+    for kind, field in (("open", "ai_open_draft"), ("resolved", "ai_resolution_draft")):
+        meta = (inc.get("ai_meta") or {}).get(kind, {})
+        head = f"{kind.upper()} DRAFT"
+        if meta:
+            head += f"  [{meta.get('provider')}/{meta.get('model')}  {meta.get('latency_ms')} ms  " \
+                    f"{meta.get('input_tokens')}->{meta.get('output_tokens')} tokens]"
+        print("=" * 78); print(head); print("=" * 78)
+        print(inc.get(field) or "(none yet)"); print()
+
+
+def cmd_draft(iid, kind):
+    r = request("POST", f"/incidents/{iid}/draft?kind={kind}&wait=true")
+    if r.get("draft"):
+        print(r["draft"])
+    else:
+        print(json.dumps(r, indent=2))
+
+
 def cmd_webhook(status):
     """A synthetic webhook in Alertmanager's exact shape, service=smoke-test."""
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -112,6 +135,9 @@ def main(argv):
     elif c == "note":     print(json.dumps(request("POST", f"/incidents/{a[0]}/note", {"text": " ".join(a[1:])})))
     elif c == "delete":   print(json.dumps(request("DELETE", f"/incidents/{a[0]}")))
     elif c == "webhook":  cmd_webhook(a[0] if a else "firing")
+    elif c == "drafts":   cmd_drafts(a[0])
+    elif c == "draft":    cmd_draft(a[0], a[1] if len(a) > 1 else "open")
+    elif c == "ai":       print(json.dumps(request("GET", "/ai"), indent=2))
     else:
         print(__doc__); return 2
     return 0

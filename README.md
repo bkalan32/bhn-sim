@@ -31,6 +31,7 @@ cd ~/bhn-sim
 ./scripts/04-smoke-test.sh         # nginx up, curl, down
 ./scripts/05-install-monitoring.sh # prometheus + grafana + alertmanager
 ./scripts/07-jenkins.sh            # CI container on :8081
+./scripts/09-grafana-dashboards.sh # dashboards/*.json -> ConfigMaps (survive restarts; re-run after editing JSON)
 ./scripts/08-checkpoint.sh         # did Day 1 actually pass?
 
 # Day 2
@@ -88,6 +89,13 @@ cd ~/bhn-sim
 ./scripts/84-test-catches-bug.sh   # INC-0006 fix verified: velocity bug dies on a branch in seconds
 ./scripts/88-checkpoint-day8.sh
 
+# Day 9
+./scripts/90-ai-secret.sh          # API key -> Secret (verified first); --check / --remove / --ollama URL
+./scripts/91-ai-smoke.sh           # synthetic incident, both drafts, cost/latency, 1 minute
+./scripts/92-ai-drill.sh           # fraud outage with YOU as scribe; drafts at open and close
+./scripts/93-ai-resilience.sh      # provider off -> incident still records -> provider on
+./scripts/98-checkpoint-day9.sh
+
 # Any time, after a Docker restart / reboot
 ./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, front doors
 ./scripts/up.sh --check            # read-only
@@ -103,6 +111,7 @@ cd ~/bhn-sim
 | Node health | `kubectl get nodes` |
 | Monitoring pods | `kubectl get pods -n monitoring` |
 | Grafana | `./scripts/06-grafana.sh` → http://localhost:3000 (admin) — **open Platform Overview first** |
+| Dashboards gone after a restart | `./scripts/09-grafana-dashboards.sh` (they are ConfigMaps now; UI imports are not persistent) |
 | Prometheus | `./scripts/13-verify-scrape.sh` (or look the name up: `kubectl get svc -n monitoring -l app.kubernetes.io/name=prometheus`) |
 | Alertmanager | `kubectl get svc -n monitoring -l app.kubernetes.io/name=alertmanager` then port-forward it on 9093 |
 | Jenkins | http://localhost:8081 |
@@ -112,6 +121,7 @@ cd ~/bhn-sim
 | eGift API | http://localhost:30443/orders |
 | Service logs | `kubectl logs -n payments -l app=activation --tail=20 \| python3 tools/logfmt.py` |
 | **Incidents** | `python3 tools/inc.py list` · `timeline <id>` · `show <id>` · `note <id> "text"` |
+| **AI drafts** | `python3 tools/inc.py drafts <id>` · `draft <id> open\|resolved` (re-run) · `ai` (which provider) |
 | Alertmanager live config | `kubectl get --raw /api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-alertmanager:9093/proxy/api/v2/status` |
 | **Recover after restart** | `./scripts/up.sh` |
 | Stop everything | `wsl --shutdown` (PowerShell) |
@@ -178,6 +188,7 @@ Run `./scripts/02-verify.sh` to regenerate `checkpoints/day1-versions.txt`.
 | 6 | CI/CD, bad deploy, rollback | ☐ |
 | 7 | Health score and first fix | ☐ |
 | 8 | Alert routing + incident bot | ☐ |
+| 9 | AI summaries and comms | ☐ |
 
 ---
 
@@ -222,6 +233,13 @@ outage, append-only timeline, auto-resolve when every alert in it clears.
 label become tickets; `Watchdog` never does; `group_by: [service]`; `group_wait 15s`,
 `group_interval 2m`, `repeat_interval 4h`; `send_resolved: true`.
 
+**AI drafts (Day 9).** `ai.py` drafts the internal summary + stakeholder update at open and
+the resolution note + close-out + review skeleton at close, in a background thread, from the
+record only. *The AI drafts; a human decides.* Provider via `AI_PROVIDER`
+(`auto|anthropic|ollama|fake|none`), key in `secret/ai-keys` (`90-ai-secret.sh`) — never in
+a file. Metrics `ai_drafts_total{kind,outcome}`, `ai_draft_latency_seconds`. Grades live in
+`docs/ai-eval.md`.
+
 ⚠️ **Lab shortcuts, labelled:** records are JSON files on a single PVC (a real system uses a
 database and runs more than one replica); `DELETE /incidents/{id}` exists for the smoke test
 (real ticketing never deletes); no auth on the bot's API (it is only reachable in-cluster or
@@ -265,6 +283,8 @@ activate in well under a second.
 | `SETTLEMENT_FAIL_MODE` | `none` | `crash` (loud) · `silent` (zero records, exit 0) |
 | `SETTLEMENT_STRICT` | `true` (since Day 8) | `false` = the Day 5 behaviour: exit 0 on zero records |
 
+Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_last_success_timestamp` — it pushes with `pushadd` (POST) and only pushes the timestamp on real success.
+
 **The three queries, and what normal looks like**
 
 | Signal | PromQL | Normal |
@@ -285,5 +305,6 @@ activate in well under a second.
 - **[DAY6.md](DAY6.md)** · **[CORRECTIONS-DAY6.md](CORRECTIONS-DAY6.md)** · **[Jenkinsfile](Jenkinsfile)**
 - **[DAY7.md](DAY7.md)** · **[CORRECTIONS-DAY7.md](CORRECTIONS-DAY7.md)** · **[docs/health-score.md](docs/health-score.md)** · **[docs/week1-review.md](docs/week1-review.md)**
 - **[DAY8.md](DAY8.md)** · **[CORRECTIONS-DAY8.md](CORRECTIONS-DAY8.md)** · **[k8s/kps-values.yaml](k8s/kps-values.yaml)** · **[services/incident-bot/app.py](services/incident-bot/app.py)**
+- **[DAY9.md](DAY9.md)** · **[CORRECTIONS-DAY9.md](CORRECTIONS-DAY9.md)** · **[services/incident-bot/ai.py](services/incident-bot/ai.py)** · **[docs/ai-eval.md](docs/ai-eval.md)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up

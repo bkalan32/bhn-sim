@@ -4,7 +4,7 @@ WORKDIR /app
 COPY requirements.lock.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY settle.py .
-ARG APP_VERSION=0.2
+ARG APP_VERSION=0.3
 ENV APP_VERSION=${APP_VERSION} PYTHONUNBUFFERED=1
 USER appuser
 CMD ["python", "settle.py"]

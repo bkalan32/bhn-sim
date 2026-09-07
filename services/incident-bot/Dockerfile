@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.lock.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+COPY app.py ai.py .
 
 ARG APP_VERSION=0.1
 ENV APP_VERSION=${APP_VERSION} \

@@ -12,8 +12,12 @@ step "Unit tests first (the bot has tests — the PDF's does not)"
   pip install -q -r requirements.txt -r requirements-dev.txt
   python -m pytest -q tests/ ) || die "tests failed — fix services/incident-bot before building"
 
-step "Building incident-bot:0.1"
-build_service incident-bot 0.1
+# The tag comes from the manifest, so this script builds whatever version the repo
+# currently declares (0.1 on Day 8, 0.2 on Day 9, ...). The pipeline is the normal path
+# from Day 8 on; this is the local fallback and the first-time bootstrap.
+TAG=$(grep -o 'image: incident-bot:[^ ]*' "$LAB_ROOT/k8s/incident-bot.yaml" | head -1 | cut -d: -f3)
+step "Building incident-bot:${TAG}"
+build_service incident-bot "$TAG"
 
 step "Deploying (PVC + Deployment + Service + ServiceMonitor)"
 k apply -f "$LAB_ROOT/k8s/incident-bot.yaml"

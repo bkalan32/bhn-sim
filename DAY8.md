@@ -165,10 +165,19 @@ keeps p95 at ~0.3s, and now INC-0001's fix is visible *in a ticket*. And the rec
 *what* fired and *when*, but not *why*: `fraud_service_timeout` is still only in Splunk.
 That's Day 9 and Day 10.
 
-**Step 6 — The overview.** Re-import `dashboards/overview.json` (Dashboards → New → Import
-→ upload → **Overwrite**). New bottom row: open incidents, incidents (24h) — a core
-operational KPI; teams get judged on its trend — last duration, webhooks delivered, bot
-scraped. Open incidents went 0 → 1 → 0 during the drill.
+**Step 6 — The overview, provisioned this time.** Step 4's `helm upgrade` rolled the
+Grafana pod, and the chart's Grafana has no persistent volume — every dashboard imported
+through the UI died with it. The Tempo *datasource* survived because Day 4 made it a
+ConfigMap. Do the same for the dashboards, once, forever:
+
+```bash
+./scripts/09-grafana-dashboards.sh
+```
+
+All four dashboards become ConfigMaps the sidecar loads in ~30s; they now survive
+upgrades, restarts and rebuilds. They're read-only in the UI (edit the JSON, re-run).
+The overview's new bottom row: open incidents, incidents (24h) — a core operational KPI;
+teams get judged on its trend — last duration, webhooks delivered, bot scraped.
 
 **Step 7 — Write it up.** `incidents/INC-0007.md` is scaffolded with the two lags that
 matter (fault → alert, recovery → close). Fill it from `python3 tools/inc.py timeline <id>`.
@@ -254,6 +263,7 @@ sentence that proves the whole chain.
 | Alertmanager never reloads | `kubectl logs -n monitoring alertmanager-kps-kube-prometheus-stack-alertmanager-0 -c config-reloader` |
 | Drill: alert firing in Prometheus, nothing in the bot | `kubectl logs -n monitoring alertmanager-kps-kube-prometheus-stack-alertmanager-0 \| grep -i webhook` — a 5xx from the bot? `kubectl logs -n payments deploy/incident-bot \| python3 tools/logfmt.py` |
 | Incident won't close for 10+ minutes | Which alert is still firing? BurnFast needs its 5m window clean. It will close. |
+| Grafana dashboards vanished after `81` | The upgrade rolled the pod; UI imports aren't persistent. `./scripts/09-grafana-dashboards.sh` — provisions them as ConfigMaps, permanently. |
 | Ten incidents opened right after `81` | You applied the PDF's routing, not `k8s/kps-values.yaml`. Re-run `81`, then `python3 tools/inc.py delete <id>` each. |
 | Jenkins dropdown lacks settlement / incident-bot | Run one build; parameters refresh after it. |
 | `53-bad-deploy.sh apply` now fails | Correct — the amount test caught it. `FORCE_BAD_DEPLOY=1` to ship it anyway (Day 10). |

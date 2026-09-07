@@ -22,12 +22,12 @@ import random
 import sys
 import time
 
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
+from prometheus_client import CollectorRegistry, Gauge, pushadd_to_gateway
 
 FAIL_MODE = os.getenv("SETTLEMENT_FAIL_MODE", "none").strip().lower()
 STRICT = os.getenv("SETTLEMENT_STRICT", "true").strip().lower() != "false"
 GATEWAY = os.getenv("PUSHGATEWAY", "pushgateway-prometheus-pushgateway.monitoring:9091")
-VERSION = os.getenv("APP_VERSION", "0.2")
+VERSION = os.getenv("APP_VERSION", "0.3")
 
 
 def log(level, msg, **fields):
@@ -38,10 +38,20 @@ def log(level, msg, **fields):
     print(json.dumps(rec, separators=(",", ":")), flush=True)
 
 
+# 0.3 FIX (found live on Day 8): two registries. A failed run used to push the WHOLE
+# registry with push_to_gateway (HTTP PUT = replace every metric in the group), and
+# since a failed run never set settlement_last_success_timestamp, it pushed it as 0.
+# The overview then read "56.7 years since last success" and SettlementStale fired
+# instantly — the failure erased the memory of the last success. Now:
+#   reg          everything a run always reports, success or failure
+#   reg_success  ONLY the last-success timestamp
+# both pushed with pushadd_to_gateway (HTTP POST = replace only metrics with the same
+# name), and reg_success only on success. A failure can no longer overwrite it.
 reg = CollectorRegistry()
+reg_success = CollectorRegistry()
 processed = Gauge("settlement_records_processed", "Records reconciled in last run", registry=reg)
 mismatches = Gauge("settlement_mismatches", "Records that did not reconcile", registry=reg)
-last_success = Gauge("settlement_last_success_timestamp", "Unix time of last SUCCESSFUL run", registry=reg)
+last_success = Gauge("settlement_last_success_timestamp", "Unix time of last SUCCESSFUL run", registry=reg_success)
 # ADDED vs the PDF: two more gauges so alerts can tell "did not run" apart from "ran and
 # failed" from "ran and lied". The PDF's single last_success timestamp cannot.
 last_run = Gauge("settlement_last_run_timestamp", "Unix time of last run, success or not", registry=reg)
@@ -54,7 +64,12 @@ def push(ok: bool):
     last_run.set(time.time())
     last_status.set(1 if ok else 0)
     try:
-        push_to_gateway(GATEWAY, job="settlement", registry=reg)
+        pushadd_to_gateway(GATEWAY, job="settlement", registry=reg)
+        # Only when a success timestamp was actually recorded this run. The lenient
+        # (Day 5) path exits 0 on zero records without setting it — pushing the gauge's
+        # default 0 would be the same bug through a different door.
+        if ok and last_success._value.get() > 0:
+            pushadd_to_gateway(GATEWAY, job="settlement", registry=reg_success)
     except Exception as e:  # noqa: BLE001
         log("ERROR", "metrics push failed", error=type(e).__name__, gateway=GATEWAY)
 

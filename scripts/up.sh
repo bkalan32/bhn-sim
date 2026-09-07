@@ -73,6 +73,10 @@ if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then
 try: print(len(json.load(sys.stdin)))
 except Exception: print("?")' 2>/dev/null || echo "?")
   [[ "$n" == 0 ]] && ok "no open incidents" || warn "$n open incident(s): python3 tools/inc.py list open"
+  AIP=$(bot_get /ai | python3 -c 'import json,sys
+try: d=json.load(sys.stdin); print(("%s/%s" % (d["provider"], d["model"])) if d.get("enabled") else "off")
+except Exception: print("?")' 2>/dev/null || echo "?")
+  [[ "$AIP" == off ]] && warn "AI drafts off (no provider) — ./scripts/90-ai-secret.sh   (Day 9+)" || ok "AI drafts: $AIP"
 else
   warn "incident-bot not deployed yet (Day 8)"
 fi

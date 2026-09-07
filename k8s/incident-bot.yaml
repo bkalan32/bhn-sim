@@ -46,14 +46,29 @@ spec:
         fsGroup: 10001
       containers:
         - name: incident-bot
-          image: incident-bot:0.1
+          image: incident-bot:0.2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8020
               name: http
+          # Day 9: the API key comes from the ai-keys secret (scripts/90-ai-secret.sh).
+          # FIX vs the PDF: `optional: true`. Without it the pod cannot START while the
+          # secret is missing — which is exactly the state the PDF asks you to test
+          # ("delete the key, confirm the incident still records"). Missing key = no
+          # drafts, never = no bot. (CORRECTIONS-DAY9.md B2)
+          envFrom:
+            - secretRef:
+                name: ai-keys
+                optional: true
           env:
             - name: DATA_DIR
               value: /data
+            # auto = anthropic if ANTHROPIC_API_KEY is set, else ollama if AI_BASE_URL is
+            # set, else none. Force "none" to test the no-AI path (93-ai-resilience.sh).
+            # AI_MODEL / AI_BASE_URL come from the secret too (env: wins over envFrom:,
+            # so they are deliberately NOT set here). Defaults live in ai.py.
+            - name: AI_PROVIDER
+              value: auto
             # service = one incident per service outage (default here)
             # group   = one incident per Alertmanager group (the PDF's behaviour)
             - name: INCIDENT_JOIN

@@ -28,11 +28,11 @@ def _free_port():
         return s.getsockname()[1]
 
 
-@pytest.fixture(scope="session")
-def base_url():
+def _start(extra_env):
     port = _free_port()
     data = tempfile.mkdtemp(prefix="incbot-")
-    env = {**os.environ, "DATA_DIR": data, "INCIDENT_JOIN": "service"}
+    env = {**os.environ, "DATA_DIR": data, "INCIDENT_JOIN": "service", **extra_env}
+    env.pop("ANTHROPIC_API_KEY", None)          # tests never touch the network
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1",
          "--port", str(port), "--log-level", "warning"],
@@ -51,12 +51,41 @@ def base_url():
     else:
         proc.kill()
         raise RuntimeError("server never became ready:\n" + proc.stdout.read().decode()[-2000:])
-    yield url
+    return proc, url
+
+
+def _stop(proc):
     proc.terminate()
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+
+
+@pytest.fixture(scope="session")
+def base_url():
+    # Day 9: the "fake" provider returns canned text with no network, so the whole
+    # draft-attachment path (background thread, timeline event, metrics) is exercised.
+    proc, url = _start({"AI_PROVIDER": "fake"})
+    yield url
+    _stop(proc)
+
+
+@pytest.fixture(scope="session")
+def base_url_noai():
+    proc, url = _start({"AI_PROVIDER": "none"})
+    yield url
+    _stop(proc)
+
+
+def wait_for(url, path, pred, timeout=10):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st, body = call(url, "GET", path)
+        if st == 200 and pred(body):
+            return body
+        time.sleep(0.2)
+    raise AssertionError(f"condition not met within {timeout}s for {path}")
 
 
 def call(url, method, path, body=None):
@@ -114,11 +143,12 @@ def test_full_lifecycle(base_url):
     assert inc["severity"] == "critical"            # ranked, not string-max'd
     assert set(inc["alerts"]) == {"ActivationHighErrorRate", "ActivationHighLatency"}
     assert inc["first_alert_at_iso"] == "2026-09-04T10:00:00Z"   # from startsAt, not receipt
-    assert [e["event"] for e in inc["timeline"]] == ["alerts_firing", "alerts_firing"]
+    # (the fake provider may already have appended an ai_draft_attached event — ignore those)
+    assert [e["event"] for e in inc["timeline"] if not e["event"].startswith("ai_")] == ["alerts_firing", "alerts_firing"]
 
     # 3. the scribe adds a note
     st, r = call(base_url, "POST", f"/incidents/{iid}/note", {"text": "Splunk: fraud_service_timeout on 100%"})
-    assert st == 200 and r["events"] == 3
+    assert st == 200 and r["events"] >= 3
 
     # 4. one group resolves -> still open (the other is still firing)
     call(base_url, "POST", "/alertmanager",
@@ -132,7 +162,20 @@ def test_full_lifecycle(base_url):
     st, inc = call(base_url, "GET", f"/incidents/{iid}")
     assert inc["status"] == "resolved"
     assert isinstance(inc["duration_min"], float)
-    assert inc["timeline"][-1]["event"] == "incident_resolved"
+    assert "incident_resolved" in [e["event"] for e in inc["timeline"]]   # not [-1]: a fake draft may land after it
+
+    # 5b. Day 9: drafts were attached in the background, by the fake provider
+    inc = wait_for(base_url, f"/incidents/{iid}",
+                   lambda i: i.get("ai_open_draft") and i.get("ai_resolution_draft"))
+    assert inc["ai_open_draft"].startswith("[fake open draft]")
+    assert inc["ai_resolution_draft"].startswith("[fake resolved draft]")
+    assert inc["ai_meta"]["open"]["ok"] is True
+    assert "ai_draft_attached" in [e["event"] for e in inc["timeline"]]
+    # a re-draft on demand, synchronously
+    st, r = call(base_url, "POST", f"/incidents/{iid}/draft?kind=resolved&wait=true")
+    assert st == 200 and r["draft"].startswith("[fake resolved draft]")
+    st, r = call(base_url, "POST", f"/incidents/{iid}/draft?kind=bogus")
+    assert st == 400
 
     # 6. list + metrics
     st, lst = call(base_url, "GET", "/incidents")
@@ -141,6 +184,7 @@ def test_full_lifecycle(base_url):
         txt = r.read().decode()
     assert "incidents_created_total 1.0" in txt
     assert "incidents_open 0.0" in txt
+    assert 'ai_drafts_total{kind="open",outcome="ok"} 1.0' in txt
 
     # 7. resolved for nothing open is harmless
     st, r = call(base_url, "POST", "/alertmanager",
@@ -161,3 +205,21 @@ def test_bad_note_rejected(base_url):
     st, _ = call(base_url, "POST", f"/incidents/{iid}/note", {"text": "   "})
     assert st == 400
     call(base_url, "DELETE", f"/incidents/{iid}")
+
+
+def test_works_without_ai(base_url_noai):
+    """The most important test in the file: no provider, incident still records."""
+    url = base_url_noai
+    st, r = call(url, "GET", "/ai")
+    assert st == 200 and r["enabled"] is False
+    st, r = call(url, "POST", "/alertmanager", am_payload("firing", G_CRIT, [("X", "critical")]))
+    assert st == 200 and r["status"] == "open"
+    iid = r["incident"]
+    st, inc = call(url, "GET", f"/incidents/{iid}")
+    assert inc["status"] == "open"
+    assert inc["ai_open_draft"].startswith("(AI draft unavailable")
+    call(url, "POST", "/alertmanager", am_payload("resolved", G_CRIT, [("X", "critical")]))
+    st, inc = call(url, "GET", f"/incidents/{iid}")
+    assert inc["status"] == "resolved" and inc["duration_min"] is not None
+    assert inc["ai_resolution_draft"].startswith("(AI draft unavailable")
+    call(url, "DELETE", f"/incidents/{iid}")

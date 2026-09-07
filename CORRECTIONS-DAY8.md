@@ -109,6 +109,27 @@ a safety net that only exists when someone remembers an env var is not a safety 
 
 ---
 
+## [BUG] B8 — The Helm upgrade wipes every UI-imported Grafana dashboard
+
+Not in the PDF, found live. The chart's Grafana has no PersistentVolume; UI imports live in
+SQLite inside the pod; `helm upgrade` re-stamps config checksums and rolls the pod. Four
+dashboards gone in Step 2 of the PDF's day, and it would happen again on every future
+upgrade or node restart. `09-grafana-dashboards.sh` provisions `dashboards/*.json` as
+ConfigMaps (label `grafana_dashboard: "1"`, `${DS_PROMETHEUS}` resolved to the provisioned
+uid) — the same mechanism Day 4 used for the Tempo datasource, which is why *that* survived.
+
+---
+
+## [NOTE] N1 — Alertmanager redacts webhook URLs in its status API
+
+`/api/v2/status` prints the live config with every `url:` under `webhook_configs` replaced by
+`<secret>`. The first version of the Day 8 checkpoint grepped for the URL and reported "not
+routing" while a real incident was being ticketed. Check for the receiver *name*
+(`name: incident-bot`), or better, for the effect (an incident arriving). Anything a config
+schema marks as a secret will be invisible through the API — verify by behaviour.
+
+---
+
 ## [DESIGN] D1 — `group_by: ["service"]`, and why
 
 The PDF offers `["alertname", "service"]` or `["service"]` and says "pick an opinion."
