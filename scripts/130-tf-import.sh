@@ -26,9 +26,13 @@ docker ps --format '{{.Names}}' | grep -qx splunk || die "splunk container not r
 ok "rendered Fluent Bit values present, Splunk at $(splunk_ip)"
 
 step "Pinning chart versions to what is installed (helm list -A)"
-helm list -A -o json --kube-context "$KUBE_CONTEXT" | python3 - <<'PY' > infra/local/chart-versions.auto.tfvars
+# helm's JSON goes through a file: a pipe into `python3 -` would fight the heredoc for stdin (B7)
+HL=$(mktemp); trap 'rm -f "$HL"' EXIT
+for _ in 1 2 3; do helm list -A -o json --kube-context "$KUBE_CONTEXT" > "$HL" 2>/dev/null && break; sleep 3; done
+[[ -s "$HL" ]] || die "helm list -A failed — try it by hand; if 'cluster unreachable', ./scripts/up.sh --check"
+python3 - "$HL" <<'PY' > infra/local/chart-versions.auto.tfvars
 import json, sys
-rel = {r["name"]: r for r in json.load(sys.stdin)}
+rel = {r["name"]: r for r in json.load(open(sys.argv[1]))}
 want = ["kps", "pushgateway", "tempo", "otel", "fluent-bit"]
 missing = [n for n in want if n not in rel]
 if missing:
