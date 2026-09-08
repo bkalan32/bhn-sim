@@ -227,3 +227,23 @@ def test_settlement_rerun_dry(rem):
     assert wait_notes(lambda n: any(i == "INC-settle" and "AUTO settlement-crash" in t and "create job settlement-remediator-" in t for i, t in n))
     st, hist = call(rem, "GET", "/actions")
     assert st == 200 and hist[0]["signature"] == "settlement-crash" and hist[0]["mode"] == "auto"
+
+
+def test_pod_check_reads_the_whole_document(tmp_path, monkeypatch):
+    """B11: the pre-action check must parse a REAL-sized pod object (far more than 1,500
+    chars), not a truncated tail. A fake kubectl prints one; DRY_RUN is off for this test."""
+    pod = {"metadata": {"name": "crashtest-x", "annotations": {f"k{i}": "v" * 80 for i in range(120)}},
+           "status": {"containerStatuses": [{"name": "crashtest", "restartCount": 6,
+                                             "state": {"terminated": {"exitCode": 1}},
+                                             "lastState": {"terminated": {"exitCode": 1}}}]}}
+    fake = tmp_path / "kubectl"
+    fake.write_text("#!/bin/sh\ncat <<'EOF'\n" + json.dumps(pod) + "\nEOF\n")
+    fake.chmod(0o755)
+    assert len(json.dumps(pod)) > 1500
+    sys.path.insert(0, APP_DIR)
+    import app as remediator          # imported once: prometheus metrics register on import
+    monkeypatch.setattr(remediator, "DRY_RUN", False)
+    monkeypatch.setattr(remediator, "KUBECTL", str(fake))
+    ok, why = remediator._pod_crashlooping("crashtest-x")
+    assert ok, why
+    assert "restarts=6" in why and "exit code 1" in why

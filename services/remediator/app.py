@@ -176,8 +176,11 @@ def _recent_deploy_minutes(service, within_min):
 
 
 # --------------------------------------------------------------- kubectl ----
-def _run(argv, timeout=200):
-    """kubectl as an argv list. Never a shell. DRY_RUN reports instead of acting."""
+def _run(argv, timeout=200, keep=1500):
+    """kubectl as an argv list. Never a shell. DRY_RUN reports instead of acting.
+    Output is trimmed to its last `keep` chars so a log dump cannot flood a note —
+    pass keep=None when the output is a document you will PARSE (a pod as JSON is far
+    longer than 1,500 chars; the tail of a JSON document is not JSON — B11)."""
     cmd = [KUBECTL, "-n", NS] + list(argv)
     if DRY_RUN:
         return True, "dry-run: " + " ".join(cmd)
@@ -187,7 +190,10 @@ def _run(argv, timeout=200):
         return False, f"timeout after {timeout}s: {' '.join(cmd)}"
     except FileNotFoundError:
         return False, f"{KUBECTL} not found"
-    return out.returncode == 0, (out.stdout + out.stderr).strip()[-1500:]
+    if out.returncode != 0:
+        return False, (out.stdout + out.stderr).strip()[-(keep or 1500):]
+    text = out.stdout if keep is None else (out.stdout + out.stderr).strip()[-keep:]
+    return True, text
 
 
 def _crashlooping_status(cs):
@@ -208,7 +214,7 @@ def _crashlooping_status(cs):
 
 def _pod_crashlooping(pod):
     """Verify the condition before acting: is THIS pod crash-looping right now?"""
-    ok, out = _run(["get", "pod", pod, "-o", "json"], timeout=20)
+    ok, out = _run(["get", "pod", pod, "-o", "json"], timeout=20, keep=None)
     if DRY_RUN:
         return True, "dry-run"
     if not ok:
@@ -292,7 +298,7 @@ def _verify_after(sig, ctx):
         return None
     time.sleep(90)
     app_label = ctx.get("service") or ""
-    ok, out = _run(["get", "pods", "-l", f"app={app_label}", "-o", "json"], timeout=20) if app_label else (False, "")
+    ok, out = _run(["get", "pods", "-l", f"app={app_label}", "-o", "json"], timeout=20, keep=None) if app_label else (False, "")
     if not ok:
         return None
     try:

@@ -124,6 +124,17 @@ follow-up) accepts CrashLoopBackOff *or* 3+ restarts with a non-zero last exit �
 the same flapping would make it refuse a real crash-loop as "stale". Lesson: pick the signal
 that accumulates, not the state that comes and goes.
 
+## [BUG] B11 — My own: the pod check parsed the tail of a JSON document
+
+Second live crash-loop drill: ticket at t+142 s, the remediator acted in a second — and
+refused: *"cannot parse pod: Extra data: line 1 column 19"*. `_run` trims every kubectl
+output to its last 1,500 characters so a log dump cannot flood a note; the pre-action check
+used the same helper to read the pod as JSON, and a pod object is far longer than that. The
+parser got the tail of a document. Right refusal, self-inflicted garbage. Fixed with a
+`keep=None` for anything that is parsed rather than quoted. The unit tests never caught it
+because `DRY_RUN` short-circuits the read — a test with a real (fake) kubectl is the
+follow-up.
+
 ---
 
 ## [DESIGN] D1 — The outcome is verified, not assumed
