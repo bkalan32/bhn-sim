@@ -41,6 +41,8 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 | 0010 | `INC-1788828923-e7d8` | bad deploy (Day 10, build 19) | ~156s (deploy 2.6 min before the alert) | 18s | 0s | 24s | – | 42s → **not counted** — the right cause was ranked second | half | rollback landed 0.3 min *before* the alert; hypothesis blamed the rollback |
 | 0011 | `INC-1788884439-d9d2` | fraud dependency (Day 11, copilot) | ~188s | 29s | _kpis.py_ | _kpis.py_ | – | bot: TTT + TTH (right) · **copilot: 22 s from the question = 157 s from the fault, 31 s BEFORE the alert** | **yes** (both) | copilot asked at t+135 s; its Q3 invented a deploy story (Eval 4b) |
 
+| 0014 | _Day 12 record_ | bad deploy, Verify skipped (Day 12, tier 2) | _kpis.py_ | | | | – | – | – | **alert → PROPOSED _N_ s → APPROVED _N_ s → EXECUTED _N_ s → RECOVERED _N_ s**; approve-to-recover **_N_ s** |
+
 Cascade tickets from the same faults (egift calls activation): `INC-1788827580-2365` (with 0009) and
 `INC-1788828924-519d` (with 0010) — TTT 25s/18s, TTH 22s/20s, no separate diagnosis graded.
 
@@ -63,6 +65,19 @@ evaluation interval, the same since Day 3. Ticketing (TTT) is stable at 18–30 
 (`group_wait: 15s` plus the webhook). Context arrives in the same second the ticket opens
 (TTX 0 s — all three collectors answered in under a second). The hypothesis lands 18–24 s
 later, of which ~14 s is two AI round-trips (open draft, then hypothesis).
+
+## Approve-to-recover (Day 12) next to the pipeline
+
+| Path | What recovers production | alert → recovered | who decides |
+|---|---|---|---|
+| Day 6/10 pipeline Verify | 120 s wait + ~30 s `rollout undo`, **before any alert** — but only for releases that went through the pipeline | n/a (recovers before detection); deploy → recovered ≈ 2.5 min | nobody |
+| Day 12 tier 2 | alert → PROPOSED (seconds) → a human runs `rem.py approve` → `rollout undo` (~30 s) → windows clear (2–5 min) | _fill in from 123-drill-tier2.sh_ | one human, one command |
+| Manual (Day 6 shape) | a human reads the dashboard, finds the deploy, types `rollout undo` | not recorded on Day 6 | one human, three steps |
+
+_Fill in after the drill, two sentences: the tier-2 number, and the honest caveat — the
+pipeline path is faster for deploys because it does not wait for an alert; the tier-2 path
+covers what the pipeline cannot (a release that slipped Verify, a config change, a rollback
+needed later) and turns "find the cause, decide, type" into "decide"._
 
 Cost line for the day: 6 tickets (2 drills × activation + egift, plus the invalid first run)
 × 3 AI calls = 18 calls, **42,869 tokens**, 190 s of model time. At Sonnet list prices

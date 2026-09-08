@@ -179,3 +179,7 @@ alertmanager_get() {
   local svc; svc="$(alertmanager_svc || true)"; [[ -n "$svc" ]] || return 0
   kubectl --context "$KUBE_CONTEXT" get --raw "/api/v1/namespaces/${MONITORING_NS}/services/${svc}:9093/proxy$1" 2>/dev/null || true
 }
+
+# ---------------------------------------------------------------- Day 12 ----
+REM_PROXY="/api/v1/namespaces/${PAYMENTS_NS}/services/remediator:8030/proxy"
+rem_get() { kubectl --context "$KUBE_CONTEXT" get --raw "${REM_PROXY}$1" 2>/dev/null || true; }

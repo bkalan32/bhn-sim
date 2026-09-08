@@ -77,6 +77,18 @@ except Exception: print("?")' 2>/dev/null || echo "?")
 try: d=json.load(sys.stdin); print(("%s/%s" % (d["provider"], d["model"])) if d.get("enabled") else "off")
 except Exception: print("?")' 2>/dev/null || echo "?")
   [[ "$AIP" == off ]] && warn "AI drafts off (no provider) — ./scripts/90-ai-secret.sh   (Day 9+)" || ok "AI drafts: $AIP"
+  # Day 12: the remediator — up, not in dry-run, fanned out, nothing waiting on a human
+  if k get deploy remediator -n "$PAYMENTS_NS" >/dev/null 2>&1; then
+    RS=$(rem_get /signatures | python3 -c 'import json,sys
+try: d=json.load(sys.stdin); print("dry-run" if d.get("dry_run") else "live")
+except Exception: print("?")' 2>/dev/null || echo "?")
+    case "$RS" in live) ok "remediator answering (live)";; dry-run) warn "remediator in DRY_RUN — actions are only described";; *) warn "remediator deployed but not answering via proxy";; esac
+    alertmanager_get /api/v2/status | grep -q remediator && ok "Alertmanager -> remediator fan-out live" || warn "Alertmanager not fanning out to the remediator — ./scripts/121-remediator-route.sh"
+    np=$(rem_get /pending | python3 -c 'import json,sys
+try: print(len(json.load(sys.stdin)))
+except Exception: print("?")' 2>/dev/null || echo "?")
+    [[ "$np" == 0 ]] && ok "no remediation proposals pending" || warn "$np proposal(s) waiting for a human: python3 tools/rem.py pending"
+  fi
   # Day 10: Splunk's container IP moves on restart; the enrich-config secret pins it.
   if k get secret enrich-config -n "$PAYMENTS_NS" >/dev/null 2>&1; then
     SURL=$(k get secret enrich-config -n "$PAYMENTS_NS" -o jsonpath='{.data.SPLUNK_URL}' | base64 -d 2>/dev/null || true)

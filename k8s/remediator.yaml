@@ -1,0 +1,161 @@
+# remediator — auto-remediation with the safety on (Day 12).
+# ServiceAccount + Role + RoleBinding + Deployment + Service + ServiceMonitor.
+#
+# The Role IS the safety. The PDF says "give its ServiceAccount a Role limited to pods
+# (delete), jobs (create) and the one deployment (rollback) in payments only … do not skip
+# it" — and then never writes it. Here it is, and the Day 12 checkpoint proves it with
+# `kubectl auth can-i --as=system:serviceaccount:payments:remediator`:
+#   can    delete pods, create jobs, patch deployment/activation          (the three actions)
+#   cannot read secrets, delete deployments, patch egift or settlement, anything cluster-wide
+# Every verb below maps to one line of app.py. Add an action, add a rule — never the reverse.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: remediator
+  namespace: payments
+  labels:
+    app: remediator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: remediator
+  namespace: payments
+  labels:
+    app: remediator
+rules:
+  # delete_pod: read the pod to confirm CrashLoopBackOff, then delete THAT pod.
+  # _verify_after lists the service's pods 90 s later to see whether the restart stuck.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  # rerun_settlement: `kubectl create job --from=cronjob/settlement`, wait, read its log.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    resourceNames: ["settlement"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create"]
+  # rollback_activation: `rollout undo` = get the deployment, list its ReplicaSets, patch the
+  # deployment's template back; `rollout status` watches it; `annotate` patches it.
+  # resourceNames pins it to ONE deployment: egift and settlement are out of reach.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["activation"]
+    verbs: ["get", "watch", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: remediator
+  namespace: payments
+  labels:
+    app: remediator
+subjects:
+  - kind: ServiceAccount
+    name: remediator
+    namespace: payments
+roleRef:
+  kind: Role
+  name: remediator
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remediator
+  namespace: payments
+  labels:
+    app: remediator
+spec:
+  replicas: 1                # PENDING and cooldowns are in memory: one replica, on purpose
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: remediator
+  template:
+    metadata:
+      labels:
+        app: remediator
+    spec:
+      serviceAccountName: remediator
+      automountServiceAccountToken: true     # kubectl in the pod authenticates with THIS token
+      containers:
+        - name: remediator
+          image: remediator:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8030
+              name: http
+          envFrom:
+            # GRAFANA_TOKEN (Editor) so a remediator rollback is annotated like a pipeline one —
+            # the Day 10 deploy collector reads those annotations. scripts/120-remediator-config.sh
+            - secretRef:
+                name: remediator-config
+                optional: true
+          env:
+            - name: NAMESPACE
+              value: payments
+            - name: BOT_URL
+              value: http://incident-bot.payments:8020
+            - name: GRAFANA_URL
+              value: http://kps-grafana.monitoring
+            # DRY_RUN=true makes every action a no-op that reports what it would run.
+            # Flip it to watch the whole flow with the safety fully on.
+            - name: DRY_RUN
+              value: "false"
+            - name: TOKEN_TTL_S
+              value: "1800"
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8030}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8030}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits:   {cpu: 300m, memory: 192Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: remediator
+  namespace: payments
+  labels:
+    app: remediator
+spec:
+  selector:
+    app: remediator
+  ports:
+    - port: 8030
+      targetPort: 8030
+      name: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: remediator
+  namespace: payments
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app: remediator
+  namespaceSelector:
+    matchNames: [payments]
+  endpoints:
+    - port: http
+      path: /metrics

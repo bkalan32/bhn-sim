@@ -4,10 +4,24 @@
 INC="$LAB_ROOT/tools/inc.py"
 
 field() { bot_get "/incidents/$1" | python3 -c 'import json,sys; d=json.load(sys.stdin); v=d.get(sys.argv[1]); print(v if v else "")' "$2" 2>/dev/null || true; }
-open_ids() { bot_get '/incidents?status=open' | python3 -c 'import json,sys
+open_ids() { open_ids_for activation; }
+open_ids_for() { bot_get '/incidents?status=open' | python3 -c 'import json,sys
 try: d=json.load(sys.stdin)
 except Exception: d=[]
-print(" ".join(i["id"] for i in d if i.get("service")=="activation"))' 2>/dev/null || true; }
+print(" ".join(i["id"] for i in d if i.get("service")==sys.argv[1]))' "$1" 2>/dev/null || true; }
+# Day 12: wait for a NEW open incident for any service. Prints its id.
+wait_open_for() {  # service before limit
+  local svc="$1" before="$2" limit="${3:-360}" t0 now cand id=""; t0=$(date +%s)
+  while (( $(date +%s) - t0 < limit )); do
+    sleep 10; now="$(open_ids_for "$svc")"
+    for cand in $now; do [[ " $before " == *" $cand "* ]] || id="$cand"; done
+    [[ -n "$id" ]] && { printf '%s' "$id"; return 0; }
+    printf '  t+%-4ss waiting for a %s ticket\n' "$(( $(date +%s) - t0 ))" "$svc" >&2
+  done
+  return 1
+}
+# Day 12: the [remediator] notes on a record, one per line, with times.
+rem_notes() { python3 "$INC" timeline "$1" | grep -F '[remediator]' || true; }
 err_now() { promql '100 * sum(rate(activation_requests_total{status="error"}[1m])) / clamp_min(sum(rate(activation_requests_total[1m])),0.001)' | python3 "$LAB_ROOT/tools/promjson.py" value '{:.0f}%'; }
 box() { printf '%s\n' "$1" | sed 's/^/  │ /'; }
 wait_field() { local v; for _ in $(seq 1 "$3"); do v=$(field "$1" "$2"); [[ -n "$v" ]] && { printf '%s' "$v"; return 0; }; sleep 3; done; return 1; }

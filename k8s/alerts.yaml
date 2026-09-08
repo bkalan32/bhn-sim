@@ -226,6 +226,39 @@ spec:
             runbook: "kubectl get pods -n payments -l app=incident-bot; kubectl logs -n payments deploy/incident-bot | python3 tools/logfmt.py"
 
     # ======================================================================
+    # Day 12 — what the remediator keys off, and monitoring the remediator.
+    # kube-prometheus-stack ships KubePodCrashLooping, but (a) it carries no `service`
+    # label, so our Day 8 routing drops it before either receiver sees it, and (b) it has
+    # `for: 15m` — a drill would wait a quarter of an hour. This rule fires after 2 minutes
+    # of CrashLoopBackOff in payments and derives the service label from the pod name, so
+    # it becomes a ticket AND a remediation trigger through the existing route.
+    - name: remediation
+      rules:
+        - alert: PaymentsPodCrashLooping
+          expr: |
+            label_replace(
+              max by (pod, container) (kube_pod_container_status_waiting_reason{namespace="payments", reason="CrashLoopBackOff"}) == 1,
+              "service", "$1", "pod", "^(activation|egift|settlement|incident-bot|remediator|crashtest)-.*")
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.pod }} is crash-looping ({{ $labels.container }})"
+            description: "CrashLoopBackOff for 2 minutes in payments. Remediation tier 1: the remediator deletes this pod once; if the replacement loops too, the failure is real."
+            runbook: "kubectl -n payments describe pod {{ $labels.pod }}; kubectl -n payments logs {{ $labels.pod }} --previous"
+        - alert: RemediatorDown
+          expr: |
+            up{job="remediator"} == 0 or absent(up{job="remediator"})
+          for: 2m
+          labels:
+            severity: warning
+            service: remediator
+          annotations:
+            summary: "remediator is not being scraped — tier-1 fixes and tier-2 proposals are not happening"
+            description: "Incidents still record (the bot is separate); nothing is being remediated or proposed."
+            runbook: "kubectl get pods -n payments -l app=remediator; kubectl logs -n payments deploy/remediator | python3 tools/logfmt.py"
+
+    # ======================================================================
     # Day 7 — health scores. The opinion lives in docs/health-score.md.
     # Rules evaluate in group order, so these depend on activation-slo above.
     # ======================================================================

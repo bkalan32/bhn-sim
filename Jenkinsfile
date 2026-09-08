@@ -19,9 +19,13 @@ pipeline {
   options { timestamps(); disableConcurrentBuilds() }
 
   parameters {
-    choice(name: 'SERVICE', choices: ['activation', 'egift', 'incident-bot', 'settlement'], description: 'Service to deploy (Day 8: incident-bot is a Deployment with no traffic metric; settlement is a CronJob)')
+    choice(name: 'SERVICE', choices: ['activation', 'egift', 'incident-bot', 'settlement', 'remediator'], description: 'Service to deploy (Day 8: incident-bot is a Deployment with no traffic metric; settlement is a CronJob; Day 12: remediator)')
     string(name: 'CHANGE_CAUSE', defaultValue: 'routine release', description: 'Why this deploy is happening (goes into rollout history and the Grafana annotation)')
     string(name: 'ERROR_THRESHOLD', defaultValue: '10', description: 'Fail Verify if post-deploy error rate (%) exceeds this OR 3x the pre-deploy baseline')
+    // Day 12, tier-2 drill ONLY: ship a bad release WITHOUT the pipeline's safety net, so the
+    // incident path (alert -> remediator proposal -> human approval -> rollback) is what
+    // recovers production. Never true for a real release; the build log shouts when it is.
+    booleanParam(name: 'SKIP_VERIFY', defaultValue: false, description: 'DRILL ONLY (Day 12): skip Verify and its auto-rollback')
   }
 
   environment {
@@ -102,11 +106,15 @@ pipeline {
           }
           env.DEPLOYED = 'true'
           grafanaAnnotate("deploy", "build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}")
+          if (params.SKIP_VERIFY) {
+            echo "!!!!!!!!!!  SKIP_VERIFY=true: NO Verify, NO auto-rollback. The remediator + a human approval is the safety net now (Day 12 drill).  !!!!!!!!!!"
+          }
         }
       }
     }
 
     stage('Verify') {
+      when { expression { !params.SKIP_VERIFY } }
       steps {
         script {
           // Day 8: three kinds of verification, because "did the deploy work?" means

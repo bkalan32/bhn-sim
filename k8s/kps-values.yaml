@@ -37,7 +37,8 @@ alertmanager:
         - matchers: ['alertname = "Watchdog"']
           receiver: "null"
         # Everything with one of our service labels becomes an incident.
-        - matchers: ['service =~ "activation|egift|settlement|incident-bot|smoke-test"']
+        # Day 12: + remediator (its own RemediatorDown) and crashtest (the tier-1 drill fixture)
+        - matchers: ['service =~ "activation|egift|settlement|incident-bot|remediator|crashtest|smoke-test"']
           receiver: incident-bot
           continue: false
     receivers:
@@ -49,4 +50,10 @@ alertmanager:
             # Alertmanager retries a failed webhook with backoff, so a bot restart does
             # not lose the notification. Keep the handler fast (Day 9: AI calls go in
             # the background, never inside this request).
+            max_alerts: 0
+          # Day 12: the same notification, fanned out to the remediator. Two consumers,
+          # one receiver — a second receiver would need its own route and could drift.
+          # send_resolved: the remediator withdraws pending proposals when the alerts clear.
+          - url: "http://remediator.payments:8030/alertmanager"
+            send_resolved: true
             max_alerts: 0

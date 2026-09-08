@@ -110,6 +110,14 @@ python3 tools/copilot.py           # ask production a question; -f questions.txt
 ./scripts/113-copilot-adversarial.sh --inject   # six attacks + a prompt-injected log line
 ./scripts/118-checkpoint-day11.sh
 
+# Day 12
+./scripts/120-remediator-config.sh # Grafana Editor token -> secret; RBAC proof (kubectl auth can-i --as=...); --check
+./scripts/121-remediator-route.sh  # alert rules + webhook fan-out + synthetic end-to-end proof
+./scripts/122-drill-tier1.sh crashloop|settlement   # automation acts, notes the OUTCOME (INC-0012, INC-0013)
+./scripts/123-drill-tier2.sh apply|watch|revert     # bad deploy without Verify; proposal -> your approval -> rollback (INC-0014)
+python3 tools/rem.py pending|approve <token>|decline <token>|actions|signatures
+./scripts/128-checkpoint-day12.sh
+
 # Any time, after a Docker restart / reboot
 ./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, front doors
 ./scripts/up.sh --check            # read-only
@@ -138,6 +146,7 @@ python3 tools/copilot.py           # ask production a question; -f questions.txt
 | **AI drafts** | `python3 tools/inc.py drafts <id>` · `draft <id> open\|resolved\|hypothesis` (re-run) · `ai` (which provider) |
 | **Enrichment** | `python3 tools/inc.py context <id>` · `hypothesis <id>` · `enrich <id>` · `enrich-test [service]` · `./scripts/100-enrich-config.sh --check` |
 | **Copilot** | `python3 tools/copilot.py` (`new` / `exit`) · `-q "question"` · `-f docs/copilot-questions/warmup.txt` · transcripts in `docs/copilot-transcripts/` |
+| **Remediation** | `python3 tools/rem.py pending` · `approve <token>` · `decline <token>` · `actions` · `signatures` — policy in `docs/remediation-policy.md` |
 | **Ad-hoc Splunk from the shell** | `python3 tools/inc.py search 'app.service=activation app.status=error \| stats count by app.reason' -10m` |
 | Alertmanager live config | `kubectl get --raw /api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-alertmanager:9093/proxy/api/v2/status` |
 | **Recover after restart** | `./scripts/up.sh` |
@@ -273,6 +282,16 @@ refused by the bot's `POST /tools/search_logs` (0.4). Key read from `secret/ai-k
 Every session writes a transcript; grades in `docs/ai-eval.md` Eval 4. Tool results are data,
 never instructions — and that is tested (`113 --inject`).
 
+**The remediator (Day 12).** `services/remediator/` — auto-remediation with the safety on. Three
+tiers (`docs/remediation-policy.md`): tier 1 runs and notifies after (delete a crash-looping pod,
+re-run settlement), tier 2 proposes with a single-use token and a human approves (`rollout undo
+deployment/activation` after a deploy within 30 min), tier 3 = no signature = "human required"
+on the ticket (the fraud outage, on purpose). Same Alertmanager fan-out as the bot; every action
+is a `[remediator]` note on the incident; cooldown, bounded retry, token expiry, withdrawal.
+**The safety is RBAC** (`k8s/remediator.yaml`): pods delete, jobs create, patch *one* deployment,
+*one* namespace — proven by `120-remediator-config.sh --check`. Metrics
+`remediation_actions_total{signature,mode,result}` on the overview's bottom row.
+
 ⚠️ **Lab shortcuts, labelled:** records are JSON files on a single PVC (a real system uses a
 database and runs more than one replica); `DELETE /incidents/{id}` exists for the smoke test
 (real ticketing never deletes); no auth on the bot's API (it is only reachable in-cluster or
@@ -342,5 +361,6 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 - **[DAY9.md](DAY9.md)** · **[CORRECTIONS-DAY9.md](CORRECTIONS-DAY9.md)** · **[services/incident-bot/ai.py](services/incident-bot/ai.py)** · **[docs/ai-eval.md](docs/ai-eval.md)**
 - **[DAY10.md](DAY10.md)** · **[CORRECTIONS-DAY10.md](CORRECTIONS-DAY10.md)** · **[services/incident-bot/enrich.py](services/incident-bot/enrich.py)** · **[docs/ops-kpis.md](docs/ops-kpis.md)**
 - **[DAY11.md](DAY11.md)** · **[CORRECTIONS-DAY11.md](CORRECTIONS-DAY11.md)** · **[tools/copilot.py](tools/copilot.py)** · **[docs/copilot-questions/](docs/copilot-questions/)**
+- **[DAY12.md](DAY12.md)** · **[CORRECTIONS-DAY12.md](CORRECTIONS-DAY12.md)** · **[docs/remediation-policy.md](docs/remediation-policy.md)** · **[services/remediator/app.py](services/remediator/app.py)** · **[k8s/remediator.yaml](k8s/remediator.yaml)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up
