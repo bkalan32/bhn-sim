@@ -234,17 +234,23 @@ spec:
     # it becomes a ticket AND a remediation trigger through the existing route.
     - name: remediation
       rules:
+        # Two signals OR'd, because the obvious one flaps: a container that exits instantly is
+        # mostly in the TERMINATED state and only briefly in waiting/CrashLoopBackOff between
+        # restarts, so a 30 s scrape can miss the waiting_reason series every time (found
+        # live, CORRECTIONS-DAY12 B10). The restart counter never flaps.
         - alert: PaymentsPodCrashLooping
           expr: |
             label_replace(
-              max by (pod, container) (kube_pod_container_status_waiting_reason{namespace="payments", reason="CrashLoopBackOff"}) == 1,
+              (max by (pod, container) (max_over_time(kube_pod_container_status_waiting_reason{namespace="payments", reason="CrashLoopBackOff"}[5m])) >= 1)
+              or
+              (max by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace="payments"}[10m])) >= 3),
               "service", "$1", "pod", "^(activation|egift|settlement|incident-bot|remediator|crashtest)-.*")
-          for: 2m
+          for: 1m
           labels:
             severity: warning
           annotations:
             summary: "{{ $labels.pod }} is crash-looping ({{ $labels.container }})"
-            description: "CrashLoopBackOff for 2 minutes in payments. Remediation tier 1: the remediator deletes this pod once; if the replacement loops too, the failure is real."
+            description: "Crash-looping in payments (CrashLoopBackOff seen in 5m, or 3+ restarts in 10m). Remediation tier 1: the remediator deletes this pod once; if the replacement loops too, the failure is real."
             runbook: "kubectl -n payments describe pod {{ $labels.pod }}; kubectl -n payments logs {{ $labels.pod }} --previous"
         - alert: RemediatorDown
           expr: |

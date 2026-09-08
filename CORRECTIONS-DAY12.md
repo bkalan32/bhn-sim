@@ -110,6 +110,20 @@ word (`got=$(… || true)`) and were right. A proof script that can say "leak" w
 none is worse than no proof — fixed to capture the word everywhere. The fourth time this
 repo has been bitten by "a command's exit status is not its answer".
 
+## [BUG] B10 — My own: the crash-loop signal flaps, and I keyed everything to it
+
+First live crash-loop drill: pod restarting, rule loaded and healthy, `0 series` for
+`kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"}`, no alert, no ticket.
+A container that exits instantly is *terminated* almost all the time and *waiting* in
+CrashLoopBackOff only for the backoff interval between restarts — 10 s, then 20 s — and
+kube-state-metrics emits the waiting-reason series only while the container is waiting. A
+30-second scrape can miss it every time early on. The restart counter never flaps.
+**Fix, twice:** the rule ORs `max_over_time(waiting_reason[5m]) >= 1` with
+`increase(restarts_total[10m]) >= 3`; and the remediator's pre-action check (and the 90 s
+follow-up) accepts CrashLoopBackOff *or* 3+ restarts with a non-zero last exit — otherwise
+the same flapping would make it refuse a real crash-loop as "stale". Lesson: pick the signal
+that accumulates, not the state that comes and goes.
+
 ---
 
 ## [DESIGN] D1 — The outcome is verified, not assumed

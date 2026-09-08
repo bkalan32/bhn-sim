@@ -190,8 +190,24 @@ def _run(argv, timeout=200):
     return out.returncode == 0, (out.stdout + out.stderr).strip()[-1500:]
 
 
+def _crashlooping_status(cs):
+    """A container is crash-looping if it is waiting in CrashLoopBackOff OR it has restarted
+    3+ times and its last exit was non-zero. The second clause matters: a container that
+    exits instantly is mostly TERMINATED and only briefly in CrashLoopBackOff, so a check
+    that insists on the waiting state refuses a real crash-loop as "stale" (B10)."""
+    w = (cs.get("state") or {}).get("waiting") or {}
+    if w.get("reason") == "CrashLoopBackOff":
+        return f"{cs.get('name')} restarts={cs.get('restartCount')} reason=CrashLoopBackOff"
+    last = (cs.get("lastState") or {}).get("terminated") or {}
+    cur = (cs.get("state") or {}).get("terminated") or {}
+    code = cur.get("exitCode", last.get("exitCode"))
+    if (cs.get("restartCount") or 0) >= 3 and code not in (None, 0):
+        return f"{cs.get('name')} restarts={cs.get('restartCount')} last exit code {code}"
+    return None
+
+
 def _pod_crashlooping(pod):
-    """Verify the condition before acting: is THIS pod in CrashLoopBackOff right now?"""
+    """Verify the condition before acting: is THIS pod crash-looping right now?"""
     ok, out = _run(["get", "pod", pod, "-o", "json"], timeout=20)
     if DRY_RUN:
         return True, "dry-run"
@@ -199,10 +215,10 @@ def _pod_crashlooping(pod):
         return False, out
     try:
         for cs in json.loads(out).get("status", {}).get("containerStatuses", []):
-            w = (cs.get("state") or {}).get("waiting") or {}
-            if w.get("reason") == "CrashLoopBackOff":
-                return True, f"{cs.get('name')} restarts={cs.get('restartCount')} reason=CrashLoopBackOff"
-        return False, "no container in CrashLoopBackOff"
+            why = _crashlooping_status(cs)
+            if why:
+                return True, why
+        return False, "no container in CrashLoopBackOff or with 3+ failed restarts"
     except Exception as e:  # noqa: BLE001
         return False, f"cannot parse pod: {e}"
 
@@ -282,8 +298,9 @@ def _verify_after(sig, ctx):
     try:
         for p in json.loads(out).get("items", []):
             for cs in p.get("status", {}).get("containerStatuses", []):
-                if ((cs.get("state") or {}).get("waiting") or {}).get("reason") == "CrashLoopBackOff":
-                    return f"restart did NOT stick: {p['metadata']['name']} is in CrashLoopBackOff again (restarts={cs.get('restartCount')}). This is real — a human is needed."
+                why = _crashlooping_status(cs)
+                if why:
+                    return f"restart did NOT stick: {p['metadata']['name']} is crash-looping again ({why}). This is real — a human is needed."
         return "restart stuck: no pod of this service is crash-looping 90 s later"
     except Exception:  # noqa: BLE001
         return None
