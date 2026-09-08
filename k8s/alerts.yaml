@@ -237,13 +237,16 @@ spec:
         # Two signals OR'd, because the obvious one flaps: a container that exits instantly is
         # mostly in the TERMINATED state and only briefly in waiting/CrashLoopBackOff between
         # restarts, so a 30 s scrape can miss the waiting_reason series every time (found
-        # live, CORRECTIONS-DAY12 B10). The restart counter never flaps.
+        # live, CORRECTIONS-DAY12 B10). The restart counter never flaps — but a range query over
+        # it keeps answering for ~10 min after a pod is DELETED, so the restart branch is ANDed
+        # with "the pod still exists" (kube_pod_info is an instant selector: gone means gone).
         - alert: PaymentsPodCrashLooping
           expr: |
             label_replace(
               (max by (pod, container) (max_over_time(kube_pod_container_status_waiting_reason{namespace="payments", reason="CrashLoopBackOff"}[5m])) >= 1)
               or
-              (max by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace="payments"}[10m])) >= 3),
+              (max by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace="payments"}[10m])) >= 3
+                and on (pod) group_left() max by (pod) (kube_pod_info{namespace="payments"})),
               "service", "$1", "pod", "^(activation|egift|settlement|incident-bot|remediator|crashtest)-.*")
           for: 1m
           labels:
