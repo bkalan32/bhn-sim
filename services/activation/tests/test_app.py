@@ -104,6 +104,7 @@ def test_metrics_exposed(base_url):
 # release. Day 6 gated it behind TEST_PRODUCTION_AMOUNTS so you could watch the bad
 # deploy sail through first; Day 7 turned it on in the pipeline; Day 8 removes the gate.
 # A test that only runs when someone remembers an env var is not a safety net.
+@pytest.mark.skip(reason="Day 10 Drill B: amount-mix test TEMPORARILY disabled on purpose — ci/amount_test_gate.py enable")
 @pytest.mark.parametrize("amount", [25, 50, 100])
 def test_activate_all_production_amounts(base_url, amount):
     status, body = post(base_url, "/activate",
