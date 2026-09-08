@@ -1,4 +1,5 @@
-# Jenkins with the tools the pipeline needs: docker CLI, kubectl, kind, python.
+# Jenkins with the tools the pipeline needs: docker CLI, kubectl, kind, python — and, from
+# Day 13, terraform for the nightly infra-drift-check job.
 #
 # LAB SHORTCUT, DO NOT COPY TO PRODUCTION: this runs as root with the host's Docker
 # socket mounted. That is equivalent to root on the host. A real company runs build
@@ -7,6 +8,7 @@ FROM jenkins/jenkins:lts
 USER root
 ARG KIND_VERSION=v0.33.0
 ARG DOCKER_CLI_VERSION=28.5.2
+ARG TERRAFORM_VERSION=1.13.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-venv python3-pip curl git ca-certificates jq \
@@ -27,6 +29,13 @@ RUN ARCH="$(dpkg --print-architecture)" \
  && curl -fsSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${ARCH}" \
  && chmod +x /usr/local/bin/kind \
  && kubectl version --client && kind --version
+
+# Day 13: terraform, pinned, from HashiCorp's release archive (same major as your WSL one).
+RUN ARCH="$(dpkg --print-architecture)" \
+ && curl -fsSLo /tmp/tf.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" \
+ && apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/* \
+ && unzip -q /tmp/tf.zip -d /usr/local/bin && rm /tmp/tf.zip && chmod +x /usr/local/bin/terraform \
+ && terraform version
 
 # /repo is bind-mounted from your home dir and owned by your WSL uid. Jenkins runs as
 # root here, so git refuses with "detected dubious ownership" — for both the pipeline's

@@ -1,0 +1,44 @@
+// bhn-sim infra-drift-check — Day 13.
+//
+// Nightly: terraform plan against the platform layer. Exit code 2 = the cluster no longer
+// matches the code = DRIFT = a failed build, which is an alert like any other.
+//
+// What makes this work from a Jenkins clone that has no state and no secrets:
+//   * infra/local/tf.sh reads the same state file your shell uses (TF_STATE_PATH -> /repo, the
+//     bind mount), the HEC token from the rendered values file on /repo, and Splunk's IP from
+//     docker inspect — the container has the docker CLI and the socket since Day 6.
+//   * -lock=false: a read-only plan must not leave a lock file in your working tree.
+//   * TF_PLUGIN_CACHE_DIR in jenkins_home: providers download once, not nightly.
+pipeline {
+  agent any
+  options { timestamps(); disableConcurrentBuilds() }
+  triggers { cron('H 3 * * *') }          // registered after the first run, like parameters (Day 8)
+  environment {
+    TF_STATE_PATH       = '/repo/infra/local/terraform.tfstate'
+    TF_PLUGIN_CACHE_DIR = '/var/jenkins_home/.terraform.d/plugin-cache'
+    TF_IN_AUTOMATION    = '1'
+  }
+  stages {
+    stage('Checkout') {
+      steps { sh 'rm -rf src && git clone -q /repo src && cd src && git log -1 --format="checking %h  %s"' }
+    }
+    stage('Plan') {
+      steps {
+        dir('src/infra/local') {
+          script {
+            sh 'mkdir -p "$TF_PLUGIN_CACHE_DIR"; test -f "$TF_STATE_PATH" || { echo "no state at $TF_STATE_PATH — run scripts/130-tf-import.sh first"; exit 1; }'
+            // pipefail so tee cannot hide terraform's exit code (a Day 12 lesson, B9)
+            def rc = sh(returnStatus: true, script: 'set -o pipefail; ./tf.sh plan -input=false -no-color -lock=false -detailed-exitcode 2>&1 | tee plan.txt')
+            if (rc == 2) {
+              sh 'grep -nE "^\\s*[~+-] |Plan:" plan.txt | head -30 || true'
+              error("INFRASTRUCTURE DRIFT: the cluster does not match infra/local. Read plan.txt; repair with ./infra/local/tf.sh apply (or fix the code if reality is right).")
+            }
+            if (rc != 0) { error("terraform plan failed (exit ${rc}) — see the log") }
+            echo "No drift: the platform layer matches the code."
+          }
+        }
+      }
+    }
+  }
+  post { always { archiveArtifacts artifacts: 'src/infra/local/plan.txt', allowEmptyArchive: true } }
+}

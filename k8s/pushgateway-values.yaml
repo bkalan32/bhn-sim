@@ -1,0 +1,13 @@
+# prometheus-pushgateway — the five --set flags from Day 5 (42-install-pushgateway.sh),
+# as a values file so Terraform and helm say the same thing (Day 13, CORRECTIONS B2).
+serviceMonitor:
+  enabled: true
+  # kube-prometheus-stack only picks up ServiceMonitors carrying its release label
+  additionalLabels:
+    release: kps
+  # the settlement job pushes its own `job`/`instance` labels; honor them instead of
+  # overwriting with the pushgateway's own (Day 5)
+  honorLabels: true
+resources:
+  requests: {cpu: 10m, memory: 32Mi}
+  limits:   {memory: 128Mi}

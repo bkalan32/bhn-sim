@@ -118,10 +118,37 @@ python3 tools/copilot.py           # ask production a question; -f questions.txt
 python3 tools/rem.py pending|approve <token>|decline <token>|actions|signatures
 ./scripts/128-checkpoint-day12.sh
 
+# Day 13
+./scripts/130-tf-import.sh         # pin chart versions from helm list, init, import 4 ns + 5 releases, plan
+./infra/local/tf.sh plan|apply     # the platform layer, from now on (splunk IP + HEC token supplied by the wrapper)
+./scripts/131-tf-change.sh         # one real change: repeat_interval 4h -> 6h, edit-plan-apply-commit
+./scripts/132-drift-drill.sh inject|detect|observe|repair   # a hand hot-fix, caught by plan, repaired by apply (INC-0015)
+./scripts/133-drift-check-job.sh [--prove]   # terraform into the Jenkins image; nightly infra-drift-check job
+./scripts/138-checkpoint-day13.sh
+
 # Any time, after a Docker restart / reboot
 ./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, front doors
 ./scripts/up.sh --check            # read-only
 ```
+
+---
+
+## Who owns what (Day 13)
+
+| Layer | Owner | Changes happen by | "What changed?" |
+|---|---|---|---|
+| **Platform** — namespaces, the five Helm releases (kube-prometheus-stack, pushgateway, tempo, otel-collector, fluent-bit) and their values | **Terraform owns it**: `infra/local/` | edit `k8s/*-values.yaml` or the `.tf` → `./infra/local/tf.sh plan` → read → `apply` → commit | `git log infra/local k8s/*-values.yaml`; drift = `terraform plan -detailed-exitcode` (nightly in Jenkins: `infra-drift-check`) |
+| **Application** — activation, egift, settlement, incident-bot, remediator | **CI/CD owns it**: `Jenkinsfile`, `k8s/<service>.yaml` | commit → Jenkins `deploy-service` → Verify → auto-rollback | rollout history, change-cause, Grafana deploy/rollback annotations, the bot's enrichment |
+| **Data / secrets** — HEC token, API key, Grafana tokens, Splunk password | scripts that mint them into Secrets (`22`, `90`, `100`, `120`) | re-run the script | never in git; Terraform state carries the Fluent Bit values and is gitignored |
+
+Two owners for one object is how fights start: the `payments` Namespace moved out of
+`k8s/activation.yaml` on Day 13 for that reason. "Who do I call about this layer?" is an
+incident-response question; this table is the answer.
+
+**Rebuild estimate.** Day 1 said 30 minutes of command replay. Now: `03-cluster-up.sh`,
+`./infra/local/tf.sh apply` (the whole platform layer, ~5 min), the secrets scripts, then one
+Jenkins build per service. State is local (`infra/local/terraform.tfstate`, gitignored — it
+holds the HEC token); in a company it lives in a remote backend with locking, same shape.
 
 ---
 
@@ -146,6 +173,7 @@ python3 tools/rem.py pending|approve <token>|decline <token>|actions|signatures
 | **AI drafts** | `python3 tools/inc.py drafts <id>` · `draft <id> open\|resolved\|hypothesis` (re-run) · `ai` (which provider) |
 | **Enrichment** | `python3 tools/inc.py context <id>` · `hypothesis <id>` · `enrich <id>` · `enrich-test [service]` · `./scripts/100-enrich-config.sh --check` |
 | **Copilot** | `python3 tools/copilot.py` (`new` / `exit`) · `-q "question"` · `-f docs/copilot-questions/warmup.txt` · transcripts in `docs/copilot-transcripts/` |
+| **Platform layer (IaC)** | `./infra/local/tf.sh plan` (drift?) · `apply` · `python3 tools/inc.py declare <service> "why"` for incidents nothing alerts on |
 | **Remediation** | `python3 tools/rem.py pending` · `approve <token>` · `decline <token>` · `actions` · `signatures` — policy in `docs/remediation-policy.md` |
 | **Ad-hoc Splunk from the shell** | `python3 tools/inc.py search 'app.service=activation app.status=error \| stats count by app.reason' -10m` |
 | Alertmanager live config | `kubectl get --raw /api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-alertmanager:9093/proxy/api/v2/status` |
@@ -362,5 +390,6 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 - **[DAY10.md](DAY10.md)** · **[CORRECTIONS-DAY10.md](CORRECTIONS-DAY10.md)** · **[services/incident-bot/enrich.py](services/incident-bot/enrich.py)** · **[docs/ops-kpis.md](docs/ops-kpis.md)**
 - **[DAY11.md](DAY11.md)** · **[CORRECTIONS-DAY11.md](CORRECTIONS-DAY11.md)** · **[tools/copilot.py](tools/copilot.py)** · **[docs/copilot-questions/](docs/copilot-questions/)**
 - **[DAY12.md](DAY12.md)** · **[CORRECTIONS-DAY12.md](CORRECTIONS-DAY12.md)** · **[docs/remediation-policy.md](docs/remediation-policy.md)** · **[services/remediator/app.py](services/remediator/app.py)** · **[k8s/remediator.yaml](k8s/remediator.yaml)**
+- **[DAY13.md](DAY13.md)** · **[CORRECTIONS-DAY13.md](CORRECTIONS-DAY13.md)** · **[infra/local/](infra/local/)** · **[ci/Jenkinsfile.drift](ci/Jenkinsfile.drift)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up

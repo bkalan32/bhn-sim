@@ -14,3 +14,9 @@ ci/kubeconfig-internal.yaml
 services/*/.venv/
 services/*/requirements.lock.txt
 .pytest_cache/
+# Day 13 — Terraform state carries secrets (Fluent Bit values); providers are re-downloaded
+infra/local/.terraform/
+infra/local/terraform.tfstate
+infra/local/terraform.tfstate.*
+infra/local/.terraform.tfstate.lock.info
+infra/local/plan.txt

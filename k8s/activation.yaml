@@ -7,11 +7,9 @@
 #      separators themselves. An indented `---` is not a document separator, so the
 #      Service and ServiceMonitor are swallowed into the Deployment document.
 # Either one alone makes `kubectl apply -f` fail. See CORRECTIONS-DAY2.md B1.
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: payments
+# The `payments` Namespace lived in this file from Day 2 to Day 12. From Day 13 it is
+# owned by Terraform (infra/local/namespaces.tf) — one object, one owner. On a fresh
+# cluster, `./infra/local/tf.sh apply` runs before any app deploy (README: rebuild).
 ---
 apiVersion: apps/v1
 kind: Deployment

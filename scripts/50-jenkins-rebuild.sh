@@ -12,15 +12,15 @@ ok "ci/kubeconfig-internal.yaml (gitignored — it contains cluster credentials)
 dim "The normal kubeconfig says 127.0.0.1:<random port>. From inside a container that is the"
 dim "container itself. --internal says https://bhn-sim-control-plane:6443, which Docker DNS resolves."
 
-step "Building jenkins-lab image (jenkins/jenkins:lts + docker + kubectl + kind; ~2-4 min first time)"
+step "Building jenkins-lab image (jenkins/jenkins:lts + docker + kubectl + kind + terraform; ~2-4 min first time)"
 # Not -q: if a tool install fails you want to SEE it, not a green tick over a broken image.
 docker build -t jenkins-lab -f ci/Dockerfile.jenkins ci/ 2>&1 | grep -E '^(Step|#[0-9]+ (DONE|ERROR)|.*version|.*Docker version|.*kind v)' | sed 's/^/  /' || true
 docker image inspect jenkins-lab >/dev/null 2>&1 || die "image build failed — scroll up for the failing step"
 # Prove the tools are in the image BEFORE replacing the running container.
-for tool in docker kubectl kind git python3; do
+for tool in docker kubectl kind git python3 terraform; do
   docker run --rm --entrypoint sh jenkins-lab -c "command -v $tool" >/dev/null 2>&1 || die "$tool missing from the built image"
 done
-ok "built — docker, kubectl, kind, git, python3 all present"
+ok "built — docker, kubectl, kind, git, python3, terraform all present"
 
 step "Replacing the Day 1 container"
 docker rm -f jenkins >/dev/null 2>&1 || true

@@ -15,6 +15,9 @@
     tools/inc.py enrich <id>                 re-run the collectors on a record (Day 10)
     tools/inc.py enrich-test [service]       what the collectors see right now (Day 10)
     tools/inc.py search "<spl>" [earliest]   read-only Splunk search via the bot, e.g. -10m (Day 11)
+    tools/inc.py declare <service> "why"     open a HUMAN-DECLARED incident for a service (Day 13) —
+                                             the class of incident no alert fires for
+    tools/inc.py undeclare <service>         resolve it
 
 How it reaches the bot: the Kubernetes API server can proxy HTTP to any Service
 (`kubectl get --raw /api/v1/namespaces/payments/services/incident-bot:8020/proxy/...`).
@@ -159,21 +162,36 @@ def cmd_search(spl, earliest="-30m"):
     return 0
 
 
-def cmd_webhook(status):
-    """A synthetic webhook in Alertmanager's exact shape, service=smoke-test."""
+def cmd_webhook(status, service="smoke-test", alertname="SmokeTest", severity="warning",
+                summary="synthetic alert from tools/inc.py"):
+    """A synthetic webhook in Alertmanager's exact shape. Posted straight to the bot (not
+    through Alertmanager), so the remediator does not see it."""
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     payload = {
-        "version": "4", "groupKey": '{}/{service="smoke-test"}:{service="smoke-test"}',
+        "version": "4", "groupKey": '{}/{service="%s"}:{service="%s",declared="human"}' % (service, service),
         "status": status, "receiver": "incident-bot",
-        "groupLabels": {"service": "smoke-test"}, "commonLabels": {"service": "smoke-test"},
+        "groupLabels": {"service": service}, "commonLabels": {"service": service},
         "commonAnnotations": {}, "externalURL": "http://tools/inc.py", "truncatedAlerts": 0,
         "alerts": [{"status": status,
-                    "labels": {"alertname": "SmokeTest", "severity": "warning", "service": "smoke-test"},
-                    "annotations": {"summary": "synthetic alert from tools/inc.py"},
+                    "labels": {"alertname": alertname, "severity": severity, "service": service},
+                    "annotations": {"summary": summary},
                     "startsAt": now, "endsAt": now if status == "resolved" else "0001-01-01T00:00:00Z",
-                    "fingerprint": "smoketest"}],
+                    "fingerprint": f"{alertname.lower()}-{service}"}],
     }
     print(json.dumps(request("POST", "/alertmanager", payload)))
+
+
+def cmd_declare(service, why):
+    """Day 13: the incident class nothing alerts on — a customer report, a dashboard that
+    went blank, a colleague's 'is settlement OK?'. A human opens it; the record, the
+    enrichment and the KPI table work exactly as for an alert-opened one."""
+    cmd_webhook("firing", service=service, alertname="HumanDeclared", severity="warning",
+                summary=f"declared by a human: {why}")
+    incs = request("GET", "/incidents?status=open")
+    iid = next((i["id"] for i in incs if i.get("service") == service), None)
+    if iid:
+        request("POST", f"/incidents/{iid}/note", {"text": f"declared by a human: {why}", "author": os.getenv("USER", "human")})
+        print(f"  {iid} open for {service} — notes: python3 tools/inc.py note {iid} \"...\"   close: python3 tools/inc.py undeclare {service}")
 
 
 def main(argv):
@@ -194,6 +212,8 @@ def main(argv):
     elif c == "enrich":   request("POST", f"/incidents/{a[0]}/enrich"); cmd_context(a[0])
     elif c == "enrich-test": cmd_enrich_test(a[0] if a else "activation")
     elif c == "search":   return cmd_search(a[0], a[1] if len(a) > 1 else "-30m")
+    elif c == "declare":  cmd_declare(a[0], " ".join(a[1:]) or "no reason given")
+    elif c == "undeclare": cmd_webhook("resolved", service=a[0], alertname="HumanDeclared", summary="declared incident closed by a human")
     else:
         print(__doc__); return 2
     return 0

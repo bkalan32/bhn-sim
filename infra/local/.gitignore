@@ -1,0 +1,9 @@
+# State can contain secrets (the Fluent Bit values carry the HEC token). Never commit it.
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+.terraform.tfstate.lock.info
+plan.txt
+# tfvars are local except the committed chart-versions.auto.tfvars
+*.tfvars
+!chart-versions.auto.tfvars
