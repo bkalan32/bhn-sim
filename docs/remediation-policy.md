@@ -54,14 +54,14 @@ famous in post-mortems.
 
 | id | detects | action | tier | rationale |
 |---|---|---|---|---|
-| `pod-crashloop` | `PaymentsPodCrashLooping` (our rule: `CrashLoopBackOff` in `payments`, `for: 2m`, service label from the pod name) | delete **that** pod | 1 | the Deployment replaces it; strictly reversible; if it crash-loops again the note says so |
+| `pod-crashloop` | `PaymentsPodCrashLooping` (our rule: `CrashLoopBackOff` seen in 5 min **or** 3+ restarts in 10 min, the pod must still exist, `for: 1m`, service label from the pod name) | delete **that** pod, after confirming it is crash-looping right now | 1 | the Deployment replaces it; strictly reversible; if it crash-loops again the note says so |
 | `settlement-crash` | `SettlementJobFailed` | create a Job from the CronJob, wait for it, report; retry once after 3 min | 1 | settlement is idempotent on this platform (`pushadd`, `last_success` only on real success — Day 9) |
 | `post-deploy-errors` | `ActivationHighErrorRate` **and** a deploy of activation within the last 30 min (Grafana annotations, via the bot's collector) | `rollout undo deployment/activation` | 2 | rollback is the known fix but reverses someone's release — a human confirms with the token |
 | — | `ActivationHighErrorRate` with **no** recent deploy (the fraud outage) | none | 3 | the fix is outside the platform; page a human, fast |
 
 ## What we learned running it (filled in during the drills)
 
-- Tier 1, crash-loop: _the restart masked / did not mask the failure — INC-0012_
+- Tier 1, crash-loop (INC-0012): the restart masked nothing — the replacement pod crash-looped identically and the remediator said so 91 s later ("restart did NOT stick … this is real"). The value of tier 1 here was the *sentence*, not the restart. Three earlier attempts were refused by the pre-action check (a ghost alert for a deleted pod; twice a truncated pod document) — three refusals, zero wrong actions, every reason on the ticket. Rule 2 ("verify the condition before acting") paid for itself on day one.
 - Tier 1, settlement: _the re-run after the fix succeeded without a human touching kubectl — INC-0013_
 - Tier 2, rollback: _alert → proposal → approval → recovery in N s, vs the Day 6 pipeline's N — INC-0014_
 - Tier 3: _the fraud outage got "human required" on the ticket within N s of opening_
