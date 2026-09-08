@@ -83,6 +83,16 @@ the JSON in half. Split into `get_incidents` (the summary list) and `get_inciden
 record, timeline capped, and the AI's own drafts **removed**: a model quoting a model is
 not evidence).
 
+## [BUG] B8 — My own: the search endpoint answered 422 to `kubectl --raw`
+
+Found by the preflight. `kubectl create --raw … -f body.json` sends the body with no JSON
+content-type; FastAPI's `Body()` parser rejects that with a 422, which kubectl renders as
+"The request is invalid: : unknown". The Day 8 endpoints read `await request.json()`,
+which does not care about the header — and now this one does too, with the 20-second
+Splunk call pushed into a threadpool (`run_in_threadpool`) so an `async def` handler still
+never blocks the process. Lesson kept: the preflight exists so that the *hands* fail before
+the model is in the loop; it did its job on the first run.
+
 ---
 
 ## [DESIGN] D1 — Transcripts are written, always

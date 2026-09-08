@@ -68,7 +68,8 @@ import threading
 import time
 import uuid
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
@@ -459,14 +460,19 @@ def enrich_test(service: str = "activation"):
 
 
 @app.post("/tools/search_logs")
-def tool_search_logs(body: dict = Body(default={})):
+async def tool_search_logs(request: Request):
     """Day 11. Read-only by construction (enrich.validate_spl). Returns rows + meta; never 5xx
     for a bad search — the copilot needs the *reason* as a tool result, not an exception.
-    A plain `def`, not `async def`: Splunk can take 20 s, and a blocking call inside an
-    async handler freezes the whole process, probes included (CORRECTIONS-DAY9 B1)."""
+    The body is read with request.json() (kubectl --raw sends no JSON content-type, and
+    FastAPI's Body() parser rejects that with a 422); the Splunk call, which can take 20 s,
+    runs in a threadpool so it never blocks the event loop (CORRECTIONS-DAY9 B1)."""
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
     body = body or {}
-    out = enrich.search_logs(str(body.get("spl", "")), str(body.get("earliest", "-30m") or "-30m"),
-                             body.get("limit", 50))
+    out = await run_in_threadpool(enrich.search_logs, str(body.get("spl", "")),
+                                  str(body.get("earliest", "-30m") or "-30m"), body.get("limit", 50))
     TOOL_CALLS.labels(tool="search_logs", outcome="ok" if out["meta"].get("ok") else "error").inc()
     log.info("tool search_logs", extra={"extra": {"ok": out["meta"].get("ok"), "count": out["count"],
                                                   "latency_ms": out["meta"].get("latency_ms"), "spl": out["spl"][:200]}})
