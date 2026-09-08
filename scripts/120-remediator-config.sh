@@ -40,8 +40,14 @@ rbac_proof() {
   chk no delete jobs
   chk no create pods
   chk no get configmaps
-  k auth can-i delete pods -n monitoring --as="$SA" 2>/dev/null | grep -qx no && ok "no  delete pods in monitoring (namespace-scoped)" || { warn "yes delete pods in monitoring — the Role leaked out of payments"; fail=1; }
-  k auth can-i get nodes --as="$SA" 2>/dev/null | grep -qx no && ok "no  get nodes (cluster-wide)" || { warn "yes get nodes"; fail=1; }
+  # `kubectl auth can-i` EXITS 1 when the answer is "no". Under pipefail, `can-i | grep no`
+  # therefore fails on the very answer we want — so capture the word, never pipe the status.
+  # (Found live: the first run reported two leaks that did not exist. CORRECTIONS-DAY12 B9)
+  local got
+  got=$(k auth can-i delete pods -n monitoring --as="$SA" 2>/dev/null || true)
+  [[ "$got" == no ]] && ok "no  delete pods in monitoring (namespace-scoped)" || { warn "$got delete pods in monitoring — the Role leaked out of payments"; fail=1; }
+  got=$(k auth can-i get nodes --as="$SA" 2>/dev/null || true)
+  [[ "$got" == no ]] && ok "no  get nodes (cluster-wide)" || { warn "$got get nodes"; fail=1; }
   return $fail
 }
 

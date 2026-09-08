@@ -100,6 +100,16 @@ There is no such parameter; commenting out a stage means committing a broken Jen
 the parameter appears in the form only after one build with the new Jenkinsfile (the
 remediator's first deploy does that).
 
+## [BUG] B9 — My own: the RBAC proof reported two leaks that did not exist
+
+First live run: *"yes delete pods in monitoring"*, *"yes get nodes"*. `kubectl auth can-i
+--list` showed nothing of the kind. Cause: `kubectl auth can-i` **exits 1 when the answer is
+"no"**, and under `pipefail` the line `can-i … | grep -qx no` fails on exactly the answer it
+is looking for, so the `||` branch printed the warning. The other twelve checks captured the
+word (`got=$(… || true)`) and were right. A proof script that can say "leak" when there is
+none is worse than no proof — fixed to capture the word everywhere. The fourth time this
+repo has been bitten by "a command's exit status is not its answer".
+
 ---
 
 ## [DESIGN] D1 — The outcome is verified, not assumed
