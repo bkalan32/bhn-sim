@@ -41,7 +41,8 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 | 0010 | `INC-1788828923-e7d8` | bad deploy (Day 10, build 19) | ~156s (deploy 2.6 min before the alert) | 18s | 0s | 24s | – | 42s → **not counted** — the right cause was ranked second | half | rollback landed 0.3 min *before* the alert; hypothesis blamed the rollback |
 | 0011 | `INC-1788884439-d9d2` | fraud dependency (Day 11, copilot) | ~188s | 29s | _kpis.py_ | _kpis.py_ | – | bot: TTT + TTH (right) · **copilot: 22 s from the question = 157 s from the fault, 31 s BEFORE the alert** | **yes** (both) | copilot asked at t+135 s; its Q3 invented a deploy story (Eval 4b) |
 
-| 0014 | _Day 12 record_ | bad deploy, Verify skipped (Day 12, tier 2) | _kpis.py_ | | | | – | – | – | **alert → PROPOSED _N_ s → APPROVED _N_ s → EXECUTED _N_ s → RECOVERED _N_ s**; approve-to-recover **_N_ s** |
+| 0014 | `INC-1788906062-bf85` | bad deploy, Verify skipped (Day 12, tier 2, run 2) | ~190s (deploy 3.2 min before the alert) | 28s | _kpis.py_ | _kpis.py_ | – | – (the remediator's signature IS the diagnosis: deploy 3.2 min before) | **yes** | **alert → PROPOSED 28 s → APPROVED +35 s → EXECUTED +13 s → RECOVERED +313 s**; approve → production healthy ~60 s; approve → alert resolved 326 s |
+| 0014-r1 | `INC-1788904287-7074` | same, run 1 (verification forbidden — B13) | ~190s | 18s | | | – | – | yes (rollback) | PROPOSED +3 s → APPROVED +686 s → EXECUTED FAILED +185 s (rollback done, `rollout status` forbidden) → RECOVERED +210 s; alert → resolved 1102 s |
 
 Cascade tickets from the same faults (egift calls activation): `INC-1788827580-2365` (with 0009) and
 `INC-1788828924-519d` (with 0010) — TTT 25s/18s, TTH 22s/20s, no separate diagnosis graded.
@@ -71,13 +72,18 @@ later, of which ~14 s is two AI round-trips (open draft, then hypothesis).
 | Path | What recovers production | alert → recovered | who decides |
 |---|---|---|---|
 | Day 6/10 pipeline Verify | 120 s wait + ~30 s `rollout undo`, **before any alert** — but only for releases that went through the pipeline | n/a (recovers before detection); deploy → recovered ≈ 2.5 min | nobody |
-| Day 12 tier 2 | alert → PROPOSED (seconds) → a human runs `rem.py approve` → `rollout undo` (~30 s) → windows clear (2–5 min) | _fill in from 123-drill-tier2.sh_ | one human, one command |
+| Day 12 tier 2 | alert → PROPOSED (0–3 s) → a human runs `rem.py approve` (35 s in run 2) → `rollout undo` + verified (13 s) → windows clear (~5 min) | **389 s** alert → alert resolved; ~90 s alert → production healthy | one human, one command |
 | Manual (Day 6 shape) | a human reads the dashboard, finds the deploy, types `rollout undo` | not recorded on Day 6 | one human, three steps |
 
-_Fill in after the drill, two sentences: the tier-2 number, and the honest caveat — the
-pipeline path is faster for deploys because it does not wait for an alert; the tier-2 path
-covers what the pipeline cannot (a release that slipped Verify, a config change, a rollback
-needed later) and turns "find the cause, decide, type" into "decide"._
+Run 2 of the tier-2 drill: 28 s from the first alert to a proposal on the ticket, 35 s for the
+human to read it and say yes, 13 s to roll back and verify — production was healthy about
+90 s after the alert, and the alert itself resolved 389 s after it fired (its 2-minute window
+plus Alertmanager's cycle: two clocks, both recorded). The honest caveat: the pipeline path
+is faster *for deploys* because it does not wait for an alert; the tier-2 path covers what
+the pipeline cannot — a release that slipped Verify, a config change, a rollback needed an
+hour later — and turns "find the cause, decide, type" into "decide". Run 1 is kept next to
+it: the rollback took the same 60 s, the verification was forbidden by one missing RBAC
+verb, and the remediator said FAILED rather than guessing.
 
 Cost line for the day: 6 tickets (2 drills × activation + egift, plus the invalid first run)
 × 3 AI calls = 18 calls, **42,869 tokens**, 190 s of model time. At Sonnet list prices

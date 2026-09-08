@@ -63,8 +63,8 @@ famous in post-mortems.
 
 - Tier 1, crash-loop (INC-0012): the restart masked nothing — the replacement pod crash-looped identically and the remediator said so 91 s later ("restart did NOT stick … this is real"). The value of tier 1 here was the *sentence*, not the restart. Three earlier attempts were refused by the pre-action check (a ghost alert for a deleted pod; twice a truncated pod document) — three refusals, zero wrong actions, every reason on the ticket. Rule 2 ("verify the condition before acting") paid for itself on day one.
 - Tier 1, settlement (INC-0013): honest FAILED → announced bounded retry → cause fixed by a human inside the window → retry succeeded, `last_success` recovered, nobody ran `kubectl create job`. The first failure was the tool's (kubectl API discovery ate the 30 s timeout — B12), which is the strongest argument for rule 3: the note said "could not create job … timeout", not "re-run started". Two cooldown skips in between, each explained on the ticket.
-- Tier 2, rollback: _alert → proposal → approval → recovery in N s, vs the Day 6 pipeline's N — INC-0014_
-- Tier 3: _the fraud outage got "human required" on the ticket within N s of opening_
+- Tier 2, rollback (INC-0014): alert → PROPOSED 28 s, human 35 s, APPROVED → verified rollback 13 s; production healthy ~90 s after the alert, alert resolved 389 s after it (two clocks — keep them apart). Run 1 found the Role one verb short (`rollout status` lists before it watches): the rollback happened, the verification was forbidden, and the remediator reported FAILED — the right answer, and the reason rule 6's proof now asks sixteen questions instead of fourteen. Promotion log stays empty: two runs, one of them with a verification failure, is not five clean ones.
+- Tier 3: the synthetic proof (121) and every cascade ticket: "no remediation signature matched — tier 3: human required" lands within a second of the ticket opening, once per incident. The fraud outage has no signature by design, and the test suite asserts nobody adds one.
 
 ## Promotion log
 
