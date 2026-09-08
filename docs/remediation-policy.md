@@ -62,7 +62,7 @@ famous in post-mortems.
 ## What we learned running it (filled in during the drills)
 
 - Tier 1, crash-loop (INC-0012): the restart masked nothing — the replacement pod crash-looped identically and the remediator said so 91 s later ("restart did NOT stick … this is real"). The value of tier 1 here was the *sentence*, not the restart. Three earlier attempts were refused by the pre-action check (a ghost alert for a deleted pod; twice a truncated pod document) — three refusals, zero wrong actions, every reason on the ticket. Rule 2 ("verify the condition before acting") paid for itself on day one.
-- Tier 1, settlement: _the re-run after the fix succeeded without a human touching kubectl — INC-0013_
+- Tier 1, settlement (INC-0013): honest FAILED → announced bounded retry → cause fixed by a human inside the window → retry succeeded, `last_success` recovered, nobody ran `kubectl create job`. The first failure was the tool's (kubectl API discovery ate the 30 s timeout — B12), which is the strongest argument for rule 3: the note said "could not create job … timeout", not "re-run started". Two cooldown skips in between, each explained on the ticket.
 - Tier 2, rollback: _alert → proposal → approval → recovery in N s, vs the Day 6 pipeline's N — INC-0014_
 - Tier 3: _the fraud outage got "human required" on the ticket within N s of opening_
 

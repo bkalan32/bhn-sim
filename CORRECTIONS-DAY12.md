@@ -135,6 +135,19 @@ parser got the tail of a document. Right refusal, self-inflicted garbage. Fixed 
 because `DRY_RUN` short-circuits the read — a test with a real (fake) kubectl is the
 follow-up.
 
+## [BUG] B12 — My own: the first `kubectl create job` timed out on API discovery
+
+Settlement drill: the remediator's first attempt failed with *"timeout after 30s: kubectl
+create job … --from=cronjob/settlement"* — not the job crashing, kubectl never got that
+far. The first kubectl call in a fresh container runs API discovery, and kube-prometheus-
+stack installs dozens of CRDs; on a busy kind node that alone can exceed 30 s. The retry
+three minutes later had a warm cache and took seconds. Fixed: discovery is warmed in a
+background thread at startup (`kubectl api-resources`), and `create` gets 120 s. The
+self-heal still happened — honest FAILED, bounded retry, success after the fix — but the
+first failure was the tool's, and INC-0013 says so. Also: the drill scripts' `promql`
+helper (a 3-second port-forward race since Day 2) now uses the API-server proxy like
+everything else.
+
 ---
 
 ## [DESIGN] D1 — The outcome is verified, not assumed

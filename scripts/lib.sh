@@ -108,17 +108,14 @@ show_monitoring_svcs() {
   kubectl --context "$KUBE_CONTEXT" get svc -n "$MONITORING_NS" 2>&1 | sed 's/^/    /'
 }
 
-# Run a PromQL query through a temporary port-forward and return raw JSON.
+# Run a PromQL instant query and return raw JSON. Day 12: through the API server's service
+# proxy (like the bot and the copilot), not a temporary port-forward — the port-forward
+# raced its own 3-second sleep and, after a WSL restart, the localhost relay itself.
 promql() {
-  local q="$1" svc pf_pid out
+  local q="$1" svc enc
   svc="$(prom_svc)"; [[ -n "$svc" ]] || { echo '{"error":"prometheus service not found"}'; return 1; }
-  kubectl --context "$KUBE_CONTEXT" port-forward "svc/$svc" -n "$MONITORING_NS" 9090:9090 >/dev/null 2>&1 &
-  pf_pid=$!
-  sleep 3
-  out=$(curl -fsS --get --data-urlencode "query=${q}" http://localhost:9090/api/v1/query 2>/dev/null || echo '{}')
-  kill "$pf_pid" 2>/dev/null || true
-  wait "$pf_pid" 2>/dev/null || true
-  printf '%s' "$out"
+  enc=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$q")
+  kubectl --context "$KUBE_CONTEXT" get --raw "/api/v1/namespaces/${MONITORING_NS}/services/${svc}:9090/proxy/api/v1/query?query=${enc}" 2>/dev/null || echo '{}'
 }
 
 # ---------------------------------------------------------------- Day 3 -----

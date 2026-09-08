@@ -233,15 +233,24 @@ def _job_outcome(job, timeout_s=200):
     """Wait for a Job to finish. Returns (ok, detail)."""
     if DRY_RUN:
         return True, "dry-run: job would be awaited"
+    def last_line(job):
+        _, logs = _run(["logs", f"job/{job}", "--tail=3"], timeout=20, keep=None)
+        # settlement logs JSON: report the human parts (msg, records, reason), not a wall of it
+        for line in reversed((logs or "").strip().splitlines()):
+            try:
+                d = json.loads(line)
+                bits = [str(d.get("msg", ""))] + [f"{k}={d[k]}" for k in ("records", "reason", "exit_code") if k in d]
+                return " ".join(b for b in bits if b)
+            except Exception:  # noqa: BLE001
+                continue
+        return (logs or "").strip()[-200:]
     deadline = _now() + timeout_s
     while _now() < deadline:
         ok, out = _run(["get", "job", job, "-o", "jsonpath={.status.conditions[*].type}"], timeout=20)
         if ok and "Complete" in out:
-            _, logs = _run(["logs", f"job/{job}", "--tail=2"], timeout=20)
-            return True, logs[-300:] or "completed"
+            return True, f"Complete — {last_line(job) or 'completed'}"
         if ok and "Failed" in out:
-            _, logs = _run(["logs", f"job/{job}", "--tail=2"], timeout=20)
-            return False, f"job Failed. {logs[-300:]}"
+            return False, f"job Failed — {last_line(job)}"
         time.sleep(5)
     return False, f"job {job} did not finish within {timeout_s}s"
 
@@ -260,6 +269,20 @@ def _grafana_annotate(tag, service, text):
         return False
 
 
+def _warm_kubectl():
+    """kubectl's FIRST call in a fresh container runs API discovery — dozens of CRDs from
+    kube-prometheus-stack — and can take longer than an action's timeout on a busy node
+    (B12: the first live settlement re-run failed on exactly that). Pay it once, at start."""
+    if DRY_RUN:
+        return
+    t0 = _now()
+    ok, _ = _run(["api-resources", "--namespaced=true"], timeout=180, keep=100)
+    log.info("kubectl discovery warmed", extra={"extra": {"ok": ok, "seconds": round(_now() - t0)}})
+
+
+threading.Thread(target=_warm_kubectl, daemon=True, name="warm-kubectl").start()
+
+
 # --------------------------------------------------------------- actions ----
 def execute(sig, ctx):
     """Run the signature's action. Returns (ok, detail). ctx carries alert labels."""
@@ -275,7 +298,7 @@ def execute(sig, ctx):
         return ok, f"deleted {pod} ({why}). {out}"
     if action == "rerun_settlement":
         job = f"settlement-remediator-{int(_now())}"
-        ok, out = _run(["create", "job", job, "--from=cronjob/settlement"], timeout=30)
+        ok, out = _run(["create", "job", job, "--from=cronjob/settlement"], timeout=120)
         if not ok:
             return False, f"could not create job: {out}"
         ok, detail = _job_outcome(job)
