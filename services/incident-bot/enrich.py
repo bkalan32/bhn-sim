@@ -25,11 +25,13 @@ Differences from the PDF's enrich.py (CORRECTIONS-DAY10.md):
     relative to the incident's first alert — "a deploy 6 hours ago" and "a deploy 40
     seconds ago" must look different to the model
   * each collector reports ok/latency so a silent degradation shows up as a metric
+  * Day 11: search_logs() — a validated, read-only, ad-hoc search for the copilot
 """
 
 import base64
 import json
 import os
+import re
 import ssl
 import time
 import urllib.error
@@ -158,6 +160,72 @@ def top_log_reasons(service, minutes=10):
     if not out:
         return [{"note": f"no error-status events for {service} in the last {minutes}m"}], meta
     return out, meta
+
+
+# ------------------------------------------------- Day 11: ad-hoc search ---
+# The copilot (tools/copilot.py) runs on your laptop, which is not on the platform
+# network and does not hold the Splunk credential. The bot is, and does. So the bot
+# exposes ONE read-only search endpoint and the copilot borrows its eyes, not its
+# password. SPL is validated here: side-effect commands are refused, the time window is
+# a parameter (never inline in the SPL — the PDF's own troubleshooting note), and the
+# result set is capped.
+SPL_SIDE_EFFECTS = ("delete", "outputlookup", "outputcsv", "outputtext", "sendemail", "sendalert",
+                    "script", "collect", "mcollect", "meventcollect", "summaryindex", "tscollect",
+                    "run", "map", "rest", "dbxquery", "savedsearch", "loadjob", "runshellscript")
+_EARLIEST_RE = re.compile(r"^-\d{1,4}[smhd]$")
+_TIME_TOKEN_RE = re.compile(r"\b(earliest|latest)\s*=\s*\S+", re.I)
+
+
+def validate_spl(spl: str, earliest: str = "-30m"):
+    """Returns (effective_spl, earliest) or raises ValueError with the reason."""
+    s = (spl or "").strip()
+    if not s:
+        raise ValueError("empty search")
+    if s.lower().startswith("search "):
+        s = s[7:].strip()
+    if s.startswith("|"):
+        raise ValueError("generating commands (a leading '|') are not permitted; start with a search")
+    for cmd in SPL_SIDE_EFFECTS:
+        if re.search(r"\|\s*" + cmd + r"\b", s, re.I):
+            raise ValueError(f"'| {cmd}' is not permitted: read-only searches only")
+    if _TIME_TOKEN_RE.search(s):
+        s = _TIME_TOKEN_RE.sub("", s)          # one place for time bounds: the parameter
+        s = re.sub(r"\s{2,}", " ", s).strip()
+    if not re.search(r"\bindex\s*=", s, re.I):
+        s = "index=main " + s
+    if len(s) > 2000:
+        raise ValueError("search too long")
+    e = (earliest or "-30m").strip()
+    if not _EARLIEST_RE.match(e):
+        raise ValueError("earliest must look like -5m, -2h or -1d")
+    return s, e
+
+
+def search_logs(spl: str, earliest: str = "-30m", limit: int = 50):
+    """Splunk one-shot over REST, read-only. Never raises."""
+    try:
+        s, e = validate_spl(spl, earliest)
+    except ValueError as ex:
+        return {"rows": [], "count": 0, "spl": spl, "earliest": earliest,
+                "meta": {"ok": False, "error": f"rejected: {ex}", "latency_ms": 0}}
+    if not SPLUNK:
+        return {"rows": [], "count": 0, "spl": s, "earliest": e,
+                "meta": {"ok": False, "error": "SPLUNK_URL not configured (scripts/100-enrich-config.sh)", "latency_ms": 0}}
+    limit = max(1, min(int(limit or 50), 200))
+
+    def run():
+        body = urllib.parse.urlencode({"search": "search " + s, "output_mode": "json",
+                                       "exec_mode": "oneshot", "earliest_time": e, "count": limit}).encode()
+        auth = base64.b64encode(f"{SPLUNK_USER}:{SPLUNK_PASSWORD}".encode()).decode()
+        rows = _get(f"{SPLUNK}/services/search/jobs", headers={"Authorization": f"Basic {auth}"},
+                    data=body, timeout=TIMEOUT * 2, verify=SPLUNK_VERIFY).get("results", [])
+        # raw events carry Splunk's internal fields — keep what a responder reads
+        keep = []
+        for r in rows[:limit]:
+            keep.append({k: v for k, v in r.items() if not k.startswith("_") or k in ("_time", "_raw")})
+        return keep
+    out, meta = _timed(run)
+    return {"rows": out or [], "count": len(out or []), "spl": s, "earliest": e, "meta": meta}
 
 
 # --------------------------------------------------------------- entry -----

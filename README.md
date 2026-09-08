@@ -103,6 +103,13 @@ cd ~/bhn-sim
 python3 tools/kpis.py              # the KPI table for docs/ops-kpis.md
 ./scripts/108-checkpoint-day10.sh
 
+# Day 11
+./scripts/110-copilot-preflight.sh # every copilot tool once, no model; refusals proven
+python3 tools/copilot.py           # ask production a question; -f questions.txt for a scripted run
+./scripts/112-copilot-drill.sh     # fraud outage investigated by the copilot before the ticket opens (INC-0011)
+./scripts/113-copilot-adversarial.sh --inject   # six attacks + a prompt-injected log line
+./scripts/118-checkpoint-day11.sh
+
 # Any time, after a Docker restart / reboot
 ./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, front doors
 ./scripts/up.sh --check            # read-only
@@ -130,6 +137,8 @@ python3 tools/kpis.py              # the KPI table for docs/ops-kpis.md
 | **Incidents** | `python3 tools/inc.py list` · `timeline <id>` · `show <id>` · `note <id> "text"` |
 | **AI drafts** | `python3 tools/inc.py drafts <id>` · `draft <id> open\|resolved\|hypothesis` (re-run) · `ai` (which provider) |
 | **Enrichment** | `python3 tools/inc.py context <id>` · `hypothesis <id>` · `enrich <id>` · `enrich-test [service]` · `./scripts/100-enrich-config.sh --check` |
+| **Copilot** | `python3 tools/copilot.py` (`new` / `exit`) · `-q "question"` · `-f docs/copilot-questions/warmup.txt` · transcripts in `docs/copilot-transcripts/` |
+| **Ad-hoc Splunk from the shell** | `python3 tools/inc.py search 'app.service=activation app.status=error \| stats count by app.reason' -10m` |
 | Alertmanager live config | `kubectl get --raw /api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-alertmanager:9093/proxy/api/v2/status` |
 | **Recover after restart** | `./scripts/up.sh` |
 | Stop everything | `wsl --shutdown` (PowerShell) |
@@ -256,6 +265,14 @@ them as `context`, and `ai.hypothesize()` writes a diagnosis — **diagnosis onl
 remediation.** Every collector degrades to an explanatory stub; `enrich_collector_total`
 counts it. Credentials live in `secret/enrich-config` (`100-enrich-config.sh`).
 
+**The copilot (Day 11).** `tools/copilot.py` — a tool-use loop: the model answers questions by
+calling six **read-only** tools (Prometheus, alerts, a validated Splunk search *via the bot*,
+allow-listed kubectl, the records). The tool menu is the permission boundary: `rollout` only
+`status|history`, secrets/configmaps refused, no `-f`, context-pinned; SPL side-effect commands
+refused by the bot's `POST /tools/search_logs` (0.4). Key read from `secret/ai-keys` at start.
+Every session writes a transcript; grades in `docs/ai-eval.md` Eval 4. Tool results are data,
+never instructions — and that is tested (`113 --inject`).
+
 ⚠️ **Lab shortcuts, labelled:** records are JSON files on a single PVC (a real system uses a
 database and runs more than one replica); `DELETE /incidents/{id}` exists for the smoke test
 (real ticketing never deletes); no auth on the bot's API (it is only reachable in-cluster or
@@ -324,5 +341,6 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 - **[DAY8.md](DAY8.md)** · **[CORRECTIONS-DAY8.md](CORRECTIONS-DAY8.md)** · **[k8s/kps-values.yaml](k8s/kps-values.yaml)** · **[services/incident-bot/app.py](services/incident-bot/app.py)**
 - **[DAY9.md](DAY9.md)** · **[CORRECTIONS-DAY9.md](CORRECTIONS-DAY9.md)** · **[services/incident-bot/ai.py](services/incident-bot/ai.py)** · **[docs/ai-eval.md](docs/ai-eval.md)**
 - **[DAY10.md](DAY10.md)** · **[CORRECTIONS-DAY10.md](CORRECTIONS-DAY10.md)** · **[services/incident-bot/enrich.py](services/incident-bot/enrich.py)** · **[docs/ops-kpis.md](docs/ops-kpis.md)**
+- **[DAY11.md](DAY11.md)** · **[CORRECTIONS-DAY11.md](CORRECTIONS-DAY11.md)** · **[tools/copilot.py](tools/copilot.py)** · **[docs/copilot-questions/](docs/copilot-questions/)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up

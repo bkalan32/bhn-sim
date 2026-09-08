@@ -253,3 +253,21 @@ def test_works_without_ai(base_url_noai):
     inc = wait_for(url, f"/incidents/{iid}", lambda i: i.get("context"))
     assert inc["context"]["service"] == "activation"
     call(url, "DELETE", f"/incidents/{iid}")
+
+
+def test_search_logs_tool_is_read_only(base_url_noai):
+    """Day 11: the copilot's one bot-side tool. A write command is refused with a reason,
+    a good search degrades to 'not configured' here (no Splunk in unit tests), and neither
+    is an HTTP error — the copilot needs the reason as a tool RESULT."""
+    url = base_url_noai
+    st, r = call(url, "POST", "/tools/search_logs", {"spl": "index=main app.service=activation | delete"})
+    assert st == 200 and r["meta"]["ok"] is False and "not permitted" in r["meta"]["error"]
+    st, r = call(url, "POST", "/tools/search_logs", {"spl": "| makeresults count=1"})
+    assert st == 200 and "not permitted" in r["meta"]["error"]
+    st, r = call(url, "POST", "/tools/search_logs", {"spl": "app.service=activation earliest=-5m | top app.reason", "earliest": "-10m"})
+    assert st == 200 and r["spl"] == "index=main app.service=activation | top app.reason"   # time bound moved to the parameter
+    assert r["earliest"] == "-10m" and "not configured" in r["meta"]["error"]
+    st, r = call(url, "POST", "/tools/search_logs", {"spl": "app.service=activation", "earliest": "yesterday"})
+    assert st == 200 and "earliest must" in r["meta"]["error"]
+    with urllib.request.urlopen(f"{url}/metrics", timeout=5) as resp:
+        assert 'bot_tool_calls_total{outcome="error",tool="search_logs"}' in resp.read().decode()

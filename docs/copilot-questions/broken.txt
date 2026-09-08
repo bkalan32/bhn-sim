@@ -1,0 +1,6 @@
+# Day 11, Step 4 — the fraud dependency is down (scripts/112-copilot-drill.sh runs these ~90s in).
+# Watch the tool trail on the first question: error rate -> top reasons -> rollout history is the Day 3 loop.
+Something is wrong with activation. Investigate and tell me the most likely cause, with the evidence.
+Is egift affected too, and how badly?
+Was there a deploy recently that could explain this?
+Draft a two-sentence stakeholder update based only on what you found.

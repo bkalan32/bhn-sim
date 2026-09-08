@@ -31,6 +31,7 @@ Endpoints
   POST   /incidents/{id}/draft   ?kind=open|resolved|hypothesis — (re)generate an AI draft (Day 9/10)
   POST   /incidents/{id}/enrich  re-run the context collectors on a record (Day 10)
   GET    /enrich/test?service=x  run the collectors now and return what they see (Day 10)
+  POST   /tools/search_logs      {"spl": "...", "earliest": "-30m"} — validated, READ-ONLY Splunk search (Day 11)
   DELETE /incidents/{id}         lab convenience, used by the smoke test
   GET    /healthz  /readyz  /metrics  /ai
 
@@ -48,6 +49,13 @@ attaches them as `context`; then the open draft; then ai.hypothesize() writes a
 diagnosis (what we know / most likely cause / alternative / next checks / confidence)
 as `ai_hypothesis`. Diagnosis only, never remediation — that line is the central safety
 boundary of AI operations, crossed deliberately on a later day, not by accident here.
+
+Day 11 — one read-only tool for the copilot. tools/copilot.py runs on your laptop, which is
+not on the platform network and holds no Splunk credential; the bot is and does. So the
+bot lends its eyes: POST /tools/search_logs runs a validated SPL search (side-effect
+commands refused, time window a parameter, results capped) and nothing else. The
+copilot's other tools (Prometheus, kubectl, this bot's records) go through YOUR
+kubeconfig, so the permission boundary is: the tool allow-list, then RBAC.
 """
 
 import datetime as _dt
@@ -60,14 +68,14 @@ import threading
 import time
 import uuid
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 import ai
 import enrich
 
-VERSION = os.getenv("APP_VERSION", "0.3")
+VERSION = os.getenv("APP_VERSION", "0.4")
 ENRICH_ENABLED = os.getenv("ENRICH_ENABLED", "true").strip().lower() != "false"
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 INCIDENT_JOIN = os.getenv("INCIDENT_JOIN", "service").strip().lower()   # service | group
@@ -116,6 +124,7 @@ AI_LATENCY = Histogram("ai_draft_latency_seconds", "AI draft call latency", ["ki
 ENRICH = Counter("enrich_collector_total", "Context collector runs", ["collector", "outcome"])
 ENRICH_LATENCY = Histogram("enrich_latency_seconds", "Whole enrichment latency",
                            buckets=[0.5, 1, 2, 5, 10, 20, 40])
+TOOL_CALLS = Counter("bot_tool_calls_total", "Read-only tool calls served for the copilot (Day 11)", ["tool", "outcome"])
 BUILD_INFO = Gauge("incident_bot_build_info", "Build metadata", ["version"])
 BUILD_INFO.labels(version=VERSION).set(1)
 
@@ -447,6 +456,21 @@ def enrich_test(service: str = "activation"):
     """What would the collectors see right now? Used by scripts/100-enrich-config.sh."""
     ctx, meta = enrich.enrich(service, since_ts=time.time())
     return {"context": ctx, "collectors": meta}
+
+
+@app.post("/tools/search_logs")
+def tool_search_logs(body: dict = Body(default={})):
+    """Day 11. Read-only by construction (enrich.validate_spl). Returns rows + meta; never 5xx
+    for a bad search — the copilot needs the *reason* as a tool result, not an exception.
+    A plain `def`, not `async def`: Splunk can take 20 s, and a blocking call inside an
+    async handler freezes the whole process, probes included (CORRECTIONS-DAY9 B1)."""
+    body = body or {}
+    out = enrich.search_logs(str(body.get("spl", "")), str(body.get("earliest", "-30m") or "-30m"),
+                             body.get("limit", 50))
+    TOOL_CALLS.labels(tool="search_logs", outcome="ok" if out["meta"].get("ok") else "error").inc()
+    log.info("tool search_logs", extra={"extra": {"ok": out["meta"].get("ok"), "count": out["count"],
+                                                  "latency_ms": out["meta"].get("latency_ms"), "spl": out["spl"][:200]}})
+    return out
 
 
 @app.get("/ai")

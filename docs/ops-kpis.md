@@ -39,6 +39,7 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 | 0009-leak | `INC-1788825339-a7fd` | fraud dependency (Day 10, invalid) | 195s | 30s | 0s | 22s | – | (52s — not counted: the answer was in the input) | ⛔ | Eval 3-leak; logs collector "no events" (Fluent Bit → old Splunk IP) |
 | 0009 | `INC-1788827585-6b7f` | fraud dependency (Day 10) | **156s** | 25s | 0s | 18s | – (none needed) | **43s** (TTT 25 + TTH 18) | **yes** | 435× fraud_service_timeout, no deploys; medium confidence, honest |
 | 0010 | `INC-1788828923-e7d8` | bad deploy (Day 10, build 19) | ~156s (deploy 2.6 min before the alert) | 18s | 0s | 24s | – | 42s → **not counted** — the right cause was ranked second | half | rollback landed 0.3 min *before* the alert; hypothesis blamed the rollback |
+| 0011 | _Day 11 record_ | fraud dependency (Day 11, copilot) | _kpis.py_ | | | | – | _bot: TTT + TTH_ · **copilot: _N_ s from the question** | _eval 4b_ | asked at t+90 s, before the ticket |
 
 Cascade tickets from the same faults (egift calls activation): `INC-1788827580-2365` (with 0009) and
 `INC-1788828924-519d` (with 0010) — TTT 25s/18s, TTH 22s/20s, no separate diagnosis graded.

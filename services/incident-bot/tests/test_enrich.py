@@ -94,3 +94,26 @@ def test_deploys_carry_age_relative_to_alert():
     assert deploys[1]["minutes_before_first_alert"] == 1.5           # 90 s before
     assert deploys[0]["minutes_before_first_alert"] < 0              # after the alert
     assert deploys[2]["minutes_before_first_alert"] > 290            # the 5-hour-old one
+
+
+def test_validate_spl_rules():
+    """Day 11: what the read-only search endpoint accepts and refuses."""
+    e = _load({})
+    assert e.validate_spl("app.service=activation | stats count by app.reason") == \
+        ("index=main app.service=activation | stats count by app.reason", "-30m")
+    assert e.validate_spl("search index=main app.status=error earliest=-5m latest=now | top app.store_id", "-1h") == \
+        ("index=main app.status=error | top app.store_id", "-1h")
+    for bad in ("index=main | delete", "app.service=x | outputlookup foo", "app.service=x|sendemail to=a@b",
+                "app.service=x | map search=\"search x\"", "| rest /services/authentication/users", "", "app.service=x | script rm"):
+        try:
+            e.validate_spl(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted: {bad!r}")
+    try:
+        e.validate_spl("app.service=x", "-99y")
+        raise AssertionError("bad earliest accepted")
+    except ValueError:
+        pass
+    out = e.search_logs("app.service=x | collect index=other")
+    assert out["meta"]["ok"] is False and "rejected" in out["meta"]["error"] and out["rows"] == []

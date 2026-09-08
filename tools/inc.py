@@ -14,6 +14,7 @@
     tools/inc.py hypothesis <id>             the AI diagnosis (Day 10)
     tools/inc.py enrich <id>                 re-run the collectors on a record (Day 10)
     tools/inc.py enrich-test [service]       what the collectors see right now (Day 10)
+    tools/inc.py search "<spl>" [earliest]   read-only Splunk search via the bot, e.g. -10m (Day 11)
 
 How it reaches the bot: the Kubernetes API server can proxy HTTP to any Service
 (`kubectl get --raw /api/v1/namespaces/payments/services/incident-bot:8020/proxy/...`).
@@ -141,6 +142,23 @@ def cmd_enrich_test(service):
     print(json.dumps(r, indent=2))
 
 
+def cmd_search(spl, earliest="-30m"):
+    """Day 11: the same endpoint the copilot uses — handy for humans without the Splunk UI."""
+    r = request("POST", "/tools/search_logs", {"spl": spl, "earliest": earliest, "limit": 50})
+    m = r.get("meta", {})
+    if not m.get("ok"):
+        print(f"  {m.get('error')}"); return 1
+    rows = r.get("rows", [])
+    print(f"  {r['count']} rows · {m.get('latency_ms')} ms · earliest {r['earliest']} · spl: {r['spl']}")
+    if not rows:
+        return 0
+    cols = [c for c in rows[0].keys() if c != "_raw"][:8]
+    print("  " + "  ".join(f"{c:<20}" for c in cols))
+    for row in rows:
+        print("  " + "  ".join(f"{str(row.get(c, ''))[:20]:<20}" for c in cols))
+    return 0
+
+
 def cmd_webhook(status):
     """A synthetic webhook in Alertmanager's exact shape, service=smoke-test."""
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -175,6 +193,7 @@ def main(argv):
     elif c == "hypothesis": print(request("GET", f"/incidents/{a[0]}").get("ai_hypothesis") or "(none yet)")
     elif c == "enrich":   request("POST", f"/incidents/{a[0]}/enrich"); cmd_context(a[0])
     elif c == "enrich-test": cmd_enrich_test(a[0] if a else "activation")
+    elif c == "search":   return cmd_search(a[0], a[1] if len(a) > 1 else "-30m")
     else:
         print(__doc__); return 2
     return 0

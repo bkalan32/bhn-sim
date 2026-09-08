@@ -1,0 +1,7 @@
+# Day 11, Step 3 — interrogate a HEALTHY platform. Check every answer against Grafana yourself.
+# Grade in docs/ai-eval.md Eval 4: right tool? right query? right reading of the result?
+What is the overall platform health right now?
+What is the activation error rate and p95 latency over the last 5 minutes?
+Any open incidents?
+When did settlement last run successfully and how many records did it process?
+Which store had the most activation errors in the last 30 minutes?

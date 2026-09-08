@@ -76,6 +76,19 @@ window the search from the first alert's `startsAt` minus one `for:` interval.
 
 ---
 
+## [BUG] B7 — My own: the first Drill A leaked the answer into the record
+
+Found live. The drill posted `drill: fault injected at … (FRAUD_SVC_DOWN=true)` as a note
+the moment the ticket opened — *before* the hypothesis ran. The model read it and
+"diagnosed" the fraud dependency with high confidence, citing the note. Correct by the
+rules, worthless as a test: ground truth in the input. Two fixes: the drill note is posted
+*after* the hypothesis attaches, and `ai._record` strips any note beginning with `drill:`
+before prompting, so re-drafts on old records stay honest too. The KPI table still sees the
+note. Kept the contaminated record's hypothesis in `docs/ai-eval.md` as the example of what
+a leaked eval looks like — it reads convincingly, which is the problem.
+
+---
+
 ## [DESIGN] D1 — Enrichment runs without the AI, and the hypothesis says when a collector failed
 
 Context is useful to a *human* even when no model is configured, so `_schedule_draft`

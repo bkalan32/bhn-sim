@@ -18,6 +18,8 @@ Differences from the PDF's ai.py (CORRECTIONS-DAY9.md):
   * temperature 0.2 — evaluable output needs to be reproducible-ish
   * max_tokens 1500 — the resolved draft has three sections and a six-heading skeleton
   * returns text AND metadata (model, latency, tokens) so drafts can be graded and costed
+  * Day 11 (after Eval 3): PLATFORM_FACTS — the inventory the model may reference — and
+    the rollback-is-a-reversal rule. Both shared with tools/copilot.py.
 """
 
 import json
@@ -25,6 +27,36 @@ import os
 import time
 import urllib.error
 import urllib.request
+
+# Day 11: the inventory the model may reference — and nothing else. Eval 3 found three
+# of four "next checks" naming a namespace, a pod label and two metrics that do not
+# exist here. Shared with tools/copilot.py (it imports this constant) so the bot and the
+# copilot describe the same platform.
+PLATFORM_FACTS = """PLATFORM FACTS (the complete inventory; nothing else exists):
+- Kubernetes namespace `payments`: Deployments activation, egift, incident-bot; CronJob
+  settlement (a job every few minutes, metrics via Pushgateway). Namespace `monitoring`:
+  Prometheus, Alertmanager, Grafana (kube-prometheus-stack, release kps). Namespace
+  `logging`: Fluent Bit -> Splunk (Splunk itself runs outside the cluster). Namespace
+  `tracing`: Tempo.
+- Metrics: activation_requests_total{status="ok|error"}, activation_latency_seconds_bucket,
+  egift_orders_total{status}, egift_order_latency_seconds_bucket,
+  egift_step_latency_seconds_bucket{step="generate_code|activate|send_email"}, settlement_last_success_timestamp,
+  settlement_records_processed, settlement_last_run_status, and recording rules
+  activation:health_score, egift:health_score, settlement:health_score, platform:health_score,
+  activation:error_budget_burn_rate:1h|5m|6h, activation:sli_availability:ratio_rate5m|1h|6h.
+  ALERTS{alertname,alertstate} lists alert state. Pod restarts: kube_pod_container_status_restarts_total.
+- Alerts: ActivationHighErrorRate, ActivationHighLatency, ActivationNoTraffic, ActivationErrorBudgetBurnFast/Slow,
+  EgiftHighErrorRate, EgiftHighLatency, EgiftStepSlow, SettlementJobFailed, SettlementStale,
+  SettlementZeroRecords, IncidentBotDown, plus the kube-prometheus-stack defaults.
+- Logs: Splunk index=main, JSON fields app.service (activation|egift|settlement|incident-bot),
+  app.status (ok|error), app.reason (e.g. fraud_service_timeout, issuer_declined,
+  velocity_check_blocked; settlement: db_unreachable, zero_records), app.store_id, app.trace_id,
+  app.version, app.msg, app.level.
+- Dependencies: the fraud check and the issuer call are outbound dependencies INSIDE
+  activation; there is no fraud-service or issuer pod to inspect. egift calls activation
+  (its "activate" step), so activation failures cascade into egift.
+- Deploys go through Jenkins (deploy-service job) which annotates Grafana with tags
+  deploy/rollback + the service name; images are tagged <service>:<build number>."""
 
 SYSTEM = """You are an incident communications assistant for a payments platform.
 You write from the incident record only. If information is not in the record, say
@@ -43,7 +75,18 @@ Rules added after grading real drafts (docs/ai-eval.md, Evals 0-2):
   measurements. Quote measured values from the alert's summary line or the metrics
   snapshot only.
 - Quote duration_min exactly as given. Do not compute durations from timestamps.
-- "What went well" may only cite facts on the record."""
+- "What went well" may only cite facts on the record.
+
+Rules added after Eval 3 (Day 10 drills):
+- A rollback restores the previously running version. It is evidence that the preceding
+  deploy was suspected; it is never itself a cause. Rate-window alerts (2-5 minute
+  windows) can fire AFTER a rollback for errors that happened BEFORE it. If a deploy and
+  its rollback both precede the alert, name the deploy.
+- Reference only the inventory listed under PLATFORM FACTS. Do not invent namespaces,
+  pod labels, metric names, log fields or services that are not listed there.
+
+""" + PLATFORM_FACTS
+
 
 DEFAULT_MODELS = {"anthropic": "claude-sonnet-4-5", "ollama": "llama3.2"}
 
@@ -179,13 +222,16 @@ top error reasons from the logs), write:
 
 1. WHAT WE KNOW: 3-5 bullet facts drawn from the alerts, metrics snapshot, recent
 deploys and top error reasons. Cite the numbers as they appear.
-2. MOST LIKELY CAUSE: one hypothesis, with the evidence for it. If a deploy or rollback
-of this service occurred within 30 minutes BEFORE the first alert
-(minutes_before_first_alert between 0 and 30), weigh it heavily. A deploy hours old, or
-one that happened AFTER the alert (negative minutes), is not a cause.
+2. MOST LIKELY CAUSE: one hypothesis, with the evidence for it. If a DEPLOY of this
+service occurred within 30 minutes BEFORE the first alert (minutes_before_first_alert
+between 0 and 30), weigh it heavily. A deploy hours old, or one that happened AFTER the
+alert (negative minutes), is not a cause. A ROLLBACK is never a cause: it restores the
+previous version and tells you the deploy before it was suspected — if you see one, say
+"already rolled back" and judge whether the metrics have recovered yet.
 3. ALTERNATIVE: one other plausible cause and what evidence would confirm it.
 4. SUGGESTED NEXT CHECKS: 2-3 specific commands or queries a responder should run,
-using this platform's tools (kubectl, PromQL, Splunk search). Diagnostic commands only.
+using this platform's tools (kubectl, PromQL, Splunk search) and ONLY the inventory in
+PLATFORM FACTS (namespace payments; the listed metrics and log fields). Diagnostic only.
 5. CONFIDENCE: low / medium / high, one sentence why. If any context collector
 reported an error, say which and lower your confidence accordingly.
 
