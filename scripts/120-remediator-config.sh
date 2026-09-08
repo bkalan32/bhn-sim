@@ -30,6 +30,8 @@ rbac_proof() {
   chk yes create jobs
   chk yes get cronjobs/settlement
   chk yes patch deployments/activation
+  chk yes watch deployments/activation
+  chk yes list deployments/activation      # rollout status is an informer: it LISTS by name, then watches (B13)
   chk yes list replicasets
   say "  and the boundary:"
   chk no get secrets

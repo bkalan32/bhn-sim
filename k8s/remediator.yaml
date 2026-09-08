@@ -44,10 +44,14 @@ rules:
   # rollback_activation: `rollout undo` = get the deployment, list its ReplicaSets, patch the
   # deployment's template back; `rollout status` watches it; `annotate` patches it.
   # resourceNames pins it to ONE deployment: egift and settlement are out of reach.
+  # `list` is here because `rollout status` is an informer, and an informer LISTS (filtered
+  # by name) before it watches — without it the first live rollback succeeded and its
+  # verification was forbidden (B13). With resourceNames, list is honoured only for
+  # name-filtered requests, so this does not let the remediator enumerate deployments.
   - apiGroups: ["apps"]
     resources: ["deployments"]
     resourceNames: ["activation"]
-    verbs: ["get", "watch", "patch"]
+    verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list"]

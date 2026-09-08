@@ -148,6 +148,20 @@ first failure was the tool's, and INC-0013 says so. Also: the drill scripts' `pr
 helper (a 3-second port-forward race since Day 2) now uses the API-server proxy like
 everything else.
 
+## [BUG] B13 — My own: the rollback worked and its verification was forbidden
+
+Tier-2 drill: approved at 22:02:57, `rollout undo` ran, the error rate fell from 70 % to 1 %
+within a minute — and the EXECUTED note said **FAILED in 185s**: *"deployments.apps
+"activation" is forbidden: User system:serviceaccount:payments:remediator cannot list
+resource deployments"*. `kubectl rollout status` is an informer, and an informer LISTS
+(filtered by name) before it watches; the Role granted get/watch/patch on
+`deployments/activation` and not `list`. RBAC did exactly what it was told. Two fixes: the
+verb, and a question in the proof (`can-i list deployments/activation`) — the proof was
+only as good as the questions I thought to ask. Two lessons kept: the remediator reported
+the outcome it could *verify*, not the one it hoped for (rule 3, again); and the honest
+timing for run #1 is "rollback in seconds, verification timed out at 180 s". Run #2 is the
+clean number, and the promotion log wants five anyway.
+
 ---
 
 ## [DESIGN] D1 — The outcome is verified, not assumed
