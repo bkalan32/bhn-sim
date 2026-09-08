@@ -6,6 +6,8 @@
 #   ./scripts/103-drill-b.sh apply    disable the amount-mix test (on purpose), insert the
 #                                     velocity check, commit, then WAIT for the ticket while
 #                                     you run the pipeline in the browser
+#   ./scripts/103-drill-b.sh watch [id]  pick up an incident that opened after `apply` stopped
+#                                     waiting (newest activation record if no id given)
 #   ./scripts/103-drill-b.sh revert   restore the test, remove the bug, commit; run a clean build
 #
 # Why the test must go first: since Day 8 test_activate_all_production_amounts is always
@@ -15,6 +17,28 @@
 source "$(dirname "$0")/lib.sh"; source "$(dirname "$0")/lib-drill.sh"
 require_cluster
 cd "$LAB_ROOT" || exit 1
+
+finish_b() {  # id — everything after the ticket exists
+  local ID="$1"
+  step "Waiting for context + diagnosis"
+  wait_field "$ID" ai_hypothesis 40 >/dev/null || true
+  show_context_and_hypothesis "$ID"
+  # After the diagnosis, never before (see 102): the answer key stays out of the input.
+  bot_get "/incidents/$ID" | grep -q 'drill: bad deploy' || \
+    python3 "$INC" note "$ID" "drill: bad deploy (velocity check) shipped via pipeline; auto-rollback is the safety net" >/dev/null
+  say "  Look for: a deploy with minutes_before_first_alert around 1-3, velocity_check_blocked"
+  say "  as the top reason, and — if the rollback already landed — a rollback entry with a"
+  say "  NEGATIVE age (after the alert). The hypothesis should name the deploy, not the"
+  say "  fraud dependency, from the same alert name as Drill A."
+
+  step "Waiting for the ticket to resolve (the rollback does the recovering)"
+  wait_resolved "$ID" 900 || warn "still open after 15 min — did the rollback happen? kubectl -n payments rollout history deployment/activation"
+  ok "INCIDENT $(field "$ID" status): $ID"
+  wait_field "$ID" ai_resolution_draft 30 >/dev/null || true
+  write_diag_file "$ID" 0010 "Drill B: bad deploy, enriched"
+  echo
+  warn "main still carries the bad release and the disabled test. NOW: $0 revert"
+}
 
 case "${1:-}" in
   apply)
@@ -39,26 +63,19 @@ case "${1:-}" in
     say "  ticket opens ~t+3m15s -> Verify rolls back ~t+3m30s. The ticket wins by seconds."
     echo
     T0=$(date +%s)
-    ID=$(wait_open "$BEFORE" 720) || die "no incident after 12 min. Did the build deploy? (Test stage must be green — is the marker on the test?)"
+    ID=$(wait_open "$BEFORE" 1200) || die "no incident after 20 min. Did the build deploy? (Test stage must be green — is the marker on the test?)
+       If the ticket opened after this gave up: $0 watch"
     ok "INCIDENT OPENED: $ID (t+$(( $(date +%s) - T0 ))s after you started waiting)"
-
-    step "Waiting for context + diagnosis"
-    wait_field "$ID" ai_hypothesis 40 >/dev/null || true
-    show_context_and_hypothesis "$ID"
-    # After the diagnosis, never before (see 102): the answer key stays out of the input.
-    python3 "$INC" note "$ID" "drill: bad deploy (velocity check) shipped via pipeline; auto-rollback is the safety net" >/dev/null
-    say "  Look for: a deploy with minutes_before_first_alert around 1-3, velocity_check_blocked"
-    say "  as the top reason, and — if the rollback already landed — a rollback entry with a"
-    say "  NEGATIVE age (after the alert). The hypothesis should name the deploy, not the"
-    say "  fraud dependency, from the same alert name as Drill A."
-
-    step "Waiting for the ticket to resolve (the rollback does the recovering)"
-    wait_resolved "$ID" 900 || warn "still open after 15 min — did the rollback happen? kubectl -n payments rollout history deployment/activation"
-    ok "INCIDENT $(field "$ID" status): $ID"
-    wait_field "$ID" ai_resolution_draft 30 >/dev/null || true
-    write_diag_file "$ID" 0010 "Drill B: bad deploy, enriched"
-    echo
-    warn "main still carries the bad release and the disabled test. NOW: $0 revert"
+    finish_b "$ID"
+    ;;
+  watch)
+    ID="${2:-}"
+    if [[ -z "$ID" ]]; then
+      ID=$(bot_get '/incidents' | python3 -c 'import json,sys; d=[i for i in json.load(sys.stdin) if i.get("service")=="activation"]; print(d[0]["id"] if d else "")')
+    fi
+    [[ -n "$ID" ]] || die "no activation incident on the bot"
+    ok "watching $ID ($(field "$ID" status))"
+    finish_b "$ID"
     ;;
   revert)
     step "Restoring the test and removing the velocity check"
@@ -73,5 +90,5 @@ case "${1:-}" in
     say "    Build with Parameters -> SERVICE=activation, CHANGE_CAUSE=revert drill B (Day 10)"
     ok "Then: python3 tools/kpis.py, fill docs/ops-kpis.md and docs/ai-eval.md Eval 3, ./scripts/108-checkpoint-day10.sh"
     ;;
-  *) die "usage: $0 apply|revert" ;;
+  *) die "usage: $0 apply|watch [id]|revert" ;;
 esac

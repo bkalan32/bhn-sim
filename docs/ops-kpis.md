@@ -28,25 +28,42 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 
 | # | Record | Fault | TTD | TTT | TTX | TTH | TTDiag human | TTDiag bot | Right? | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 0001 | (pre-bot, Day 3) | fraud dependency | ~2 min | – | – | – | _from INC-0001: alert → Splunk `by app.reason`_ | – | – | first time; Splunk search had to be written |
-| 0002 | (pre-bot, Day 4) | activation latency (exp. A) | human on dashboard | – | – | – | _fill in_ | – | – | no alert existed |
-| 0003 | (pre-bot, Day 4) | email latency (exp. B) | human on dashboard | – | – | – | _fill in_ | – | – | no alert existed |
+| 0001 | (pre-bot, Day 3) | fraud dependency | ~2 min | – | – | – | ~10 min (alert → Grafana → write the Splunk `by app.reason` search) | – | – | first time; the search had to be written |
+| 0002 | (pre-bot, Day 4) | activation latency (exp. A) | human on dashboard | – | – | – | ~0 — the experiment *was* the cause | – | – | no alert existed yet |
+| 0003 | (pre-bot, Day 4) | email latency (exp. B) | human on dashboard | – | – | – | ~0 — same | – | – | no alert existed yet |
 | 0004 | (pre-bot, Day 5) | 50% errors | ~2 min (BurnFast) | – | – | – | n/a — cause was the drill | – | – | |
-| 0005 | (pre-bot, Day 5) | silent settlement | ~1 min (ZeroRecords) | – | – | – | _fill in_ | – | – | |
+| 0005 | (pre-bot, Day 5) | silent settlement | ~1 min (ZeroRecords) | – | – | – | ~2 min (the alert name *is* the diagnosis) | – | – | Stale would have taken 15 min more |
 | 0006 | (pre-bot, Day 6) | bad deploy | ~2 min | – | – | – | ~0 — the deploy annotation *was* the diagnosis | – | – | pipeline rolled back |
-| 0007 | `INC-1788559916-4b4b` | fraud dependency (Day 8) | ~2 min | 16s | – | – | _fill in_ | – | – | first ticketed incident |
+| 0007 | `INC-1788559916-4b4b` | fraud dependency (Day 8) | ~2 min | 16s | – | – | n/a — no responder notes; the ticket had names and times, not the cause | – | – | first ticketed incident |
 | 0008 | `INC-1788806049-78f7` | fraud dependency (Day 9) | ~2 min | 29s | – | – | **4m37s** (note 1 at 18:38:46, alert 18:33:40) | – | – | human diagnosis while reading a draft |
-| 0009 | _Drill A record_ | fraud dependency (Day 10) | _kpis.py_ | | | | – (no human needed?) | _TTT + TTH_ | _eval_ | |
-| 0010 | _Drill B record_ | bad deploy (Day 10) | _kpis.py_ | | | | – | _TTT + TTH_ | _eval_ | |
+| 0009-leak | `INC-1788825339-a7fd` | fraud dependency (Day 10, invalid) | 195s | 30s | 0s | 22s | – | (52s — not counted: the answer was in the input) | ⛔ | Eval 3-leak; logs collector "no events" (Fluent Bit → old Splunk IP) |
+| 0009 | `INC-1788827585-6b7f` | fraud dependency (Day 10) | **156s** | 25s | 0s | 18s | – (none needed) | **43s** (TTT 25 + TTH 18) | **yes** | 435× fraud_service_timeout, no deploys; medium confidence, honest |
+| 0010 | `INC-1788828923-e7d8` | bad deploy (Day 10, build 19) | ~156s (deploy 2.6 min before the alert) | 18s | 0s | 24s | – | 42s → **not counted** — the right cause was ranked second | half | rollback landed 0.3 min *before* the alert; hypothesis blamed the rollback |
+
+Cascade tickets from the same faults (egift calls activation): `INC-1788827580-2365` (with 0009) and
+`INC-1788828924-519d` (with 0010) — TTT 25s/18s, TTH 22s/20s, no separate diagnosis graded.
 
 ## What to say about it
 
-Fill in after Drill B, in two or three sentences: what the bot's TTDiag was on 0009 and
-0010, whether it was *right* both times (same alert, different context, different diagnosis
-— that is the whole argument for enrichment), and what it cost (`tools/kpis.py` prints
-tokens and milliseconds). Then the honest caveat: the bot's diagnosis still needs a human to
-*confirm* it before it counts, so the real metric is "time to a confirmed cause", and the AI
-moves the start of that clock, not the end.
+On 0009 the bot's time to diagnose was **43 seconds** from the first alert (25 s to the
+ticket, 18 s to the hypothesis) and the diagnosis was right; the best human time on the same
+fault was 4 m 37 s (0008) and the first time it was closer to ten minutes (0001). On 0010 the
+clock reads 42 seconds but it does not count: the hypothesis named the right *event* — the
+velocity-check deploy, not the fraud dependency — and put the true cause in its alternative,
+but ranked the rollback first because the prompt described rollbacks as events. Same alert,
+two different contexts, two different diagnoses pointing at two different, correct pieces of
+evidence: that is the argument for enrichment. The honest caveat stands: the bot's diagnosis
+only counts once a human confirms it, so the real metric is *time to a confirmed cause*, and
+the AI moves the start of that clock — a responder now opens a ticket that already says
+"probably this, here is why, medium confidence" — not the end.
 
-Cost line for the day: _N_ incidents × _N_ AI calls × _~$0.00x_ = _$_ — less than the
-coffee consumed waiting for alert windows.
+Detection (TTD) has not moved and will not: 156–195 s is `for: 2m` plus a scrape and an
+evaluation interval, the same since Day 3. Ticketing (TTT) is stable at 18–30 s
+(`group_wait: 15s` plus the webhook). Context arrives in the same second the ticket opens
+(TTX 0 s — all three collectors answered in under a second). The hypothesis lands 18–24 s
+later, of which ~14 s is two AI round-trips (open draft, then hypothesis).
+
+Cost line for the day: 6 tickets (2 drills × activation + egift, plus the invalid first run)
+× 3 AI calls = 18 calls, **42,869 tokens**, 190 s of model time. At Sonnet list prices
+(mostly input tokens, ~3–4k per record) that is roughly **$0.20 for the day** — less than
+the coffee consumed waiting for alert windows. The valid drills alone: 29,154 tokens.
