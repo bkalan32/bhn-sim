@@ -33,7 +33,7 @@ PYCHK
 [[ -s "$LAB_ROOT/incidents/INC-0009-diagnosis.md" && -s "$LAB_ROOT/incidents/INC-0010-diagnosis.md" ]] && t_ok "diagnosis files for both drills" || t_fail "INC-0009/0010-diagnosis.md missing"
 [[ -s "$LAB_ROOT/incidents/INC-0009.md" && -s "$LAB_ROOT/incidents/INC-0010.md" ]] && t_ok "INC-0009.md and INC-0010.md exist" || t_fail "write-ups missing"
 grep -q 'Eval 3' "$LAB_ROOT/docs/ai-eval.md" && ! sed -n '/## Eval 3/,/## Failures/p' "$LAB_ROOT/docs/ai-eval.md" | grep -q '_fill in_' && t_ok "docs/ai-eval.md Eval 3 graded" || t_fail "docs/ai-eval.md Eval 3 not graded"
-grep -qE '^\| `INC-[0-9]{10}' "$LAB_ROOT/docs/ops-kpis.md" 2>/dev/null && t_ok "docs/ops-kpis.md has incident rows" || t_fail "docs/ops-kpis.md has no rows — python3 tools/kpis.py"
+grep -qE '^\| 00(09|10) \| `INC-[0-9]{10}-[0-9a-f]{4}`' "$LAB_ROOT/docs/ops-kpis.md" 2>/dev/null && t_ok "docs/ops-kpis.md has incident rows" || t_fail "docs/ops-kpis.md has no rows — python3 tools/kpis.py"
 
 # drill B cleaned up
 [[ "$(python3 "$LAB_ROOT/ci/amount_test_gate.py" status)" == enabled ]] && t_ok "amount-mix test re-enabled" || t_fail "amount-mix test still disabled — ./scripts/103-drill-b.sh revert"

@@ -192,59 +192,79 @@ after the errors stopped. Correct behaviour, surprising the first time.
 
 ---
 
-## Eval 3 — the A/B drills, with context and the Day 9 prompt fixes (Day 10)
+## Eval 3 — the A/B drills, with context and the Day 9 prompt fixes (Day 10, 2026-09-08)
 
-Two things are measured at once here, so keep them apart:
+Two things measured at once, kept apart:
 
-1. **Did the prompt fixes work?** (Evals 0–2 queued four rules: no invented actions,
-   preserve hedging, thresholds ≠ measurements, quote `duration_min`.) Check the *open* and
-   *resolution* drafts of both drills against those four. Zero ❌ of those species = the
-   fix worked.
-2. **Did enrichment produce two different, correct diagnoses from the same alert?** Check
-   the *hypothesis* of each drill against its own context block.
+1. **Did the Day 9 prompt fixes work?** Across Drill A and Drill B (open drafts +
+   hypotheses): the "team is actively investigating" sentence appeared **0 times** (was 3/3).
+   Drill B's hypothesis wrote *"No responder actions recorded yet"* — the exact phrase the
+   rule asks for. Thresholds: Drill A quoted "alert threshold is >10%" *as a threshold* ✅;
+   Drill B quoted the burn alert's "14.4x the 0.5% budget, burning at 26x" — measurement
+   and threshold both named, correctly labelled ✅. Durations: not computed anywhere ✅.
+   **Verdict: the four rules from Evals 0–2 held, 4/4.**
+2. **Did enrichment produce two different, correct diagnoses from the same alert?**
+   Below. Short answer: the *context* was right both times; the *reasoning* was right
+   once. And the first attempt at Drill A was invalid — see Eval 3-leak.
 
-### Drill A — `_fill in_` (dependency outage)
+### Eval 3-leak — Drill A, first attempt: `INC-1788825339-a7fd` (INVALID, kept on purpose)
 
-**Open draft, prompt-fix check:** actions invented? _yes/no — quote_ · hedging preserved? _n/a or quote_
+The drill posted `drill: fault injected at … (FRAUD_SVC_DOWN=true)` before the hypothesis
+ran. Result: *"Injected fault simulating fraud service unavailability. The responder
+recorded that FRAUD_SVC_DOWN=true was set…"* — **high** confidence, citing the answer key.
+Every sentence defensible, the whole thing worthless. Also: the log collector returned
+"no events" during a 100% outage (Fluent Bit was shipping to Splunk's old IP), and the model
+correctly said so. Grading: not graded. Lesson: ground truth never goes in the input; fixed
+in `102`/`103` (note posted after the diagnosis) and `ai._record` (drill notes stripped).
+File: `incidents/INC-0009-diagnosis-LEAKED.md`.
+
+### Drill A — `INC-1788827585-6b7f` (dependency outage)
+
+Context: error_rate 34.48% (5m window, 3 min in), p95 0.48 s, burn 18.22×, **no deploys or
+rollbacks in 6 h**, log reasons **fraud_service_timeout 435 / issuer_declined 45**.
 
 | Hypothesis section | Claim | Mark | Note |
 |---|---|---|---|
-| What we know | | | every number should be in `context.metrics` or the alert |
-| Most likely cause | | | should be the fraud dependency; evidence = top reason |
-| Alternative | | | is it plausible, and is the confirming evidence real? |
-| Next checks | | | do they look like what you ran on Day 3? |
-| Confidence | | | high is right here — if a collector failed, did it say so and lower it? |
+| What we know | five bullets: alert + time, the four metrics, no deploys, the two reasons with counts | ✅ ×5 | every number is in `context` or the alert; `00:32:40.222Z` quoted with its milliseconds, as given |
+| Most likely cause | "Fraud service dependency failure or severe degradation" — evidence: 435 fraud_service_timeout; "0.48 s p95 suggests requests are waiting for the fraud service before failing" | ✅ | **right**, from the log histogram alone. The p95 inference is fair (fail-fast at 0.3 s + baseline). |
+| Alternative | issuer API degradation, from the 45 issuer_declined; confirm by Splunk `stats count by app.card_bin, app.issuer` | ⚠️ | plausible and correctly ranked second; `app.card_bin` / `app.issuer` are **invented field names** |
+| Next checks | `kubectl get pods -l app=fraud-service -n production`; PromQL `http_requests_total{service="fraud"}`; Splunk `timechart span=1m count` on the reason; PromQL `http_request_duration_seconds_bucket{service="fraud"}` | ❌ ❌ ✅ ❌ | the Splunk timechart is exactly right. The other three reference a pod label, a namespace and two metrics **that do not exist on this platform** — it filled the shape of "a fraud service" from general knowledge |
+| Confidence | **Medium** — "we lack direct visibility into the fraud service's current state" | ✅ | honest, and true: there is no fraud service, it is a knob inside activation |
 
-Right cause? _yes/no_ · Usable? _yes/no_ · Invented: _N_
+Right cause? **yes** · Usable as a bridge summary? **yes** · Usable as a runbook? **no** — 3 of 4 checks name things that don't exist · Invented: 3 (inventory), 0 (events/numbers)
 
-### Drill B — `_fill in_` (bad deploy)
+### Drill B — `INC-1788828923-e7d8` (bad deploy via pipeline, auto-rolled-back)
 
-**Open draft, prompt-fix check:** _same two questions_
+Context: error_rate 36.41%, p95 0.17 s, burn 26.44×; **deploy "build 19: add velocity check
+for fraud team" 2.6 min before the first alert, AUTO-ROLLBACK of build 19 0.3 min before**;
+log reasons **velocity_check_blocked 600 / issuer_declined 63**. A second ticket
+(`INC-1788828924-519d`, egift, `EgiftHighErrorRate`) opened the same second — the cascade,
+ticketed per service.
 
 | Hypothesis section | Claim | Mark | Note |
 |---|---|---|---|
-| What we know | | | the deploy's age in minutes should be quoted |
-| Most likely cause | | | should be the deploy; the rollback (negative age) must NOT be called a cause |
-| Alternative | | | |
-| Next checks | | | `kubectl rollout history` should appear |
-| Confidence | | | |
+| What we know | BurnFast at 00:55:04 with 14.4×/26×; the four metrics; deploy 2.6 min / rollback 0.3 min before; 600 vs 63; **"No responder actions recorded yet"** | ✅ ×5 | the last bullet is the Day 9 prompt fix, visibly working |
+| Most likely cause | "**The rollback itself** introduced or failed to resolve the error spike … the rollback's timing makes it the proximate event" | ❌ | **wrong, and it is my prompt's fault.** The prompt says a deploy *or rollback* 0–30 min before the alert weighs heavily. The rollback was 18 s before the first alert on the record (the 2 m window fired on errors the bad build had already produced), so by the letter it qualified. Nothing told the model that a rollback *restores the previous version* and cannot introduce an error named after the deploy's own change cause. |
+| Alternative | "The original build 19 deploy caused the issue and the rollback hasn't propagated yet … verify which build is serving traffic" | ✅ | **this is the truth**, ranked second. The confirming check it names is the right one. |
+| Next checks | `kubectl get pods -n activation … image`; Splunk `timechart span=1m count by app.reason`; `kubectl logs -n activation -l app=activation … grep velocity` | ⚠️ ✅ ⚠️ | the *questions* are right (which build is running? when did the reason start? what does the code log?); the namespace is wrong twice (`activation`; it is `payments`) |
+| Confidence | **Medium** — "we lack confirmation of which build is actually running post-rollback" | ✅ | honest; the doubt it states is exactly the doubt that would have led it to the right answer |
 
-Right cause? _yes/no_ · Usable? _yes/no_ · Invented: _N_
+Right cause? **no (alternative was right)** · Identified the right *event*? **yes** — the velocity-check deploy, not the fraud dependency · Invented: 2 (namespace), 0 (events/numbers)
 
 ### The comparison
 | | Drill A | Drill B |
 |---|---|---|
-| Alert | ActivationHighErrorRate | ActivationHighErrorRate |
-| Context that decided it | | |
-| Hypothesis | | |
-| Confidence stated | | |
-| Right? | | |
+| Alert | ActivationHighErrorRate (+BurnFast) | ActivationHighErrorRate (+BurnFast) |
+| Context that decided it | 435× fraud_service_timeout, no deploys | 600× velocity_check_blocked, deploy 2.6 min before, rollback 0.3 min before |
+| Hypothesis | fraud dependency | the rollback (deploy as alternative) |
+| Confidence stated | medium | medium |
+| Right? | **yes** | **half** — right event, wrong sign |
 
-One sentence: same alert, two correct diagnoses — or not, and why.
+**One sentence:** the same alert produced two *different* diagnoses pointing at two *different, correct pieces of evidence* — which is the argument for enrichment — and the one it got wrong it got wrong because I described rollbacks as events instead of reversals; the model did what the prompt said.
 
-**Prompt-fix verdict:** across the four drafts of Evals 3, the "team is investigating"
-sentence appeared _N_ times (was 3/3 before). Hedging preserved _N/N_. Thresholds
-presented as measurements _N_. Durations computed from timestamps _N_.
+**Prompt changes queued (Day 11 build):**
+1. *A rollback restores the previously running version. It is evidence that the preceding deploy was suspected; it is never itself a cause. Rate-window alerts can fire after a rollback for errors that occurred before it.*
+2. *Platform facts:* namespace `payments`; services `activation`, `egift`, `settlement`, `incident-bot`; the metric names in `context.metrics` are the only metrics you may reference; Splunk fields are `app.service`, `app.status`, `app.reason`, `app.trace_id`. **Do not reference resources not listed here.** (Day 11's copilot makes this moot by *running* the checks — a tool call can't invent a namespace.)
 
 ---
 
@@ -263,3 +283,7 @@ hallucination with its cause is what "evaluating AI systems" looks like in pract
 | 2026-09-07 | `INC-1788806049-78f7` (Eval 2) | "The engineering team is actively investigating the root cause" at open — third occurrence, no notes existed yet | prompt fix confirmed for Day 10 |
 | 2026-09-07 | `INC-1788806049-78f7` (Eval 2) | not invented, but *upgraded*: the note's "suspect fraud dependency" became "was caused by fraud service timeouts" | queued: "preserve the responder's hedging; if a note says suspect, write suspected" |
 | 2026-09-07 | `INC-1788806049-78f7` (Eval 2) | "21x normal (14.4x the 0.5% budget)" — the alert's threshold presented as a measurement | queued: "alert thresholds are not measurements; quote the summary line, not the description's constants" |
+| 2026-09-08 | `INC-1788825339-a7fd` (Eval 3-leak) | not invented — *leaked*: the drill put the answer on the record before the diagnosis; the model cited it | drill note after the hypothesis; `ai._record` strips `drill:` notes |
+| 2026-09-08 | `INC-1788827585-6b7f` (Drill A) | `app=fraud-service -n production`, `http_requests_total{service="fraud"}`, `app.card_bin` — inventory that does not exist | queued: platform-facts block; Day 11 tool calls |
+| 2026-09-08 | `INC-1788828923-e7d8` (Drill B) | "the rollback itself introduced the error spike" — a reversal treated as a change, per the prompt's own wording | queued: define rollback as a reversal; rate-window lag |
+| 2026-09-08 | `INC-1788828923-e7d8` (Drill B) | `-n activation` twice — wrong namespace | platform-facts block |
