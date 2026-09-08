@@ -137,8 +137,14 @@ def _call(prompt: str, kind: str, max_tokens: int = 1500):
 # -------------------------------------------------------------- prompts ------
 def _record(inc: dict) -> str:
     # Everything the model may use, nothing it should not. Drafts of its own are
-    # excluded so a re-draft cannot quote an earlier draft as evidence.
+    # excluded so a re-draft cannot quote an earlier draft as evidence. Notes that begin
+    # with "drill:" are the lab's answer key (fault time, what was injected) — kept on the
+    # record for the KPI table, hidden from the model so a diagnosis is a diagnosis.
+    # (Found the hard way on Day 10: the first Drill A "diagnosed" from the note.)
     keep = {k: v for k, v in inc.items() if not k.startswith("ai_")}
+    if isinstance(keep.get("timeline"), list):
+        keep["timeline"] = [e for e in keep["timeline"]
+                            if not (e.get("event") == "note" and str(e.get("text", "")).startswith("drill:"))]
     return json.dumps(keep, indent=2, default=str)
 
 

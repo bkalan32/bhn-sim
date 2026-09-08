@@ -58,8 +58,15 @@ step "Splunk: management endpoint"
 SIP=$(splunk_ip)
 [[ -n "$SIP" ]] || die "splunk container not running (docker start splunk)"
 SURL="https://${SIP}:8089"
-CODE=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 -u "admin:${SPLUNK_PASSWORD}" "$SURL/services/server/info?output_mode=json" || echo 000)
-[[ "$CODE" == 200 ]] && ok "$SURL answers with the admin login (HTTP 200)" || die "Splunk REST at $SURL returned HTTP $CODE — password? (SPLUNK_PASSWORD env, default Changeme123!)"
+# The decisive test runs from INSIDE the cluster (below, via the bot): the kind node sits
+# on the same Docker network as Splunk, your WSL shell does not, and 8089 is not
+# published to the host. A probe from here is informational only.
+CODE=$(curl -sk -o /dev/null -w '%{http_code}' -m 5 -u "admin:${SPLUNK_PASSWORD}" "$SURL/services/server/info?output_mode=json" 2>/dev/null || true); CODE="${CODE:-000}"
+case "$CODE" in
+  200) ok "$SURL answers with the admin login from WSL too (HTTP 200)" ;;
+  401) die "Splunk REST at $SURL says HTTP 401 — wrong admin password (SPLUNK_PASSWORD env, default Changeme123!)" ;;
+  *)   dim "WSL cannot reach $SURL directly (HTTP $CODE) — expected on Docker Desktop; the in-cluster check below is the real one" ;;
+esac
 
 step "Storing secret/$SECRET"
 k create secret generic "$SECRET" -n "$PAYMENTS_NS" \
@@ -79,7 +86,14 @@ if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then
   k rollout status deployment/incident-bot -n "$PAYMENTS_NS" --timeout=120s >/dev/null && ok "restarted"
   sleep 3
   if bot_get /ai | grep -q '"enrich"'; then
-    test_collectors && ok "all three collectors healthy" || warn "a collector is degraded — see above. Fix it, or continue: the diagnosis will say which source was missing."
+    if test_collectors; then ok "all three collectors healthy"
+    else
+      warn "a collector is degraded — see above."
+      say "  logs 'HTTP 401'      -> wrong Splunk admin password: SPLUNK_PASSWORD=... $0"
+      say "  logs 'URLError'      -> the pod cannot reach $SURL: is Splunk running on the kind network? docker inspect splunk | grep -A3 '\"kind\"'"
+      say "  deploys 'HTTP 401'   -> token problem; re-run $0"
+      say "  Or continue: the diagnosis names the missing source and lowers its confidence."
+    fi
   else
     warn "the running bot is not 0.3 yet — ship it (Jenkins SERVICE=incident-bot) and then: $0 --check"
   fi

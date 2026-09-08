@@ -29,13 +29,14 @@ k rollout status deployment/activation -n "$PAYMENTS_NS" --timeout=180s >/dev/nu
 step "Waiting for the ticket (≈2.5 min)"
 ID=$(wait_open "$BEFORE" 360) || die "no incident after 6 min — 82-incident-drill.sh's troubleshooting"
 ok "INCIDENT OPENED: $ID (t+$(( $(date +%s) - T0 ))s)"
-# The fault time is not something Alertmanager knows. Put it on the record so the KPI
-# table can compute time-to-detect. Tagged as the drill's note, not a responder's.
-python3 "$INC" note "$ID" "drill: fault injected at $T0_ISO (FRAUD_SVC_DOWN=true)" >/dev/null
 
 step "Waiting for context + diagnosis (enrichment ~5-30s, then two AI calls)"
 wait_field "$ID" ai_hypothesis 40 >/dev/null || true
 show_context_and_hypothesis "$ID"
+# The fault time goes on the record for the KPI table — but only AFTER the diagnosis, and
+# tagged "drill:" so ai.py hides it from the model. The first Drill A posted it before,
+# and the model "diagnosed" from the answer key. Ground truth never goes in the input.
+python3 "$INC" note "$ID" "drill: fault injected at $T0_ISO (FRAUD_SVC_DOWN=true)" >/dev/null
 
 say "  Grade it now, while the outage is live — is the cause right? Is the confidence honest?"
 say "  Do the suggested checks look like what you ran on Day 3?"

@@ -88,6 +88,15 @@ else
   warn "incident-bot not deployed yet (Day 8)"
 fi
 
+step "Log pipeline (Day 3)"
+# Fluent Bit ships to Splunk by container IP, rendered into its ConfigMap by 22-fluent-bit.sh.
+# Splunk gets a new IP on every restart; a stale one means Splunk silently stops receiving.
+FB_HOST=$(k get cm -n "$LOGGING_NS" -o yaml 2>/dev/null | grep -oE 'Host +[0-9.]+' | awk '{print $2}' | head -1 || true)
+SIP=$(splunk_ip)
+if [[ -z "$FB_HOST" ]]; then warn "fluent-bit not installed yet (Day 3)"
+elif [[ -n "$SIP" && "$FB_HOST" == "$SIP" ]]; then ok "fluent-bit -> Splunk at $SIP"
+else warn "fluent-bit ships to $FB_HOST but Splunk is at ${SIP:-<not running>} — re-render: ./scripts/22-fluent-bit.sh <HEC-TOKEN>   (token: checkpoints/day3-splunk.txt or Splunk UI)"; fi
+
 step "Front doors"
 for p in 30080 30443; do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://localhost:$p/healthz" || echo 000)

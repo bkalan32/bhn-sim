@@ -41,11 +41,12 @@ case "${1:-}" in
     T0=$(date +%s)
     ID=$(wait_open "$BEFORE" 720) || die "no incident after 12 min. Did the build deploy? (Test stage must be green — is the marker on the test?)"
     ok "INCIDENT OPENED: $ID (t+$(( $(date +%s) - T0 ))s after you started waiting)"
-    python3 "$INC" note "$ID" "drill: bad deploy (velocity check) shipped via pipeline; auto-rollback is the safety net" >/dev/null
 
     step "Waiting for context + diagnosis"
     wait_field "$ID" ai_hypothesis 40 >/dev/null || true
     show_context_and_hypothesis "$ID"
+    # After the diagnosis, never before (see 102): the answer key stays out of the input.
+    python3 "$INC" note "$ID" "drill: bad deploy (velocity check) shipped via pipeline; auto-rollback is the safety net" >/dev/null
     say "  Look for: a deploy with minutes_before_first_alert around 1-3, velocity_check_blocked"
     say "  as the top reason, and — if the rollback already landed — a rollback entry with a"
     say "  NEGATIVE age (after the alert). The hypothesis should name the deploy, not the"
