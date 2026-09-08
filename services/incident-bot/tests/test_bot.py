@@ -184,8 +184,14 @@ def test_full_lifecycle(base_url):
     assert "metrics unavailable" in inc["context"]["metrics"]["error"]
     assert "deploy lookup unavailable" in inc["context"]["recent_deploys"][0]["error"]
     assert "not configured" in inc["context"]["top_error_reasons"][0]["error"]
-    events = [e["event"] for e in inc["timeline"]]
-    assert events.index("context_attached") < events.index("ai_draft_attached")
+    # Order matters only within the open pipeline (enrich -> open draft -> hypothesis). The
+    # resolution draft runs on its own thread and may land earlier on a slow agent, so
+    # compare against the OPEN draft's event, not the first ai_draft_attached.
+    tl = inc["timeline"]
+    i_ctx = next(i for i, e in enumerate(tl) if e["event"] == "context_attached")
+    i_open = next(i for i, e in enumerate(tl) if e["event"] == "ai_draft_attached" and e.get("draft") == "open")
+    i_hyp = next(i for i, e in enumerate(tl) if e["event"] == "ai_draft_attached" and e.get("draft") == "hypothesis")
+    assert i_ctx < i_open < i_hyp
     # re-enrich on demand
     st, r = call(base_url, "POST", f"/incidents/{iid}/enrich")
     assert st == 200 and r["context"]["service"] == "activation"
