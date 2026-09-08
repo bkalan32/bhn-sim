@@ -54,7 +54,9 @@ PLATFORM_FACTS = """PLATFORM FACTS (the complete inventory; nothing else exists)
   app.version, app.msg, app.level.
 - Dependencies: the fraud check and the issuer call are outbound dependencies INSIDE
   activation; there is no fraud-service or issuer pod to inspect. egift calls activation
-  (its "activate" step), so activation failures cascade into egift.
+  (its "activate" step), so activation failures cascade into egift. Activations that egift
+  triggers carry app.store_id=EGIFT — that is the eGift channel, not a retail store; retail
+  stores look like STORE-0421.
 - Deploys go through Jenkins (deploy-service job) which annotates Grafana with tags
   deploy/rollback + the service name; images are tagged <service>:<build number>."""
 
