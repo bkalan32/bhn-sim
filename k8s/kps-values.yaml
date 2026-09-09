@@ -57,3 +57,15 @@ alertmanager:
           - url: "http://remediator.payments:8030/alertmanager"
             send_resolved: true
             max_alerts: 0
+
+# Day 13 (CORRECTIONS-DAY13 B10): with no adminPassword, the Grafana subchart renders a
+# RANDOM one and relies on Helm's `lookup` to keep the existing one on upgrade — but
+# `lookup` returns nothing in a dry run, so every `terraform plan` saw a new password and
+# reported kps as drifted forever. The password now lives in a Secret we own
+# (secret/grafana-admin, minted by scripts/134-tf-deterministic.sh from the chart's own);
+# the chart renders no secret, and the plan is deterministic.
+grafana:
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password

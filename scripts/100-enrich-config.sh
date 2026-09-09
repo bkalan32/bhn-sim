@@ -40,7 +40,7 @@ sys.exit(1 if bad else 0)'
 if [[ "${1:-}" == "--check" ]]; then test_collectors && ok "all three collectors healthy" || warn "a collector is degraded — the bot still works; the diagnosis will say so"; exit 0; fi
 
 step "Grafana: service account + token (Viewer)"
-GPW=$(k get secret kps-grafana -n "$MONITORING_NS" -o jsonpath='{.data.admin-password}' | base64 -d)
+GPW=$(grafana_admin_password); [[ -n "$GPW" ]] || die "no Grafana admin password in secret/grafana-admin or secret/kps-grafana"
 gcurl() { k exec -n "$MONITORING_NS" deploy/kps-grafana -c grafana -- curl -sf -u "admin:$GPW" -H 'Content-Type: application/json' "$@"; }
 # idempotent: find or create the SA, then mint a fresh token (old ones stay valid; revoke in the UI if you care)
 SA_ID=$(gcurl 'http://localhost:3000/api/serviceaccounts/search?query=incident-bot' | python3 -c 'import json,sys; d=json.load(sys.stdin); h=[s for s in d.get("serviceAccounts",[]) if s["name"]=="incident-bot"]; print(h[0]["id"] if h else "")' 2>/dev/null || true)

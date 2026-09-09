@@ -1,5 +1,5 @@
 # Fluent Bit -> Splunk HEC.  Rendered by scripts/22-fluent-bit.sh, which substitutes
-# __SPLUNK_IP__ and __SPLUNK_TOKEN__. Do not edit the rendered copy; edit this.
+# __SPLUNK_IP__ and __TLS__. Do not edit the rendered copy; edit this.
 #
 # FIX vs the PDF: the PDF tails /var/log/containers/*.log — EVERY container on the node,
 # including the whole kube-prometheus-stack, CoreDNS, the kubelet's own pods and Fluent
@@ -48,7 +48,11 @@ config:
         Port             8088
         TLS              __TLS__
         TLS.Verify       Off
-        Splunk_Token     __SPLUNK_TOKEN__
+        # Day 13 (B9): the token is NOT in this file any more. Fluent Bit substitutes
+        # ${VAR} from the environment; the env var comes from secret/splunk-hec (below),
+        # minted by 22-fluent-bit.sh. So neither git, nor Terraform state, nor a plan's
+        # rendered manifest ever contains it.
+        Splunk_Token     ${SPLUNK_HEC_TOKEN}
         Splunk_Send_Raw  Off
         # FIX: without this, events land as sourcetype "httpevent", which Splunk treats
         # as opaque text. It never parses the JSON, so app.service / app.status do not
@@ -68,3 +72,12 @@ livenessProbe:
   timeoutSeconds: 5
 readinessProbe:
   timeoutSeconds: 5
+
+# B9: the HEC token reaches Fluent Bit as an environment variable from a Secret that
+# scripts/22-fluent-bit.sh creates (kubectl), outside the chart and outside Terraform.
+env:
+  - name: SPLUNK_HEC_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: splunk-hec
+        key: token

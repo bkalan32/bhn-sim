@@ -24,7 +24,7 @@ if [[ -f infra/local/terraform.tfstate ]]; then
 else
   t_fail "no state file — ./scripts/130-tf-import.sh"
 fi
-git check-ignore -q infra/local/terraform.tfstate && t_ok "state is gitignored (it carries the HEC token)" || t_fail "infra/local/terraform.tfstate is NOT ignored"
+git check-ignore -q infra/local/terraform.tfstate && t_ok "state is gitignored (state is not code)" || t_fail "infra/local/terraform.tfstate is NOT ignored"
 git ls-files --error-unmatch infra/local/chart-versions.auto.tfvars >/dev/null 2>&1 && t_ok "chart pins are committed" || t_fail "chart-versions.auto.tfvars not committed"
 
 # the change and the drift, on the record
@@ -33,6 +33,13 @@ grep -q 'repeat_interval: 6h' k8s/kps-values.yaml && git log --oneline -- k8s/kp
 alertmanager_get /api/v2/status | grep -q 'repeat_interval: 6h' && t_ok "Alertmanager's live config says 6h" || t_fail "Alertmanager does not show repeat_interval: 6h"
 [[ -f checkpoints/day13-drift-injected.txt ]] && t_ok "drift was injected ($(cat checkpoints/day13-drift-injected.txt))" || t_fail "no evidence of the drift drill — ./scripts/132-drift-drill.sh inject"
 k get servicemonitor -n "$MONITORING_NS" 2>/dev/null | grep -q pushgateway && t_ok "drift repaired: pushgateway ServiceMonitor present" || t_fail "pushgateway ServiceMonitor missing — drift not repaired"
+
+# deterministic and secret-free (B8, B9, B10)
+grep -q 'manifest *= *true' infra/local/providers.tf && t_ok "helm provider compares live manifests (drift is visible)" || t_fail "providers.tf lacks experiments = { manifest = true } — plan cannot see drift"
+grep -q 'existingSecret: grafana-admin' k8s/kps-values.yaml && k get secret grafana-admin -n "$MONITORING_NS" >/dev/null 2>&1 && t_ok "Grafana password in our Secret (plan deterministic)" || t_fail "Grafana admin password still chart-generated — ./scripts/134-tf-deterministic.sh"
+if [[ -f infra/local/terraform.tfstate ]] && k get secret splunk-hec -n "$LOGGING_NS" >/dev/null 2>&1; then
+  T=$(k get secret splunk-hec -n "$LOGGING_NS" -o jsonpath='{.data.token}' | base64 -d); grep -q -- "$T" infra/local/terraform.tfstate && t_fail "HEC token is in terraform.tfstate" || t_ok "no HEC token in state"; unset T
+else t_fail "secret/splunk-hec missing — ./scripts/134-tf-deterministic.sh"; fi
 
 # the nightly job
 [[ -s ci/Jenkinsfile.drift && -s ci/infra-drift-check.job.xml ]] && t_ok "ci/Jenkinsfile.drift + job XML" || t_fail "drift job files missing"

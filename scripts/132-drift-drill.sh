@@ -39,10 +39,14 @@ case "${1:-}" in
     set +e; "$TF" plan -input=false -no-color -detailed-exitcode > infra/local/plan.txt 2>&1; RC=$?; set -e
     case "$RC" in
       2) ok "exit code 2: DRIFT. The diff, precisely:"
-         grep -nE 'serviceMonitor|enabled|~ resource|Plan:' infra/local/plan.txt | head -12 | sed 's/^/  /'
-         say ""; say "  Code says serviceMonitor.enabled=true (k8s/pushgateway-values.yaml); the cluster says false."
-         say "  Terraform did not guess — it read the release's live values and compared them with the file." ;;
-      0) warn "plan is clean — no drift detected. Did inject run? helm get values pushgateway -n monitoring" ;;
+         grep -nE '~ resource|Plan:|ServiceMonitor' infra/local/plan.txt | grep -vE '^\s*[0-9]+:\s*#' | head -12 | cut -c1-160 | sed 's/^/  /'
+         say ""; say "  Code says serviceMonitor.enabled=true (k8s/pushgateway-values.yaml); the cluster has no ServiceMonitor."
+         say "  Terraform did not guess — it rendered the chart with your values (a dry-run upgrade) and diffed"
+         say "  that against the manifest the cluster is running (provider experiments.manifest, B8)." ;;
+      0) warn "plan is clean — no drift detected. Two possible reasons:"
+         say "    1. inject did not run:  helm get values pushgateway -n monitoring | grep -A1 serviceMonitor"
+         say "    2. the helm provider is not comparing live state: infra/local/providers.tf must have"
+         say "       experiments = { manifest = true }  (CORRECTIONS-DAY13 B8) — then plan again" ;;
       *) die "plan failed: $(tail -5 infra/local/plan.txt)" ;;
     esac
     ok "Next: $0 observe"
@@ -72,7 +76,9 @@ case "${1:-}" in
   repair)
     ID=$(open_ids_for settlement | awk '{print $1}')
     step "terraform apply — the code is the fix"
-    "$TF" apply -input=false -auto-approve -no-color 2>&1 | grep -E 'helm_release|Apply complete|Error' | sed 's/^/  /'
+    set +e; "$TF" apply -input=false -auto-approve -no-color > infra/local/apply.txt 2>&1; RC=$?; set -e
+grep -E '^(helm_release|Apply complete)|^\s*(│ )?Error:' infra/local/apply.txt | sed 's/^/  /'
+(( RC == 0 )) || die "terraform apply failed (exit $RC) — full output: infra/local/apply.txt"
     step "Metrics back?"
     OK=0; for _ in $(seq 1 24); do
       v=$(promql 'settlement_last_success_timestamp' | python3 tools/promjson.py value '{:.0f}'); [[ "$v" != "no data" ]] && { OK=1; break; }; sleep 5

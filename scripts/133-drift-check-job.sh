@@ -69,7 +69,9 @@ if [[ "${1:-}" == "--prove" ]]; then
     --set serviceMonitor.enabled=false --reuse-values --wait --timeout 3m >/dev/null && ok "drift injected"
   run_job FAILURE || warn "the job went green with drift present — the plan it ran was clean? check TF_STATE_PATH in the console"
   step "Repair"
-  "$TF" apply -input=false -auto-approve -no-color 2>&1 | grep -E 'Apply complete|Error' | sed 's/^/  /'
+  set +e; "$TF" apply -input=false -auto-approve -no-color > infra/local/apply.txt 2>&1; RC=$?; set -e
+  grep -E '^(helm_release|Apply complete)|^\s*(│ )?Error:' infra/local/apply.txt | sed 's/^/  /'
+  (( RC == 0 )) || die "terraform apply failed (exit $RC) — full output: infra/local/apply.txt"
   step "Run 3 — repaired: expect SUCCESS"
   run_job SUCCESS || true
 fi

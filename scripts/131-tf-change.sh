@@ -22,7 +22,9 @@ grep -q 'Plan: 0 to add, 1 to change, 0 to destroy' infra/local/plan.txt \
 echo; read -rp "  Read it. Apply? [Enter = yes, Ctrl-C = no] " _
 
 step "Apply (helm upgrade under the hood, pinned version, same values file + this diff)"
-"$TF" apply -input=false -auto-approve -no-color 2>&1 | grep -E 'helm_release|Apply complete|Error' | sed 's/^/  /'
+set +e; "$TF" apply -input=false -auto-approve -no-color > infra/local/apply.txt 2>&1; RC=$?; set -e
+grep -E '^(helm_release|Apply complete)|^\s*(│ )?Error:' infra/local/apply.txt | sed 's/^/  /'
+(( RC == 0 )) || die "terraform apply failed (exit $RC) — full output: infra/local/apply.txt"
 
 step "Verify in Alertmanager's live config (the config-reloader polls; up to ~2 min)"
 OK=0

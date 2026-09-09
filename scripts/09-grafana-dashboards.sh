@@ -55,7 +55,7 @@ done
 
 step "Waiting for the sidecar to load them (~30s)"
 sleep 30
-PW=$(k get secret kps-grafana -n "$MONITORING_NS" -o jsonpath='{.data.admin-password}' | base64 -d)
+PW=$(grafana_admin_password); [[ -n "$PW" ]] || die "no Grafana admin password in secret/grafana-admin or secret/kps-grafana"
 k exec -n "$MONITORING_NS" deploy/kps-grafana -c grafana -- \
   curl -s -u "admin:$PW" 'http://localhost:3000/api/search?type=dash-db' 2>/dev/null \
   | python3 -c 'import json,sys

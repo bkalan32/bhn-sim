@@ -7,3 +7,4 @@ plan.txt
 # tfvars are local except the committed chart-versions.auto.tfvars
 *.tfvars
 !chart-versions.auto.tfvars
+apply.txt

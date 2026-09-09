@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Run terraform for infra/local with the three inputs that live OUTSIDE git supplied:
+# Run terraform for infra/local with the inputs that live OUTSIDE git supplied:
 #
 #   TF_VAR_splunk_ip         from `docker inspect splunk`   (moves on every Docker restart)
-#   TF_VAR_splunk_hec_token  from the rendered, gitignored k8s/fluent-bit-values.yaml
-#   TF_VAR_splunk_hec_tls    from the same file (On/Off)
+#   TF_VAR_splunk_hec_tls    from the rendered k8s/fluent-bit-values.yaml (On/Off)
+#   (the HEC token is NOT an input any more: Fluent Bit reads it from secret/splunk-hec — B9)
 #   state path               $TF_STATE_PATH, default infra/local/terraform.tfstate;
 #                            the Jenkins drift job points it at /repo/infra/local/… so the
 #                            clone it plans from reads the SAME state as your shell
@@ -21,16 +21,10 @@ cd "$HERE"
 
 VALUES="$LAB/k8s/fluent-bit-values.yaml"
 [[ -f "$VALUES" ]] || VALUES=/repo/k8s/fluent-bit-values.yaml     # Jenkins: the clone has no rendered file; the bind mount does
-if [[ -z "${TF_VAR_splunk_hec_token:-}" ]]; then
-  [[ -f "$VALUES" ]] || { echo "tf.sh: no rendered k8s/fluent-bit-values.yaml (Day 3's 22-fluent-bit.sh) and no TF_VAR_splunk_hec_token" >&2; exit 1; }
-  TF_VAR_splunk_hec_token="$(grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$VALUES" | head -1 || true)"
-  [[ -n "$TF_VAR_splunk_hec_token" ]] || { echo "tf.sh: no HEC token found in $VALUES" >&2; exit 1; }
-  export TF_VAR_splunk_hec_token
-fi
 if [[ -z "${TF_VAR_splunk_hec_tls:-}" && -f "$VALUES" ]]; then
   TF_VAR_splunk_hec_tls="$(grep -E '^\s*TLS\s+(On|Off)' "$VALUES" | awk '{print $2}' | head -1 || true)"
-  export TF_VAR_splunk_hec_tls="${TF_VAR_splunk_hec_tls:-On}"
 fi
+export TF_VAR_splunk_hec_tls="${TF_VAR_splunk_hec_tls:-On}"
 if [[ -z "${TF_VAR_splunk_ip:-}" ]]; then
   TF_VAR_splunk_ip="$(docker inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' splunk 2>/dev/null || true)"
   [[ -n "$TF_VAR_splunk_ip" ]] || { echo "tf.sh: splunk container not running (docker start splunk) and no TF_VAR_splunk_ip" >&2; exit 1; }

@@ -52,9 +52,9 @@ resource "helm_release" "otel" {
   depends_on = [helm_release.tempo]
 }
 
-# The rendered values file is gitignored (HEC token + a moving IP), so Terraform renders
-# the same template 22-fluent-bit.sh renders, from variables tf.sh supplies (B3). After a
-# Docker restart moves Splunk, `tf.sh plan` shows exactly one change: the Host line.
+# Terraform renders the same template 22-fluent-bit.sh renders, from variables tf.sh
+# supplies (B3); the HEC token is not in it — Fluent Bit reads it from secret/splunk-hec
+# (B9). After a Docker restart moves Splunk, `tf.sh plan` shows exactly one change: Host.
 resource "helm_release" "fluent_bit" {
   name       = "fluent-bit"
   namespace  = kubernetes_namespace.logging.metadata[0].name
@@ -62,10 +62,9 @@ resource "helm_release" "fluent_bit" {
   chart      = "fluent-bit"
   version    = var.chart_versions["fluent-bit"]
   values = [
-    replace(replace(replace(
+    replace(replace(
       file("${path.module}/../../k8s/fluent-bit-values.yaml.tmpl"),
       "__SPLUNK_IP__", var.splunk_ip),
-      "__SPLUNK_TOKEN__", var.splunk_hec_token),
       "__TLS__", var.splunk_hec_tls)
   ]
   timeout = 300

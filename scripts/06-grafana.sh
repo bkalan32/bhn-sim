@@ -8,7 +8,7 @@ source "$(dirname "$0")/lib.sh"
 require_cluster
 
 step "Grafana admin credentials"
-PASS=$(k get secret "${HELM_RELEASE}-grafana" -n "$MONITORING_NS" -o jsonpath='{.data.admin-password}' | base64 -d)
+PASS=$(grafana_admin_password); [[ -n "$PASS" ]] || die "no Grafana admin password in secret/grafana-admin or secret/kps-grafana"
 say "  user: admin"
 say "  pass: ${PASS}"
 dim "(the guide's version emits no trailing newline, so the password runs into your prompt;"

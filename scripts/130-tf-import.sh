@@ -21,7 +21,7 @@ ok "terraform $TFV"
 python3 - "$TFV" <<'PY' || die "terraform >= 1.9 required (helm provider 3.x needs it)"
 import sys; v=tuple(int(x) for x in sys.argv[1].split(".")[:2]); sys.exit(0 if v >= (1,9) else 1)
 PY
-[[ -f k8s/fluent-bit-values.yaml ]] || die "k8s/fluent-bit-values.yaml missing — the Fluent Bit release needs the HEC token from it (22-fluent-bit.sh)"
+[[ -f k8s/fluent-bit-values.yaml ]] || die "k8s/fluent-bit-values.yaml missing — tf.sh reads the TLS setting from it (22-fluent-bit.sh)"
 docker ps --format '{{.Names}}' | grep -qx splunk || die "splunk container not running (docker start splunk) — Terraform renders its IP into the Fluent Bit values"
 ok "rendered Fluent Bit values present, Splunk at $(splunk_ip)"
 
@@ -49,7 +49,7 @@ PY
 sed 's/^/  /' infra/local/chart-versions.auto.tfvars | grep -v '^  #'
 
 step "terraform init (providers: hashicorp/kubernetes ~> 2.35, hashicorp/helm ~> 3.0)"
-"$TF" init -input=false >/dev/null && ok "initialised — state at infra/local/terraform.tfstate (gitignored: it will hold the HEC token)"
+"$TF" init -input=false >/dev/null && ok "initialised — state at infra/local/terraform.tfstate (gitignored: state is not code)"
 
 step "Importing what already exists"
 declare -A IMPORTS=(

@@ -128,6 +128,16 @@ SPLUNK_PASSWORD="${SPLUNK_PASSWORD:-Changeme123!}"
 
 # The Splunk container's IP on the kind Docker network. Container IPs are reassigned
 # on restart, so never hardcode this into a values file by hand — render it.
+# Day 13 (CORRECTIONS B10): Grafana's admin password lives in secret/grafana-admin, which
+# 134-tf-deterministic.sh mints from the chart's own secret; before that day, in
+# secret/kps-grafana. Try ours first, fall back to the chart's. Never echo it.
+grafana_admin_password() {
+  local p
+  p=$(k get secret grafana-admin -n "$MONITORING_NS" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -n "$p" ]] || p=$(k get secret kps-grafana -n "$MONITORING_NS" -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  printf '%s' "$p"
+}
+
 splunk_ip() {
   docker inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' "$SPLUNK_CONTAINER" 2>/dev/null || true
 }

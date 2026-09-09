@@ -85,13 +85,29 @@ else
 fi
 dim "Search 'index=main bhn-sim' in Splunk — that preflight event should be there."
 
+step "Storing the token in secret/splunk-hec (Day 13, B9: the values file no longer carries it)"
+k get namespace "$LOGGING_NS" >/dev/null 2>&1 || k create namespace "$LOGGING_NS" >/dev/null
+k create secret generic splunk-hec -n "$LOGGING_NS" --from-literal=token="$TOKEN" \
+  --dry-run=client -o yaml | k apply -f - >/dev/null
+ok "secret/splunk-hec in $LOGGING_NS (Fluent Bit reads it as \${SPLUNK_HEC_TOKEN})"
+
 step "Rendering k8s/fluent-bit-values.yaml from the template"
-sed -e "s|__SPLUNK_IP__|${IP}|" -e "s|__SPLUNK_TOKEN__|${TOKEN}|" -e "s|__TLS__|${TLS_SETTING}|" \
+sed -e "s|__SPLUNK_IP__|${IP}|" -e "s|__TLS__|${TLS_SETTING}|" \
   "$LAB_ROOT/k8s/fluent-bit-values.yaml.tmpl" > "$LAB_ROOT/k8s/fluent-bit-values.yaml"
 chmod 600 "$LAB_ROOT/k8s/fluent-bit-values.yaml"
-ok "rendered (contains your token — .gitignore already excludes it)"
+ok "rendered: Splunk at ${IP}, TLS ${TLS_SETTING} (no token in it; still gitignored — it is derived, not source)"
 dim "Tailing ONLY /var/log/containers/*_payments_*.log, not the whole cluster."
 dim "500 MB/day on trial AND free; the whole cluster would burn that in about a day."
+
+if [[ -f "$LAB_ROOT/infra/local/terraform.tfstate" ]]; then
+  step "Fluent Bit release: Terraform owns it (Day 13)"
+  say "  Not running helm upgrade — that would be a change outside the code. Apply the release with:"
+  say "    ./infra/local/tf.sh plan && ./infra/local/tf.sh apply"
+  dim "  (a Secret change alone does not restart the DaemonSet; the apply will, if the values changed —"
+  dim "   otherwise: kubectl -n $LOGGING_NS rollout restart ds/fluent-bit)"
+  ok "Next: ./infra/local/tf.sh apply"
+  exit 0
+fi
 
 step "Installing Fluent Bit"
 helm repo add fluent https://fluent.github.io/helm-charts >/dev/null 2>&1 || true

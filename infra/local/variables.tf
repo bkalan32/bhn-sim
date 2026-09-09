@@ -7,18 +7,15 @@ variable "chart_versions" {
   description = "release name -> chart version, as installed (chart-versions.auto.tfvars)"
 }
 
-# Fluent Bit's values are rendered from k8s/fluent-bit-values.yaml.tmpl with the three
-# things the template cannot know: Splunk's container IP (moves on every Docker restart),
-# the HEC token (a secret, never in git), and whether HEC has TLS on. infra/local/tf.sh
-# supplies them as TF_VAR_* from `docker inspect` and the gitignored rendered file.
+# Fluent Bit's values are rendered from k8s/fluent-bit-values.yaml.tmpl with the two
+# things the template cannot know: Splunk's container IP (moves on every Docker restart)
+# and whether HEC has TLS on. infra/local/tf.sh supplies them as TF_VAR_* from
+# `docker inspect` and the rendered file. The HEC token is deliberately NOT a variable:
+# it reaches Fluent Bit as an env var from secret/splunk-hec (22-fluent-bit.sh), so it is
+# in neither git, nor Terraform state, nor the manifests a plan renders (B9).
 variable "splunk_ip" {
   type        = string
   description = "Splunk container IP on the kind network (docker inspect)"
-}
-variable "splunk_hec_token" {
-  type        = string
-  sensitive   = true
-  description = "HEC token from Day 3 — never committed, never printed"
 }
 variable "splunk_hec_tls" {
   type    = string

@@ -22,4 +22,13 @@ provider "helm" {
     config_path    = var.kubeconfig
     config_context = var.kube_context
   }
+  # Without this the helm provider CANNOT see drift (CORRECTIONS-DAY13 B8): a refresh only
+  # re-reads computed metadata; it never compares the release's live state with your values,
+  # so a hand `helm upgrade --set ...` leaves `terraform plan` clean forever. With it, every
+  # plan renders the chart with your values (a dry-run upgrade) and diffs that against the
+  # manifest the cluster is actually running. Cost: plans take a few seconds longer and
+  # state holds the rendered manifests — which is why no secret may live in values (B9).
+  experiments = {
+    manifest = true
+  }
 }
