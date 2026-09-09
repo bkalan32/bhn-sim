@@ -58,3 +58,13 @@ config:
         event_sourcetype _json
         event_source     kube:payments
         Retry_Limit      3
+
+# Day 13 (the second change through Terraform, a real one): the chart's default probes
+# give Fluent Bit's HTTP server ONE second to answer. Its HTTP server shares the event loop
+# with the HEC output, so under log volume (both load generators + the Day 12 drills) it
+# answered late, the kubelet read "slow" as "dead" and killed the container every ~40 min —
+# ten clean exits (code 0) in a day, no alert, no ticket. Merged over the chart defaults.
+livenessProbe:
+  timeoutSeconds: 5
+readinessProbe:
+  timeoutSeconds: 5
