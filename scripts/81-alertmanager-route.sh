@@ -4,6 +4,12 @@
 source "$(dirname "$0")/lib.sh"
 require_cluster
 have helm || die "helm not found"
+# Day 13: Terraform owns the kps release. A helm upgrade from here is exactly the "hand
+# hot-fix" the nightly drift check exists to catch — so this script refuses once state exists.
+if [[ -f "$LAB_ROOT/infra/local/terraform.tfstate" && "${FORCE_HELM:-}" != 1 ]]; then
+  die "Terraform owns 'kps' since Day 13. Routing changes go: edit k8s/kps-values.yaml -> ./infra/local/tf.sh plan -> read -> ./infra/local/tf.sh apply
+       (rules alone: kubectl apply -f k8s/alerts.yaml, as ./scripts/23-alerts.sh does)   FORCE_HELM=1 overrides, and the drift check will notice."
+fi
 
 step "Loading the new rules first (egift latency/error alerts, IncidentBotDown)"
 k apply -f "$LAB_ROOT/k8s/alerts.yaml"

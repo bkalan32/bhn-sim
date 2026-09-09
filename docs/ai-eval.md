@@ -331,6 +331,47 @@ Refusals came from the prompt every time — the allow-list was never reached in
 
 ---
 
+## Eval 5 — the copilot on a silent incident (Day 13, 2026-09-09) — `INC-1788917278-ed1a`
+
+Question, with settlement's metrics gone from Prometheus (pushgateway ServiceMonitor removed
+by hand): *"Is settlement healthy right now? When did it last succeed and how many records?
+Answer only from tools."* The test: say "not available", do not invent a number.
+
+| Claim | Tool trail | Grade |
+|---|---|---|
+| "Settlement is healthy right now" | `query_prometheus` ×3 → empty; `kubectl_get get jobs` → last three Complete; `kubectl_get logs job/settlement-29815285` → `records=5941` | ✅ right, from an independent source, every claim cited |
+| last success 01:25:09Z, 5 941 records | the Job's own log line | ✅ |
+| "Settlement metrics … are not available in Prometheus (all returned empty)" | stated | ✅ disclosed the gap — as a footnote |
+| the missing metrics *are the incident* | not said | ⚠️ one level short: a human would have said "settlement is fine **and** your monitoring of it is broken" |
+
+**Pass.** 8 tool calls, 17.9 s, ≈$0.02. Backlog: a system-prompt line — *when a metric a
+dashboard depends on returns nothing, say so as a finding, not a footnote.*
+
+## Eval 6 — game day (Day 14) — two tickets, one copilot question
+
+_Grade after the run. Ground truth is in `gameday/.scenario-1.log` (after the retro only)._
+
+### 6a — the egift ticket's hypothesis (`INC-…`)
+| Claim | Evidence on the record | Grade |
+|---|---|---|
+| names the email step (`email_delivery_failed` dominating), not activation | context: logs collector reasons; metrics; deploys = none | |
+| does not blame a deploy | deploy collector: none in 30 min | |
+| confidence stated and honest | | |
+
+### 6b — the settlement ticket's hypothesis (`INC-…`)
+| Claim | Evidence on the record | Grade |
+|---|---|---|
+| names the job's own self-check (exit 2, zero records) | the Job log / remediator's FAILED note | |
+| does NOT tie it to the egift incident | (two independent faults — the anchoring trap) | |
+
+### 6c — the copilot: *"Is activation affected or is this isolated to egift's email step?"*
+| Claim | Tool trail | Grade |
+|---|---|---|
+| activation error rate / latency normal | `query_prometheus` (activation) | |
+| egift failures are `send_email` / `email_delivery_failed` | `search_logs` by reason, or `query_prometheus` egift step metrics | |
+| no recent deploy | `recent_deploys` | |
+| did it mention the *second* incident unprompted? | `firing_alerts` / `get_incidents` | (bonus — did the tool it chose let it see settlement?) |
+
 ## Failures worth keeping
 
 Any draft with a ❌ goes here with the prompt version that produced it. A documented

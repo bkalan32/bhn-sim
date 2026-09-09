@@ -6,8 +6,10 @@ wrapped in metrics, logs, traces, dashboards, alerts, ticketing and an AI incide
 
 **Host:** Windows + WSL2 Ubuntu · **Cluster:** kind · **Context:** `kind-bhn-sim`
 
-> The test for this runbook: *if my laptop died tonight, could I rebuild from this file in
-> 30 minutes?* Prove it with `scripts/99-teardown.sh` and then rebuild.
+> The test for this runbook: *if my laptop died tonight, could I rebuild from this file?*
+> Since Day 13: `03-cluster-up.sh`, `./infra/local/tf.sh apply` (the platform layer), the
+> secret scripts, one Jenkins build per service — see "Who owns what". Audited against the
+> running lab on Day 14 (`./scripts/141-readme-audit.sh`); re-audit after every intense week.
 
 ---
 
@@ -83,7 +85,7 @@ cd ~/bhn-sim
 
 # Day 8
 ./scripts/80-build-incident-bot.sh # tests, image, PVC, deploy, synthetic webhook smoke test
-./scripts/81-alertmanager-route.sh # new rules + helm upgrade (pinned) + prove Alertmanager reloaded
+./scripts/81-alertmanager-route.sh # new rules + Alertmanager routing (Day 8–12: helm upgrade; since Day 13 it refuses — use tf.sh)
 ./scripts/82-incident-drill.sh     # fault -> alert -> webhook -> incident opens -> auto-resolves
 ./scripts/83-settlement-strict.sh  # INC-0005 fix verified in all three modes
 ./scripts/84-test-catches-bug.sh   # INC-0006 fix verified: velocity bug dies on a branch in seconds
@@ -120,16 +122,26 @@ python3 tools/rem.py pending|approve <token>|decline <token>|actions|signatures
 
 # Day 13
 ./scripts/130-tf-import.sh         # pin chart versions from helm list, init, import 4 ns + 5 releases, plan
-./infra/local/tf.sh plan|apply     # the platform layer, from now on (splunk IP + HEC token supplied by the wrapper)
+./infra/local/tf.sh plan|apply     # the platform layer, from now on (Splunk IP + TLS flag supplied by the wrapper; no secret is an input)
 ./scripts/131-tf-change.sh         # one real change: repeat_interval 4h -> 6h, edit-plan-apply-commit
 ./scripts/132-drift-drill.sh inject|detect|observe|repair   # a hand hot-fix, caught by plan, repaired by apply (INC-0015)
 ./scripts/134-tf-deterministic.sh  # Grafana password + HEC token out of the charts: plan deterministic, state secret-free
 ./scripts/133-drift-check-job.sh [--prove]   # terraform into the Jenkins image; nightly infra-drift-check job
 ./scripts/138-checkpoint-day13.sh
 
+# Day 14 — game day (nothing new; measure, audit, drill)
+./scripts/141-readme-audit.sh      # runbook rot: every command, port, job and fact in this file vs the running lab
+./scripts/142-gameday.sh start     # runs gameday/scenario-1.sh in the background — do NOT read that file; walk away 5 min
+./gameday/note.sh "what you see"   # the scribe: timestamped line into gameday/timeline-1.md (you are also the scribe)
+./scripts/142-gameday.sh status    # the responder's view: open tickets, firing alerts, remediator actions, health scores
+./scripts/142-gameday.sh verify    # when you believe it is over: knobs at baseline? tickets resolved? drafts written?
+./scripts/142-gameday.sh retro     # ground truth vs your timeline; scaffolds INC-0016/0017 and gameday/retro-<n>.md
+./scripts/148-checkpoint-day14.sh
+
 # Any time, after a Docker restart / reboot
-./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, front doors
+./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, collectors, tf plan — docs/morning.md has the full routine
 ./scripts/up.sh --check            # read-only
+./scripts/99-teardown.sh           # everything gone — the rebuild test (then: from the top of this file)
 ```
 
 ---
@@ -150,6 +162,25 @@ incident-response question; this table is the answer.
 `./infra/local/tf.sh apply` (the whole platform layer, ~5 min), the secrets scripts, then one
 Jenkins build per service. State is local (`infra/local/terraform.tfstate`, gitignored — state
 is not code, and after `134` it holds no secret); in a company it lives in a remote backend with locking, same shape.
+
+---
+
+## Week 3 — AWS (the plan, written on Day 14)
+
+Weeks 1–2 built the skills on a laptop; week 3 moves the ground truth to where the job lives.
+Rules first (`docs/aws-costs.md`): budget alarm before the first resource, everything through
+Terraform so `destroy` works, smallest nodes, no NAT gateway unless a step needs it, nothing
+running overnight, the bill checked every morning.
+
+| Day | What | Cost discipline |
+|---|---|---|
+| 15 | AWS foundations, the safe way: **billing guardrails first**, IAM (no root, MFA, one lab role), Terraform **remote state** (S3 + lock), a real VPC, ECR with the five images pushed | no compute; cents |
+| 16 | **EKS** stood up by Terraform, the platform layer applied onto it (the same `infra/` shape as `infra/local`), the pipeline deploying to it — then **destroyed the same day**. *Create, learn, destroy.* | ≈$3 for the hours it exists |
+| 17–18 | cloud-native observability: CloudWatch (metrics, logs, alarms) and the New Relic account from Day 1 wired in; the incident stack (bot, remediator, copilot) running against EKS | logs retention set; cluster destroyed nightly |
+| 19–20 | final game day on AWS; the write-up; the repo as the portfolio piece and the first-90-days plan | destroy everything; the final bill in `docs/aws-costs.md` |
+
+Prework before Day 15: the AWS account exists (README → Hosted accounts), MFA on root, the
+budget email is one you read, and `aws --version` works in WSL.
 
 ---
 
@@ -280,14 +311,14 @@ outage, append-only timeline, auto-resolve when every alert in it clears.
 |---|---|
 | Code | `services/incident-bot/app.py` (tests in `tests/`) |
 | Manifest | `k8s/incident-bot.yaml` — Deployment (1 replica, Recreate) + **PVC** + Service + ServiceMonitor |
-| Routing | `k8s/kps-values.yaml` → `./scripts/81-alertmanager-route.sh` |
+| Routing | `k8s/kps-values.yaml` → `./infra/local/tf.sh plan` → `apply` (Terraform owns kps since Day 13; `81-alertmanager-route.sh` was the Day 8–12 way and now refuses) |
 | CLI | `python3 tools/inc.py list \| show \| timeline \| note \| delete \| webhook` |
 | Metrics | `incidents_open`, `incidents_created_total`, `alertmanager_webhooks_total{status}` — overview bottom row |
 | Alert | `IncidentBotDown` — monitor the monitor |
 
 **Routing opinions** (defend them): default receiver `null`; only alerts with a `service`
 label become tickets; `Watchdog` never does; `group_by: [service]`; `group_wait 15s`,
-`group_interval 2m`, `repeat_interval 4h`; `send_resolved: true`.
+`group_interval 2m`, `repeat_interval 6h` (4h until Day 13's first Terraform change); `send_resolved: true`.
 
 **AI drafts (Day 9).** `ai.py` drafts the internal summary + stakeholder update at open and
 the resolution note + close-out + review skeleton at close, in a background thread, from the
@@ -335,9 +366,9 @@ activate in well under a second.
 | | |
 |---|---|
 | Code | `services/activation/app.py` |
-| Manifest | `k8s/activation.yaml` (namespace `payments`) |
-| Image | `activation:0.2` — rebuild with `./scripts/20-upgrade-activation.sh` |
-| Dashboard | `dashboards/activation.json` — import into Grafana |
+| Manifest | `k8s/activation.yaml` (Deployment/Service/ServiceMonitor; the `payments` Namespace is Terraform's since Day 13) |
+| Image | `activation:<jenkins build#>` — built and deployed by the pipeline since Day 6 (`Jenkinsfile`, `SERVICE=activation`); currently v0.4 (fail-fast, Day 7). `20-upgrade-activation.sh` is the Day 3 hand-build, kept for history |
+| Dashboard | `dashboards/activation.json` → `./scripts/09-grafana-dashboards.sh` (ConfigMaps; UI imports do not survive a Grafana restart) |
 | Traffic | `./scripts/12-loadgen.sh [rps]` |
 
 **Incident controls** — `kubectl set env deployment/activation -n payments <VAR>=<value>`

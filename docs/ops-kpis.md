@@ -41,6 +41,8 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 | 0010 | `INC-1788828923-e7d8` | bad deploy (Day 10, build 19) | ~156s (deploy 2.6 min before the alert) | 18s | 0s | 24s | – | 42s → **not counted** — the right cause was ranked second | half | rollback landed 0.3 min *before* the alert; hypothesis blamed the rollback |
 | 0011 | `INC-1788884439-d9d2` | fraud dependency (Day 11, copilot) | ~188s | 29s | _kpis.py_ | _kpis.py_ | – | bot: TTT + TTH (right) · **copilot: 22 s from the question = 157 s from the fault, 31 s BEFORE the alert** | **yes** (both) | copilot asked at t+135 s; its Q3 invented a deploy story (Eval 4b) |
 
+| 0012 | `INC-1788902287-0232` | crash-looping pod (Day 12, tier 1) | 264s (`PaymentsPodCrashLooping`, restart branch, `for: 1m`) | 17s | _kpis.py_ | _kpis.py_ | – | – (the signature IS the diagnosis) | yes | **AUTO +1 s** (read the pod, confirmed CrashLoopBackOff, deleted *that* pod) → +90 s *"restart did NOT stick … a human is needed"* — the honest outcome; resolved ≈2 min after the fixture was removed |
+| 0013 | `INC-1788902731-4fad` | settlement crash (Day 12, tier 1) | 140s (`SettlementJobFailed`) | 18s | _kpis.py_ | _kpis.py_ | – | – | yes | AUTO attempt 1 **FAILED** (kubectl create timed out on API discovery — B12) → retry in 180 s → mode set to `none` by the human at +108 s → **AUTO retry succeeded** +285 s, Job Complete; alert resolved by its own 15-min window |
 | 0014 | `INC-1788906062-bf85` | bad deploy, Verify skipped (Day 12, tier 2, run 2) | ~190s (deploy 3.2 min before the alert) | 28s | _kpis.py_ | _kpis.py_ | – | – (the remediator's signature IS the diagnosis: deploy 3.2 min before) | **yes** | **alert → PROPOSED 28 s → APPROVED +35 s → EXECUTED +13 s → RECOVERED +313 s**; approve → production healthy ~60 s; approve → alert resolved 326 s |
 | 0014-r1 | `INC-1788904287-7074` | same, run 1 (verification forbidden — B13) | ~190s | 18s | | | – | – | yes (rollback) | PROPOSED +3 s → APPROVED +686 s → EXECUTED FAILED +185 s (rollback done, `rollout status` forbidden) → RECOVERED +210 s; alert → resolved 1102 s |
 | 0015 | `INC-1788917278-ed1a` | **untracked infrastructure change** — pushgateway ServiceMonitor removed by a hand `helm upgrade` (Day 13 drift drill) | **none** — no alert can fire on a metric that no longer exists; a human declared it **8 m 18 s** after the change, and only because one was watching | – (declared → ticket 1 s) | – | – | ≈5 min (`terraform plan -detailed-exitcode` = 2, once the provider was made to compare live state — B8) | – (context attached, all settlement metrics `null`; hypothesis draft not graded — the cause was on the ticket before it ran) | yes (human) | change → repair **59 m 23 s**, of which ~48 min was fixing the tooling (B8, B10); declared → repaired 51.1 min. Nightly job proved: SUCCESS / **FAILURE** / SUCCESS. Copilot Eval 5: pass, gap reported as a footnote not a finding |
@@ -49,6 +51,54 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 
 Cascade tickets from the same faults (egift calls activation): `INC-1788827580-2365` (with 0009) and
 `INC-1788828924-519d` (with 0010) — TTT 25s/18s, TTH 22s/20s, no separate diagnosis graded.
+
+## Week over week — every incident, five columns (Day 14, Step 1)
+
+*Detected by* is the column that changed most; *mode* is the one that changed last.
+Times approximate where they came from a terminal rather than the record. 0016/0017 are
+filled after the game day.
+
+| # | Day | Fault | Detected by | TTD | TTDiag (first correct cause on record) | TTR (alert → resolved) | Mode |
+|---|---|---|---|---|---|---|---|
+| 0001 | 3 | fraud dependency down | alert (`ActivationHighErrorRate`) | ≈2 min | ≈10 min, human (wrote the Splunk `by app.reason` search) | ≈15 min | manual |
+| 0002 | 4 | activation latency (exp. A) | **human on a dashboard** | – | ≈0 (it was the experiment) | minutes, manual revert | manual |
+| 0003 | 4 | email latency (exp. B) | **human on a dashboard** | – | ≈0 | minutes, manual revert | manual |
+| 0004 | 5 | 50 % errors (burn) | alert (`…BurnFast`) | ≈2 min | ≈0 | ≈5 min | manual |
+| 0005 | 5 | silent settlement (0 records) | alert (`SettlementZeroRecords`) | ≈1 min | ≈2 min (the alert name is the diagnosis) | hours — the fix was code (strict self-check, shipped Day 8) | manual (code) |
+| 0006 | 6 | bad deploy | alert + **pipeline Verify** | ≈2 min | ≈0 (the deploy annotation) | ≈3 min | **pipeline** (auto-rollback) |
+| 0007 | 8 | fraud dependency | alert → **ticket** (first) | ≈2 min | – (no responder notes; the ticket had names and times, not the cause) | ≈12 min | manual |
+| 0008 | 9 | fraud dependency | alert → ticket | ≈2 min | 4 m 37 s, human, while reading the AI open-draft | ≈10 min | manual |
+| 0009 | 10 | fraud dependency | alert → ticket + context | 156 s | **43 s, bot** (TTT 25 + TTH 18; right, medium confidence) | ≈8 min | manual |
+| 0010 | 10 | bad deploy (build 19) | alert → ticket; pipeline had already rolled back | 156 s | 42 s, bot — right *event*, ranked second (half) | 0.3 min *before* the alert (pipeline) | **pipeline** |
+| 0011 | 11 | fraud dependency | alert → ticket; **copilot asked at t+135 s** | 188 s | copilot **22 s** from the question = 157 s from the fault, **31 s before the alert**; bot right too | ≈8 min | manual |
+| 0012 | 12 | crash-looping pod | alert → ticket | 264 s | – (signature) | ≈2 min after the fixture was removed | **auto** (tier 1; correctly reported *did not stick*) |
+| 0013 | 12 | settlement crash | alert → ticket | 140 s | – (signature) | 15 min (alert window) | **auto** (tier 1, bounded retry succeeded) |
+| 0014 | 12 | bad deploy, Verify skipped | alert → ticket → **proposal +28 s** | ≈190 s | – (signature: deploy 3.2 min before) | **389 s**; approve → healthy ≈60 s | **approved** (tier 2, one human decision, 35 s) |
+| 0015 | 13 | untracked infra change (drift) | **none — human declared** at +8 m 18 s | none | ≈5 min (`terraform plan`, once it could see) | 51 min declared → repaired (48 of them fixing the tooling) | manual (`tf apply`) |
+| 0015-b | 13 | real settlement failure mid-upgrade | alert → same ticket | 0 s | – (signature) | 10 min | **auto** (tier 1 re-run, 4 445 records) |
+| 0015-fb | 13 | Fluent Bit killed by probe timeout ×10 | **human reading `RESTARTS`**, ≈5 h in | ≈5 h | 2 min (probe events) | fixed via Terraform; 0 restarts since | manual (code) |
+| 0015-lat | 13 | three latency tickets overnight: activation ×2, egift (`EgiftStepSlow`) — while `133 --prove` built the Jenkins image and rendered five charts three times | alert → ticket, nobody looked (found in `kpis.py` the next morning) | ≈2–5 min | – (self-resolved; cause read off the timestamps next day: the lab's own tooling saturating the VM) | 2–4.6 min each | none |
+| 0016 | 14 | game day — fault 1 | _after the game_ | | | | |
+| 0017 | 14 | game day — fault 2 | _after the game_ | | | | |
+
+**The week-over-week story** (the paragraph that summarises the project — numbers with
+trend, no adjectives):
+
+> **Detection.** Week 1: two of six incidents were found by a human watching a dashboard
+> (0002, 0003), and one silent failure was caught only because a "good thing stopped
+> happening" rule existed (0005). Week 2: every incident alerted within 2–4 minutes and
+> became a ticket within 30 seconds — except the one that *cannot* alert, the untracked
+> infrastructure change (0015), which is now caught nightly by the drift check, and the one
+> nobody ticketed (0015-fb), which is the backlog item. **Diagnosis.** Week 1: ten minutes of
+> manual querying the first time (0001), five minutes by Day 9 (0008). Week 2: the enriched
+> ticket named the right cause at open time in 43 seconds (0009), the copilot found it 31
+> seconds *before the alert fired* (0011), and for the three remediator signatures the
+> diagnosis is the signature (0012–0014). **Recovery.** Day 6's manual rollback took
+> minutes of a human at a keyboard; Day 12's took one decision — 35 seconds to read a
+> proposal and type `approve` — and 389 seconds end to end; the two tier-1 re-runs took no
+> human at all. What did not improve, and is the honest line: recovery is bounded by the
+> alert's own window (15-minute `SettlementJobFailed`, 2-minute error-rate windows), not by
+> the fix — the platform is healthy long before the ticket says so.
 
 ## What to say about it
 

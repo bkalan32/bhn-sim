@@ -95,6 +95,13 @@ except Exception: print("?")' 2>/dev/null || echo "?")
     SIP=$(splunk_ip)
     if [[ -n "$SIP" && "$SURL" == *"$SIP"* ]]; then ok "enrichment: Splunk at $SURL"
     else warn "enrichment: secret says $SURL but Splunk is at ${SIP:-<not running>} — ./scripts/100-enrich-config.sh"; fi
+    # Day 13 lesson: Grafana keeps its service accounts in an emptyDir — a REPLACED Grafana pod
+    # (helm upgrade, node restart) forgets the bot's and the remediator's tokens. Ask the bot
+    # what its collectors see instead of trusting the secret exists.
+    COLL=$(bot_get '/enrich/test?service=activation' 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join("%s=%s"%(k,"ok" if v.get("ok") else "FAIL") for k,v in d["collectors"].items()))' 2>/dev/null || true)
+    if [[ -z "$COLL" ]]; then warn "bot did not answer /enrich/test"
+    elif [[ "$COLL" == *FAIL* ]]; then warn "collectors: $COLL — deploys=FAIL means a dead Grafana token: ./scripts/100-enrich-config.sh && ./scripts/120-remediator-config.sh; logs=FAIL means Splunk"
+    else ok "collectors: $COLL"; fi
   fi
 else
   warn "incident-bot not deployed yet (Day 8)"
@@ -107,7 +114,26 @@ FB_HOST=$(k get cm -n "$LOGGING_NS" -o yaml 2>/dev/null | grep -oE 'Host +[0-9.]
 SIP=$(splunk_ip)
 if [[ -z "$FB_HOST" ]]; then warn "fluent-bit not installed yet (Day 3)"
 elif [[ -n "$SIP" && "$FB_HOST" == "$SIP" ]]; then ok "fluent-bit -> Splunk at $SIP"
+elif [[ -f "$LAB_ROOT/infra/local/terraform.tfstate" ]]; then warn "fluent-bit ships to $FB_HOST but Splunk is at ${SIP:-<not running>} — Terraform owns the release now: ./infra/local/tf.sh apply   (renders the new IP; one change, the Host line)"
 else warn "fluent-bit ships to $FB_HOST but Splunk is at ${SIP:-<not running>} — re-render: ./scripts/22-fluent-bit.sh <HEC-TOKEN>   (token: checkpoints/day3-splunk.txt or Splunk UI)"; fi
+
+step "Platform layer (Day 13)"
+if [[ -f "$LAB_ROOT/infra/local/terraform.tfstate" ]]; then
+  if docker ps --format '{{.Names}}' | grep -qx splunk; then
+    say "  terraform plan (renders five charts; ~30-60 s) ..."
+    set +e; "$LAB_ROOT/infra/local/tf.sh" plan -input=false -no-color -lock=false -detailed-exitcode > "$LAB_ROOT/infra/local/plan.txt" 2>&1; RC=$?; set -e
+    case "$RC" in
+      0) ok "plan clean — the cluster matches infra/local" ;;
+      2) warn "DRIFT: $(grep -cE 'will be updated' "$LAB_ROOT/infra/local/plan.txt" || true) release(s) differ — $(grep -E 'will be' "$LAB_ROOT/infra/local/plan.txt" | sed -E 's/.*# (helm_release|kubernetes_namespace)\.([a-z_]+).*/\2/' | tr '\n' ' ')"
+         say "    after a restart this is usually Fluent Bit's Host line (Splunk moved): ./infra/local/tf.sh plan, read, ./infra/local/tf.sh apply" ;;
+      *) warn "terraform plan failed (exit $RC): $(tail -3 "$LAB_ROOT/infra/local/plan.txt" | tr '\n' ' ')" ;;
+    esac
+  else warn "splunk not running — Terraform cannot render Fluent Bit's values; docker start splunk, then ./infra/local/tf.sh plan"; fi
+  JT=$(docker run --rm --entrypoint sh jenkins-lab -c 'command -v terraform' 2>/dev/null || true)
+  [[ -n "$JT" ]] && ok "Jenkins image carries terraform (infra-drift-check runs nightly, H 3 * * *)" || warn "Jenkins image lacks terraform — ./scripts/133-drift-check-job.sh rebuilds it"
+else
+  dim "  no Terraform state yet (Day 13)"
+fi
 
 step "Front doors"
 for p in 30080 30443; do
@@ -124,5 +150,4 @@ say "  #2  ./scripts/12-loadgen.sh          activation traffic"
 say "  #6  ./scripts/33-loadgen-egift.sh    egift orders           (Day 4+)"
 say "      python3 tools/inc.py list        incidents, any time     (Day 8+)"
 say "  #3  ./scripts/06-grafana.sh          Grafana on :3000"
-say "      ./infra/local/tf.sh plan         platform drift? (Day 13+; after a restart it shows Splunk's new IP for Fluent Bit — apply it)"
 dim "Port-forwards and load generators do not survive a Docker restart; everything else now does."
