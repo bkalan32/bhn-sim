@@ -41,18 +41,18 @@ states but does not follow: Terraform says what helm said, or the plan lies.
 ## [BUG] B3 — `file("k8s/fluent-bit-values.yaml")` reads a gitignored file with a secret in it
 
 **Guide, Step 2:** the Fluent Bit release takes `values = [file("…/k8s/fluent-bit-values.yaml")]`.
-That file is *rendered* by `22-fluent-bit.sh` from a template, contains the HEC token, and
+That file is *rendered* by `22-fluent-bit.sh` from a template, contained the HEC token, and
 is gitignored for that reason (Day 3). So: the Jenkins drift job's clone has no such file
-(plan → error, or worse, a fresh render with a stale IP → permanent "drift"), and the
-committed code cannot describe the release. The token also enters Terraform state — which
-the PDF notes only in passing. **Substitute:** `releases.tf` renders the *template*
-(`k8s/fluent-bit-values.yaml.tmpl`, committed) with three variables — `splunk_ip`,
-`splunk_hec_token` (`sensitive = true`), `splunk_hec_tls` — exactly as the sed in `22` does,
-so the two renderings are byte-identical. `infra/local/tf.sh` supplies them as `TF_VAR_*`
-from `docker inspect splunk` and the rendered file, and never prints them. Every `terraform`
-command today goes through `tf.sh`. State still carries the token: `.gitignore` covers
-`infra/local/terraform.tfstate*`, `.terraform/`, `plan.txt` and every `*.tfvars` except the
-chart pins, and the checkpoint proves it with `git check-ignore`.
+(plan → error), the committed code cannot describe the release, and the token enters
+Terraform state. **Substitute:** `releases.tf` renders the *template*
+(`k8s/fluent-bit-values.yaml.tmpl`, committed) with the two non-secret inputs the template
+cannot know — `splunk_ip` (moves on every Docker restart) and `splunk_hec_tls` — exactly as
+the sed in `22` does. `infra/local/tf.sh` supplies them as `TF_VAR_*` from `docker inspect
+splunk` and the rendered file; every `terraform` command today goes through `tf.sh`. The
+token itself is handled in B9 — it is no longer an input at all. State stays gitignored
+regardless (`infra/local/terraform.tfstate*`, `.terraform/`, `plan.txt`, every `*.tfvars`
+except the chart pins; `.terraform.lock.hcl` is committed on purpose — it pins provider
+builds the way the tfvars pins charts).
 
 Side effect that is a feature: after a Docker restart moves Splunk's IP, `tf.sh plan` shows
 one line of drift — the `Host` — which is the Day 10/11 "Splunk moved" failure detected by
@@ -111,6 +111,72 @@ the lab has the button.
 
 ---
 
+## [BUG] B7 — My own: `130` piped helm's JSON into a heredoc
+
+`helm list -o json | python3 - <<'PY'` — the heredoc *is* python's stdin, so the JSON was
+never read (`Expecting value: line 1 column 1`), and helm, writing into a pipe nobody read,
+reported the cluster "unreachable" — which sent us checking a healthy cluster. The JSON now
+goes through a temp file, with a three-try loop for the real transient case. Same shape as
+Day 12's B11: when a parser says "empty", look at what fed it before looking at the source.
+
+---
+
+## [BUG] B8 — The headline claim is false: `terraform plan` does not see the drift
+
+**Guide, Step 5:** *"`terraform plan` — Terraform reports the drift precisely:
+serviceMonitor.enabled is false, code says true."* It does not. After the hand `helm upgrade
+--set serviceMonitor.enabled=false --reuse-values`, the plan was **clean (exit 0)**. Read the
+provider (`resource_helm_release.go`, `Read`): a refresh re-reads the release's *computed*
+metadata and nothing else; the `values` you wrote are configuration, never compared with
+what the release is running. A hand hot-fix is invisible to Terraform forever — the exact
+class of change the day exists to catch. **Substitute:** `experiments = { manifest = true }`
+on the helm provider (`providers.tf`). Then every plan runs a *dry-run upgrade* with your
+values and diffs the rendered manifest (and the set of live resources) against what the
+cluster holds — a missing ServiceMonitor is a diff, exit 2. Two costs, both real: plans take
+a few seconds longer per release, and the rendered manifests now live in state and in plan
+output — see B9. `132 detect` names both causes when a plan comes back clean.
+
+---
+
+## [BUG] B9 — With the manifest diff on, the HEC token would be in every plan
+
+B8's fix renders every chart at plan time and stores the result in state and in plan
+output — which the Jenkins job archives as `plan.txt`. The token was inside the Fluent Bit
+values (`Splunk_Token <uuid>`), so it would have been in the rendered ConfigMap in state and
+printed in the console the day the Splunk IP moved. The provider redacts only
+`set_sensitive` entries, and the token sits inside a multi-line config string where
+`set_sensitive` cannot reach. **Substitute:** the token leaves the values entirely. Fluent
+Bit substitutes `${SPLUNK_HEC_TOKEN}` from its environment; the DaemonSet gets that env
+var from `secret/splunk-hec`, which `22-fluent-bit.sh` creates with `kubectl` — a Secret
+minted by a script, like every other secret in the lab (README, "Data / secrets"). `22` no
+longer runs `helm upgrade` once Terraform owns the release. `134-tf-deterministic.sh` does
+the migration and proves it: `grep` of the token against `terraform.tfstate` finds nothing,
+and the previous state's `.backup` is removed. The rendered values file now carries only an
+IP and a TLS flag; it stays gitignored because it is derived, not because it is secret.
+
+---
+
+## [BUG] B10 — kps showed drift on every plan: Grafana's password is random at render time
+
+The first plan with the manifest diff on listed **kps** as changed, with no change of
+ours: `secret/kps-grafana admin-password` and the Deployment's `checksum/secret`. With no
+`adminPassword` in the values, the Grafana subchart renders `randAlphaNum` and relies on
+Helm's `lookup` to keep the existing password on a real upgrade — and `lookup` returns
+nothing in a dry run. Every plan: new random password, new checksum, "drift". Worse than a
+permanently red nightly check: **apply breaks**. Terraform re-renders at apply time, gets a
+*third* random password, sees a value that differs from the plan it is executing, and
+refuses — `Provider produced inconsistent final plan` — which is exactly how the drift
+drill's `repair` died the first time (the ServiceMonitor came back only because pushgateway
+applied in parallel before kps failed). **Substitute:** `grafana.admin.existingSecret:
+grafana-admin` in `k8s/kps-values.yaml`; `134` mints that Secret from the chart's own, so the
+password you log in with does not change; the chart renders no secret; the plan is stable.
+Grafana restarts once (the checksum annotation changes) and, with no persistence, forgets its
+service accounts — `134` re-runs `100` and `120` to mint the bot's and the remediator's
+tokens, and `09` for the dashboards. Every script that read `secret/kps-grafana` now goes
+through `grafana_admin_password()` in `lib.sh` (ours first, the chart's as fallback).
+
+---
+
 ## [DESIGN] D1 — Exit codes are the interface
 
 `terraform plan -detailed-exitcode`: 0 clean, 1 error, 2 drift. Everything today reads that
@@ -155,6 +221,14 @@ is the whole experiment; delete the cluster after.
 
 ---
 
+## [NOTE] N0 — `grep Error` on a Terraform apply
+
+The first `repair` printed two hundred lines of manifest JSON: with the manifest diff on, a
+plan contains rendered PrometheusRules, and their alert names contain "Error". Every script
+now writes the apply to `infra/local/apply.txt`, greps for lines that *start* with
+`helm_release`, `Apply complete` or `Error:`, and dies on a non-zero exit instead of letting
+`set -e` end the script silently.
+
 ## [NOTE] N1 — Numbering
 
 The PDF says INC-0014; that number is Day 12's tier-2 rollback. Today's is **INC-0015**.
@@ -177,6 +251,33 @@ key ordering, or comments (Helm stores the parsed map, not the file): apply once
 upgrade (revision +1), and the next plan is clean. If a key differs, someone changed the
 cluster without the file, and today's rule applies for the first time: fix the file, not
 the cluster — or, if the cluster is right, fold it into the file and apply.
+
+## [NOTE] N4 — The first plan wanted to delete a label Helm put there
+
+Post-import, three namespaces showed `- "name" = "monitoring" -> null`. Helm's
+`--create-namespace` stamps `name: <ns>` on namespaces it creates; `payments` (kubectl,
+Day 2) has none. Nothing selects on the label, so applying would have broken nothing —
+and that is precisely the kind of "harmless" diff that teaches the wrong reflex. The label
+is now declared in `namespaces.tf`. The rule in one line: *a plan that removes something
+you did not know existed is a question, not a cleanup.*
+
+## [NOTE] N5 — The plan says *which*, git says *what*
+
+The helm provider stores `values` as one string, so a one-key change (`repeat_interval:
+4h -> 6h`) shows in the plan as the whole map redrawn `-`/`+`, with the changed key nowhere
+near the top. The plan is authoritative for *which release, how many, create/change/destroy*;
+`git diff k8s/*-values.yaml` is where the change is readable. `131` prints both.
+
+## [NOTE] N6 — The second change through Terraform was a real one
+
+While reading the import's output, Fluent Bit showed `RESTARTS 10`, all clean exits: the
+chart's default 1-second probe timeout, and an HTTP server that shares its event loop with
+the HEC output, so under the day's log volume the kubelet killed it every ~40 minutes —
+no alert, no ticket, log shipping paused for a few seconds each time. The fix (probe
+`timeoutSeconds: 5`, in the *template*) went edit → plan → apply → commit, and is on the
+Day 14 list as a silent platform incident with verification pending ("no restarts by
+tomorrow"). The first day of IaC ended with the code fixing something the commands never
+recorded.
 
 ---
 

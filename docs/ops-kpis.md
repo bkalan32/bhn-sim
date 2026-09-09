@@ -43,6 +43,9 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 
 | 0014 | `INC-1788906062-bf85` | bad deploy, Verify skipped (Day 12, tier 2, run 2) | ~190s (deploy 3.2 min before the alert) | 28s | _kpis.py_ | _kpis.py_ | – | – (the remediator's signature IS the diagnosis: deploy 3.2 min before) | **yes** | **alert → PROPOSED 28 s → APPROVED +35 s → EXECUTED +13 s → RECOVERED +313 s**; approve → production healthy ~60 s; approve → alert resolved 326 s |
 | 0014-r1 | `INC-1788904287-7074` | same, run 1 (verification forbidden — B13) | ~190s | 18s | | | – | – | yes (rollback) | PROPOSED +3 s → APPROVED +686 s → EXECUTED FAILED +185 s (rollback done, `rollout status` forbidden) → RECOVERED +210 s; alert → resolved 1102 s |
+| 0015 | `INC-1788917278-ed1a` | **untracked infrastructure change** — pushgateway ServiceMonitor removed by a hand `helm upgrade` (Day 13 drift drill) | **none** — no alert can fire on a metric that no longer exists; a human declared it **8 m 18 s** after the change, and only because one was watching | – (declared → ticket 1 s) | – | – | ≈5 min (`terraform plan -detailed-exitcode` = 2, once the provider was made to compare live state — B8) | – (context attached, all settlement metrics `null`; hypothesis draft not graded — the cause was on the ticket before it ran) | yes (human) | change → repair **59 m 23 s**, of which ~48 min was fixing the tooling (B8, B10); declared → repaired 51.1 min. Nightly job proved: SUCCESS / **FAILURE** / SUCCESS. Copilot Eval 5: pass, gap reported as a footnote not a finding |
+| 0015-b | (same ticket) | real `SettlementJobFailed` during the kps upgrade (VM under memory pressure) | 0 s (kube-state-metrics, not pushgateway) | – (landed on the open ticket) | – | – | – | – | – | tier 1 `rerun_settlement` **56 s** after the alert, Job Complete, 4 445 records, resolved +10 min; Day 12's automation inside Day 13's drill, nobody touched kubectl |
+| 0015-fb | – (unticketed) | Fluent Bit killed by a 1 s liveness timeout every ~40 min for 5 h, 10 restarts, exit 0 each | **≈5 h**, by a human reading `RESTARTS` — nothing alerts on platform-namespace restarts | – | – | – | ~2 min (probe events) | – | yes (human) | fixed via Terraform (`timeoutSeconds: 5`, `bc155a4`); 0 restarts in the following 76 min vs 1 per ~40 min before; follow-up: restart alert for platform namespaces |
 
 Cascade tickets from the same faults (egift calls activation): `INC-1788827580-2365` (with 0009) and
 `INC-1788828924-519d` (with 0010) — TTT 25s/18s, TTH 22s/20s, no separate diagnosis graded.
@@ -66,6 +69,15 @@ evaluation interval, the same since Day 3. Ticketing (TTT) is stable at 18–30 
 (`group_wait: 15s` plus the webhook). Context arrives in the same second the ticket opens
 (TTX 0 s — all three collectors answered in under a second). The hypothesis lands 18–24 s
 later, of which ~14 s is two AI round-trips (open draft, then hypothesis).
+
+On 0015 the first column is the whole story: **TTD = none**. Fourteen incidents in, every
+one had been opened by an alert within seconds; this one could not be, because the fault
+*was* the disappearance of the signal the alert reads. A human noticed in eight minutes
+because a human was looking; the honest projection for 3 AM is "until someone looks".
+That is what the nightly drift check buys — not speed, but a ceiling. And the 59 minutes
+from change to repair, 48 of them spent making Terraform actually see and actually apply
+the fix, is the other lesson in the row: the tool you adopt to catch untracked change has
+its own untracked assumptions, and the day you find them is the day you need it.
 
 ## Approve-to-recover (Day 12) next to the pipeline
 

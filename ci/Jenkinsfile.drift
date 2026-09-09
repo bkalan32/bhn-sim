@@ -5,8 +5,10 @@
 //
 // What makes this work from a Jenkins clone that has no state and no secrets:
 //   * infra/local/tf.sh reads the same state file your shell uses (TF_STATE_PATH -> /repo, the
-//     bind mount), the HEC token from the rendered values file on /repo, and Splunk's IP from
-//     docker inspect — the container has the docker CLI and the socket since Day 6.
+//     bind mount), the TLS flag from the rendered values file on /repo, and Splunk's IP from
+//     docker inspect — the container has the docker CLI and the socket since Day 6. No secret
+//     is an input: the HEC token lives in secret/splunk-hec, Grafana's password in
+//     secret/grafana-admin (B9, B10) — so the archived plan.txt can never leak one.
 //   * -lock=false: a read-only plan must not leave a lock file in your working tree.
 //   * TF_PLUGIN_CACHE_DIR in jenkins_home: providers download once, not nightly.
 pipeline {

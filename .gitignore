@@ -20,3 +20,4 @@ infra/local/terraform.tfstate
 infra/local/terraform.tfstate.*
 infra/local/.terraform.tfstate.lock.info
 infra/local/plan.txt
+infra/local/apply.txt

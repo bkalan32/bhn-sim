@@ -48,9 +48,12 @@ incident-bot, remediator). Two owners for one object is how fights start, which 
 `payments` Namespace leaves `k8s/activation.yaml` today. The README gets a "who owns what"
 table — "who do I call about this layer?" is an incident-response question.
 
-**What stays out of git.** Terraform *state* records what it manages, including the Fluent
-Bit values — which carry the HEC token. State is gitignored; the chart pins and the code are
-committed. In a company state lives in a remote backend with locking; same shape.
+**What stays out of git — and out of state.** Terraform *state* records what it manages,
+values included, and once the provider compares live manifests (Step 5c) it holds rendered
+manifests too. So no secret may be a Terraform input: the HEC token and Grafana's password
+live in Secrets that scripts mint (`22`, `134`), and the charts read them from there. State
+is gitignored anyway (state is not code); the chart pins, the provider lock file and the
+code are committed. In a company state lives in a remote backend with locking; same shape.
 
 ---
 
@@ -78,7 +81,7 @@ backend), `providers.tf` (the pinned `kind-bhn-sim` context — a provider point
 wrong cluster is a classic self-inflicted outage), `namespaces.tf`, `releases.tf` (five
 releases, every one `version = var.chart_versions[…]`, every one with the values file the
 earlier days used), `variables.tf`, and `tf.sh` — the wrapper every command goes through,
-because three inputs live outside git: Splunk's IP, the HEC token, and the state path.
+because three inputs live outside git: Splunk's IP, the TLS flag, and the state path.
 
 **Step 2 — Commit the code before touching state:**
 
@@ -140,6 +143,21 @@ number. Then `inc.py declare settlement "…"` opens the ticket nobody else will
 line from `detect` goes on it. Between `inject` and `repair`, open Grafana's settlement
 panels yourself: that blank is what "silently stopped flowing" looks like at 03:00.
 
+**Step 5c — make the plan deterministic and secret-free** (this step exists because of what
+the cluster showed us, CORRECTIONS B8–B10). The helm provider does not see drift at all
+until `experiments = { manifest = true }` is on; with it on, every plan renders every chart,
+which (a) made kps look drifted forever — Grafana's chart-generated random password — and
+(b) would put the HEC token into state and archived plan output. One script settles both:
+
+```bash
+./scripts/134-tf-deterministic.sh
+```
+
+Grafana's password moves to `secret/grafana-admin` (same value), the HEC token to
+`secret/splunk-hec` read as an env var, one apply, Grafana restarts once, the bot's and the
+remediator's Grafana tokens are re-minted, and the proof: plan exit 0, and `grep` finds
+neither secret in state.
+
 **Step 6 — the nightly job:**
 
 ```bash
@@ -177,6 +195,7 @@ git add -A && git commit -m "Day 13: drift drill (INC-0015), nightly infra-drift
 
 | Symptom | Cause / fix |
 |---|---|
+| `130`: `Expecting value: line 1 column 1` | old script piped helm into a heredoc (B7) — take the patched `130` |
 | `130`: `terraform >= 1.9 required` | `sudo apt-get update && sudo apt-get install --only-upgrade terraform` |
 | `130`: `import failed … cannot find release` | the ID is `namespace/name` and the name is what `helm list -A` shows |
 | plan after import shows `~ version` | the pins are wrong: re-run `130` (it rewrites the tfvars from `helm list`) |
@@ -187,7 +206,11 @@ git add -A && git commit -m "Day 13: drift drill (INC-0015), nightly infra-drift
 | `tf.sh: splunk container not running` | `docker start splunk` — Terraform needs its IP to render the values |
 | `131`: Alertmanager still shows 4h after 2 min | `kubectl logs -n monitoring alertmanager-kps-kube-prometheus-stack-alertmanager-0 -c config-reloader` |
 | `132 detect`: plan is clean | `helm get values pushgateway -n monitoring` — did inject run? |
+| `132 detect`: plan is **clean** with the drift in place | `providers.tf` lacks `experiments = { manifest = true }` — the helm provider never compares live state without it (B8) |
+| every plan lists **kps** as changed, `checksum/secret` + `admin-password` | Grafana's chart-generated random password (B10): `./scripts/134-tf-deterministic.sh` |
 | `132 observe`: copilot invented a number | grade it ❌ on the ticket; the tool result said no data |
+| after `134`: bot or remediator says Grafana 401 | the re-mint failed — `./scripts/100-enrich-config.sh` and `./scripts/120-remediator-config.sh` by hand |
+| Fluent Bit `CreateContainerConfigError` | `secret/splunk-hec` missing in `logging` — `./scripts/22-fluent-bit.sh <token>` |
 | `133`: Run 2 went **green** with drift present | the job planned against a different state: check `TF_STATE_PATH` in the console (`/repo/infra/local/terraform.tfstate`) |
 | `133`: `no state at /repo/…` | run `130` first; the job never creates state |
 | `.terraform.tfstate.lock.info` appears in `infra/local` | a plan was killed mid-run: `./infra/local/tf.sh force-unlock <id>` |

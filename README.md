@@ -123,6 +123,7 @@ python3 tools/rem.py pending|approve <token>|decline <token>|actions|signatures
 ./infra/local/tf.sh plan|apply     # the platform layer, from now on (splunk IP + HEC token supplied by the wrapper)
 ./scripts/131-tf-change.sh         # one real change: repeat_interval 4h -> 6h, edit-plan-apply-commit
 ./scripts/132-drift-drill.sh inject|detect|observe|repair   # a hand hot-fix, caught by plan, repaired by apply (INC-0015)
+./scripts/134-tf-deterministic.sh  # Grafana password + HEC token out of the charts: plan deterministic, state secret-free
 ./scripts/133-drift-check-job.sh [--prove]   # terraform into the Jenkins image; nightly infra-drift-check job
 ./scripts/138-checkpoint-day13.sh
 
@@ -139,7 +140,7 @@ python3 tools/rem.py pending|approve <token>|decline <token>|actions|signatures
 |---|---|---|---|
 | **Platform** — namespaces, the five Helm releases (kube-prometheus-stack, pushgateway, tempo, otel-collector, fluent-bit) and their values | **Terraform owns it**: `infra/local/` | edit `k8s/*-values.yaml` or the `.tf` → `./infra/local/tf.sh plan` → read → `apply` → commit | `git log infra/local k8s/*-values.yaml`; drift = `terraform plan -detailed-exitcode` (nightly in Jenkins: `infra-drift-check`) |
 | **Application** — activation, egift, settlement, incident-bot, remediator | **CI/CD owns it**: `Jenkinsfile`, `k8s/<service>.yaml` | commit → Jenkins `deploy-service` → Verify → auto-rollback | rollout history, change-cause, Grafana deploy/rollback annotations, the bot's enrichment |
-| **Data / secrets** — HEC token, API key, Grafana tokens, Splunk password | scripts that mint them into Secrets (`22`, `90`, `100`, `120`) | re-run the script | never in git; Terraform state carries the Fluent Bit values and is gitignored |
+| **Data / secrets** — HEC token (`splunk-hec`), Grafana admin (`grafana-admin`), API key, Grafana SA tokens, Splunk password | scripts that mint them into Secrets (`22`, `134`, `90`, `100`, `120`) | re-run the script | never in git, never in Terraform state or plans (the charts read them from Secrets, B9/B10) |
 
 Two owners for one object is how fights start: the `payments` Namespace moved out of
 `k8s/activation.yaml` on Day 13 for that reason. "Who do I call about this layer?" is an
@@ -147,8 +148,8 @@ incident-response question; this table is the answer.
 
 **Rebuild estimate.** Day 1 said 30 minutes of command replay. Now: `03-cluster-up.sh`,
 `./infra/local/tf.sh apply` (the whole platform layer, ~5 min), the secrets scripts, then one
-Jenkins build per service. State is local (`infra/local/terraform.tfstate`, gitignored — it
-holds the HEC token); in a company it lives in a remote backend with locking, same shape.
+Jenkins build per service. State is local (`infra/local/terraform.tfstate`, gitignored — state
+is not code, and after `134` it holds no secret); in a company it lives in a remote backend with locking, same shape.
 
 ---
 
