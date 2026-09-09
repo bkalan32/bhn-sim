@@ -279,6 +279,15 @@ Day 14 list as a silent platform incident with verification pending ("no restart
 tomorrow"). The first day of IaC ended with the code fixing something the commands never
 recorded.
 
+## [NOTE] N7 — `grep -q` on the right of a pipe, under `pipefail`
+
+The checkpoint reported the `repeat_interval` commit missing while `git log` plainly showed
+it. `git log … | grep -q` — `-q` exits on the first match, git is still writing, git dies of
+SIGPIPE (141), `pipefail` makes the pipeline false. Interactive shells do not set `pipefail`,
+so testing by hand "works". Rule: `grep -q` on a *file* is fine; on the left of a pipe use
+`grep -c` (reads to EOF) or a temp file. Fourth shell lesson of the series, after `set -e`
+with `$(…)`, `kubectl auth can-i | grep`, and the heredoc-vs-pipe stdin fight (B7).
+
 ---
 
 ## Verified as correct

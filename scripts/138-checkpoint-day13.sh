@@ -28,7 +28,9 @@ git check-ignore -q infra/local/terraform.tfstate && t_ok "state is gitignored (
 git ls-files --error-unmatch infra/local/chart-versions.auto.tfvars >/dev/null 2>&1 && t_ok "chart pins are committed" || t_fail "chart-versions.auto.tfvars not committed"
 
 # the change and the drift, on the record
-grep -q 'repeat_interval: 6h' k8s/kps-values.yaml && git log --oneline -- k8s/kps-values.yaml | grep -qi 'repeat_interval' \
+# grep -c, not grep -q: -q closes the pipe on the first match, git gets SIGPIPE (exit 141),
+# and under pipefail the whole test reads "false" while both halves pass by hand (N7)
+grep -q 'repeat_interval: 6h' k8s/kps-values.yaml && [[ $(git log --format=%s -- k8s/kps-values.yaml | grep -ci 'repeat_interval') -gt 0 ]] \
   && t_ok "one real change went edit-plan-apply-commit (repeat_interval 6h)" || t_fail "the repeat_interval change is not in k8s/kps-values.yaml with a commit"
 alertmanager_get /api/v2/status | grep -q 'repeat_interval: 6h' && t_ok "Alertmanager's live config says 6h" || t_fail "Alertmanager does not show repeat_interval: 6h"
 [[ -f checkpoints/day13-drift-injected.txt ]] && t_ok "drift was injected ($(cat checkpoints/day13-drift-injected.txt))" || t_fail "no evidence of the drift drill — ./scripts/132-drift-drill.sh inject"
