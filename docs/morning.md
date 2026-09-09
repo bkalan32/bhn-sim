@@ -38,6 +38,7 @@ What each warning means and what to do:
 | `N open incident(s)` | `python3 tools/inc.py list open` — overnight tickets are real; read them before touching anything (Day 14 wants them) |
 | `remediator in DRY_RUN` | `kubectl -n payments set env deploy/remediator DRY_RUN=false` — should not happen unless you set it |
 | `plan failed` | usually `splunk not running` (start it) or the cluster still coming up — re-run `up.sh` in a minute |
+| VM sluggish, `kubectl` slow or resetting | `uptime` (load average) and `docker stats --no-stream`; anything over the core count is the cause. Splunk is capped at 1.5 CPUs by `up.sh`; if the node itself is the hog, wait — it is re-scheduling pods |
 | `Jenkins image lacks terraform` | `./scripts/133-drift-check-job.sh` rebuilds it (asks for the Jenkins password) |
 | `not healthy:` pod list | `Error` pods from old settlement drills are fine; anything `CrashLoopBackOff` is not — `kubectl -n <ns> describe pod <name>` |
 

@@ -198,3 +198,34 @@ line in the file for a newcomer).
 |---|---|---|---|---|---|
 | 0016 | alert `EgiftHighErrorRate` | 4 m 17 s (fault → alert) | bot **2 m 03 s** (right: email step); human 5 m 44 s to the step, **7 m 05 s to the hand-made change** | alert → resolved 10 m 27 s; fix → resolved 3 m 11 s; fault → resolved 14 m 44 s | manual (remediator correctly declined) |
 | 0017 | alert `SettlementZeroRecords` (+`JobFailed` 2 min later) | 5 m 19 s from the env change, ≈2.5 min from the first affected run | human **1 m 41 s** (the job's own log line); bot hypothesis at +53 s | alert → resolved 18 m 28 s (15 of them the alert's window); fix → first clean run ≈19 s | manual cause fix + **auto** tier-1 retry succeeded |
+
+## After the game — the afternoon the platform starved (added at the wrap)
+
+The checkpoint could not reach the API server: `connection reset by peer`, then `TLS
+handshake timeout`. Not the WSL relay — the port answered — but a control plane too starved
+to complete a handshake. Evidence: **load average 33 / 38 / 48 on a 4-CPU VM** (from `top`
+inside the Splunk container), Splunk mid-`archivebuckets` (its hourly housekeeping; `docker
+stats` said 742 % — that column is not to be trusted on WSL2, `uptime` is), the node at
+2.9 GB, and, on top of the game's own load, `up.sh`'s new `terraform plan` rendering five
+charts into the reboot. `docker restart` of the node hung ("did not receive an exit event");
+`kill` + `start` recovered it; pods and Grafana's service accounts survived (the node's
+filesystem persists). While it was down, `IncidentBotDown` fired and resolved — the bot
+ticketed its own two-minute absence (`INC-1788968015-f274`).
+
+The pod list after the reboot held two things nobody had ever ticketed: **kube-scheduler,
+70 restarts in 8 days** — `Leaderelection lost`, i.e. every time the VM was starved since
+Day 1 the scheduler resigned its lease and came back; the `KubeScheduler…Unreachable` and
+`TargetDown` alerts we had been calling kind's false positives were this, every time — and
+the **otel collector, 112 restarts in 7 d 19 h**, exit 2, no log line, cause unknown.
+
+Fixes applied: Splunk capped at 1.5 CPUs (`docker update`, re-asserted by `up.sh`, in
+`21-splunk-up.sh` for rebuilds); `up.sh`'s plan capped at 2 min and skippable
+(`UP_SKIP_TF=1`); `docs/morning.md` has a row for a sluggish VM. Rows 0017-a…d in the KPI
+table.
+
+Added backlog:
+- [ ] restart alert for `kube-system`, `monitoring`, `tracing`, `logging` (the Day 12 rule, one namespace label wider) — three long-running silent loopers this fortnight (Fluent Bit ×10, scheduler ×70, otel ×112)
+- [ ] stop routing the `kube-scheduler` / `kube-controller-manager` `TargetDown` alerts to `null` as "kind noise" — on this VM they are the starvation alarm
+- [ ] otel: `terminationMessagePolicy: FallbackToLogsOnError` and a `--previous` capture at the next exit; find the exit-2
+- [ ] `docker system df` before week 3 — C: is at 13.5 GB free after two weeks of image builds
+- [ ] `docker stats` CPU% is unreliable on WSL2 — `uptime` and `top` inside a container are the load evidence; note in `docs/morning.md` (done)

@@ -28,6 +28,12 @@ for c in bhn-sim-control-plane splunk jenkins; do
   esac
 done
 
+# Day 14: a monitoring tool must not be able to starve the platform it monitors. Re-assert
+# Splunk's CPU cap every morning (docker update persists across restart, not re-creation).
+if docker ps --format '{{.Names}}' | grep -qx splunk; then
+  docker update --cpus 1.5 splunk >/dev/null 2>&1 && ok "splunk capped at 1.5 CPUs (its housekeeping took the whole VM on Day 14)" || warn "could not cap splunk's CPU"
+fi
+
 step "kubeconfig"
 # kind publishes the API server on a random host port; it moves on every container
 # restart. The stale one presents as 'connection refused' or, memorably, a Jenkins
@@ -120,9 +126,13 @@ else warn "fluent-bit ships to $FB_HOST but Splunk is at ${SIP:-<not running>} �
 step "Platform layer (Day 13)"
 if [[ -f "$LAB_ROOT/infra/local/terraform.tfstate" ]]; then
   if docker ps --format '{{.Names}}' | grep -qx splunk; then
-    say "  terraform plan (renders five charts; ~30-60 s) ..."
-    set +e; "$LAB_ROOT/infra/local/tf.sh" plan -input=false -no-color -lock=false -detailed-exitcode > "$LAB_ROOT/infra/local/plan.txt" 2>&1; RC=$?; set -e
+    say "  terraform plan (renders five charts; ~30-60 s, 2-min cap; UP_SKIP_TF=1 to skip) ..."
+    if [[ "${UP_SKIP_TF:-}" == 1 ]]; then RC=99; else
+      set +e; timeout 120 "$LAB_ROOT/infra/local/tf.sh" plan -input=false -no-color -lock=false -detailed-exitcode > "$LAB_ROOT/infra/local/plan.txt" 2>&1; RC=$?; set -e
+    fi
     case "$RC" in
+      99)  dim "  skipped (UP_SKIP_TF=1) — ./infra/local/tf.sh plan when the VM is quiet" ;;
+      124) warn "terraform plan took over 2 min and was stopped — the VM is busy (docker stats); ./infra/local/tf.sh plan later, or UP_SKIP_TF=1 $0" ;;
       0) ok "plan clean — the cluster matches infra/local" ;;
       2) warn "DRIFT: $(grep -cE 'will be updated' "$LAB_ROOT/infra/local/plan.txt" || true) release(s) differ — $(grep -E 'will be' "$LAB_ROOT/infra/local/plan.txt" | sed -E 's/.*# (helm_release|kubernetes_namespace)\.([a-z_]+).*/\2/' | tr '\n' ' ')"
          say "    after a restart this is usually Fluent Bit's Host line (Splunk moved): ./infra/local/tf.sh plan, read, ./infra/local/tf.sh apply" ;;
