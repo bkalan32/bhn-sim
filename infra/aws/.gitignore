@@ -1,0 +1,9 @@
+# state (the backend root keeps local state; env/platform state lives in S3), providers, plans
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/.terraform.tfstate.lock.info
+**/plan.txt
+**/apply.txt
+**/*.tfvars
+**/*.tfplan

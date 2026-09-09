@@ -1,0 +1,19 @@
+[0m[1mInitializing the backend...[0m
+[0m[32m
+Successfully configured the backend "s3"! Terraform will automatically
+use this backend unless the backend configuration changes.[0m
+
+[0m[1mInitializing modules...[0m
+Downloading registry.terraform.io/terraform-aws-modules/vpc/aws 6.7.2 for vpc...
+- vpc in .terraform/modules/vpc
+
+[0m[1mInitializing provider plugins...[0m
+- Finding hashicorp/aws versions matching "~> 6.0, >= 6.28.0"...
+- Installing hashicorp/aws v6.64.0...
+[31m╷[0m[0m
+[31m│[0m [0m[1m[31mError: [0m[0m[1mFailed to install provider[0m
+[31m│[0m [0m
+[31m│[0m [0m[0mError while installing hashicorp/aws v6.64.0: releases.hashicorp.com: Get
+[31m│[0m [0m"https://releases.hashicorp.com/terraform-provider-aws/6.64.0/terraform-provider-aws_6.64.0_linux_amd64.zip":
+[31m│[0m [0mnet/http: TLS handshake timeout
+[31m╵[0m[0m

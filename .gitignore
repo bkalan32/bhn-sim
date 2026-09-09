@@ -21,3 +21,10 @@ infra/local/terraform.tfstate.*
 infra/local/.terraform.tfstate.lock.info
 infra/local/plan.txt
 infra/local/apply.txt
+# Day 15 — AWS: state in S3 (env, platform) or local (backend root); never in git
+infra/aws/**/.terraform/
+infra/aws/**/terraform.tfstate
+infra/aws/**/terraform.tfstate.*
+infra/aws/**/.terraform.tfstate.lock.info
+infra/aws/**/plan.txt
+infra/aws/**/apply.txt
