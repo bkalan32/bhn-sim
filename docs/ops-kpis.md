@@ -78,8 +78,8 @@ filled after the game day.
 | 0015-b | 13 | real settlement failure mid-upgrade | alert → same ticket | 0 s | – (signature) | 10 min | **auto** (tier 1 re-run, 4 445 records) |
 | 0015-fb | 13 | Fluent Bit killed by probe timeout ×10 | **human reading `RESTARTS`**, ≈5 h in | ≈5 h | 2 min (probe events) | fixed via Terraform; 0 restarts since | manual (code) |
 | 0015-lat | 13 | three latency tickets overnight: activation ×2, egift (`EgiftStepSlow`) — while `133 --prove` built the Jenkins image and rendered five charts three times | alert → ticket, nobody looked (found in `kpis.py` the next morning) | ≈2–5 min | – (self-resolved; cause read off the timestamps next day: the lab's own tooling saturating the VM) | 2–4.6 min each | none |
-| 0016 | 14 | game day — fault 1 | _after the game_ | | | | |
-| 0017 | 14 | game day — fault 2 | _after the game_ | | | | |
+| 0016 | 14 | game day 1, fault 1: partner email degradation (hand edit, 35 % of egift orders fail at `send_email`) | alert (`EgiftHighErrorRate`); the human saw the row red 30 s before the ticket | 4 m 17 s | **bot 2 m 03 s** (right: email step); human 5 m 44 s to the step, **7 m 05 s to the hand-made change** (invisible to the enrichment) | alert → resolved 10 m 27 s; fix → resolved 3 m 11 s | manual (remediator correctly declined, tier 3) |
+| 0017 | 14 | game day 1, fault 2: settlement zero records (`silent` mode; the Day 8 self-check made it loud) | alert (`SettlementZeroRecords`, then `JobFailed` +2 min) — the human found it from a pod list, not the overview | 5 m 19 s from the env change; ≈2.5 min from the first affected run | human **1 m 41 s** (the job's own log line); bot +53 s | alert → resolved 18 m 28 s — **15 of them the alert's window**; fix → first clean run ≈19 s | manual cause fix + **auto** tier-1 retry succeeded (4 517 records) |
 
 **The week-over-week story** (the paragraph that summarises the project — numbers with
 trend, no adjectives):
@@ -96,9 +96,15 @@ trend, no adjectives):
 > diagnosis is the signature (0012–0014). **Recovery.** Day 6's manual rollback took
 > minutes of a human at a keyboard; Day 12's took one decision — 35 seconds to read a
 > proposal and type `approve` — and 389 seconds end to end; the two tier-1 re-runs took no
-> human at all. What did not improve, and is the honest line: recovery is bounded by the
-> alert's own window (15-minute `SettlementJobFailed`, 2-minute error-rate windows), not by
-> the fix — the platform is healthy long before the ticket says so.
+> human at all. **The game day (0016, 0017)** closed the fortnight the way it should: two
+> faults, staggered, both alerted, both ticketed inside 50 seconds, the right cause on the
+> first ticket in 2 minutes, both reverted by hand 11½ minutes after the first look, and the
+> platform's own retry produced settlement's first clean run after the fix. What did not
+> improve, and is the honest line: recovery is bounded by the alert's own window (15-minute
+> `SettlementJobFailed`, 2-minute error-rate windows), not by the fix — the platform is
+> healthy long before the ticket says so; and the thing the platform still cannot see is a
+> change made outside the pipeline (0015's drift, 0016's `kubectl set env`) — the week-3
+> backlog starts there.
 
 ## What to say about it
 

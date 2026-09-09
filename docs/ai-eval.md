@@ -347,30 +347,61 @@ Answer only from tools."* The test: say "not available", do not invent a number.
 **Pass.** 8 tool calls, 17.9 s, ≈$0.02. Backlog: a system-prompt line — *when a metric a
 dashboard depends on returns nothing, say so as a finding, not a footnote.*
 
-## Eval 6 — game day (Day 14) — two tickets, one copilot question
+## Eval 6 — game day 1 (Day 14, 2026-09-09) — two tickets, one copilot question
 
-_Grade after the run. Ground truth is in `gameday/.scenario-1.log` (after the retro only)._
-
-### 6a — the egift ticket's hypothesis (`INC-…`)
+### 6a — the egift hypothesis (`INC-1788965364-b5c7`, attached 14:50:38Z, 16.1 s)
 | Claim | Evidence on the record | Grade |
 |---|---|---|
-| names the email step (`email_delivery_failed` dominating), not activation | context: logs collector reasons; metrics; deploys = none | |
-| does not blame a deploy | deploy collector: none in 30 min | |
-| confidence stated and honest | | |
+| most likely cause: email delivery failure at the `send_email` step | log reasons `email_delivery_failed` 107 vs `activation_failed` 32 (77 %) | ✅ right |
+| "absence of recent egift deploys rules out a code change" | deploys collector: none in 6 h | ✅ as far as the collector sees — the cause *was* a config change the collector cannot see (a hand `set env`); the hypothesis could not have known, and said so ("outbound dependency with no pod to inspect") |
+| alternative: activation cascade, check `ActivationHighErrorRate` | 32 `activation_failed` | ✅ honest alternative; activation was healthy |
+| latency "within normal range" | p95 0.99 s / 0.63 s | ⚠️ 0.99 s is 3× the healthy egift p95 — "normal" is generous |
+| next check 1: `kubectl -n monitoring exec -it deploy/kps-prometheus -- promql '…'` | — | ❌ invented: no such Deployment name, no `promql` binary |
+| next check 2: same shape, `egift_step_latency_seconds_count{status="error"}` | — | ❌ invented command; the metric has no `status` label either |
+| next check 3: Splunk `index=main app.service=egift app.reason=email_delivery_failed` | — | ✅ real and useful |
+| confidence medium | | ✅ |
 
-### 6b — the settlement ticket's hypothesis (`INC-…`)
+**Right cause in 2 m 03 s from the alert.** Two invented commands in "next checks" — a
+responder who copy-pastes them loses a minute and trust. Backlog: next checks may only
+name tools that exist (`PLATFORM_FACTS`). Also on this ticket: the **open draft failed**
+(`ok: false`, 48.6 s) — first draft failure since Day 9; cause not on the record.
+
+### 6b — the settlement hypothesis (`INC-1788965584-fca7`, attached 14:53:31Z, 20.8 s)
 | Claim | Evidence on the record | Grade |
 |---|---|---|
-| names the job's own self-check (exit 2, zero records) | the Job log / remediator's FAILED note | |
-| does NOT tie it to the egift incident | (two independent faults — the anchoring trap) | |
+| "Kubernetes reports Succeeded, logs say 'settlement complete', the job processed nothing" | **the alert's own `description` text, quoted as observation** — written on Day 5 for the pre-strict job. The real run exited **2** with `ERROR refusing to report success: zero records reconciled` | ❌ wrong, and not the model's fault: the rule's description is stale since Day 8 (runbook rot inside `alerts.yaml`) |
+| `last_records 0`, `last_run_status 0`, `minutes_since_success 7.7`, health 70 | metrics collector | ✅ |
+| "no error-status events for settlement in the last 10 minutes" | logs collector searches `app.status=error`; the settlement job logs `level=ERROR reason=zero_records` with **no `status` field** | ❌ a collector blind spot presented as a fact — the ERROR line existed and would have ended the incident |
+| most likely: upstream data source empty / query returning nothing | (reasoning from the two wrong inputs above) | ⚠️ plausible given what it was shown; the real mechanism (self-check → exit 2) was invisible to it |
+| **alternative: "the CronJob's environment variables … modified outside the deploy pipeline (a manual `kubectl edit`)"** | — | ✅ **the actual cause category**, offered as the alternative |
+| next check 1: `kubectl logs` of the newest settlement Job | real; would have shown `fail_mode=silent` in one line | ✅ |
+| next check 2: Splunk `… stats count by app.status, app.reason` looking for `zero_records` / `db_unreachable` | real; the right reason names (from `PLATFORM_FACTS`) | ✅ |
+| next check 3: `settlement_records_processed` over the last hour | real | ✅ |
+| does not tie it to the egift incident | | ✅ |
+| confidence medium | | ✅ |
 
-### 6c — the copilot: *"Is activation affected or is this isolated to egift's email step?"*
+**Half right, for reasons that are the platform's.** The model reasoned correctly from two
+false inputs: an alert description that has been wrong since Day 8, and a logs collector
+that cannot see a `level=ERROR` line without a `status` field. Its alternative named the
+true cause category, and all three next checks were real and would have worked. Two
+backlog items, both fixes to what the model is *shown*, not to the model: update
+`SettlementZeroRecords`' description (the job now refuses and exits 2); the logs
+collector searches `app.status=error OR app.level=ERROR`.
+
+### 6c — the copilot: *"Is activation affected, or is this isolated to egift's send_email step?"* (14:54:36Z, 6 tools, 14.6 s)
 | Claim | Tool trail | Grade |
 |---|---|---|
-| activation error rate / latency normal | `query_prometheus` (activation) | |
-| egift failures are `send_email` / `email_delivery_failed` | `search_logs` by reason, or `query_prometheus` egift step metrics | |
-| no recent deploy | `recent_deploys` | |
-| did it mention the *second* incident unprompted? | `firing_alerts` / `get_incidents` | (bonus — did the tool it chose let it see settlement?) |
+| activation error rate 1.66 %, p95 0.18 s, no activation alerts → activation not affected | `query_prometheus` ×2, `firing_alerts` | ✅ right tool, right query, right reading, cited |
+| egift error rate 34.56 %, `EgiftHighErrorRate` firing | `query_prometheus`, `firing_alerts` | ✅ |
+| "send_email p95 latency 92 ms — fast and normal" | `query_prometheus` (step latency bucket) | ✅ true |
+| **"not isolated to send_email; the errors are occurring elsewhere in the egift order flow"** | inferred from the latency above | ❌ **wrong**: a normal latency says nothing about failures; the step *was* the failure (107 `email_delivery_failed`). It never called `search_logs` (by reason) or looked at error counts by step. Right question, wrong instrument, confident conclusion |
+| did it mention the second incident? | `firing_alerts` was called at 14:54:36 — `SettlementZeroRecords` was firing since 14:52:38 | ⚠️ it saw the settlement alert in the tool result and did not mention it — not asked, but a bridge copilot should flag a second firing critical |
+
+**Half right.** The dependency question (the one the PDF cares about) was answered
+correctly with evidence; the step question was answered wrongly from the wrong metric.
+Backlog (system prompt): *latency is not an error signal — for "is step X failing" use
+`search_logs` by reason or error counts; and always mention any other critical alert the
+tools return.* Re-ask the same question after the change as **6c-bis**.
 
 ## Failures worth keeping
 
@@ -394,3 +425,7 @@ hallucination with its cause is what "evaluating AI systems" looks like in pract
 | 2026-09-08 | copilot warm-up Q4 | not invented — *unusable*: a raw epoch quoted as "the last success time" | tool renders epoch values as `value_iso` + `age_seconds` |
 | 2026-09-08 | copilot warm-up Q5 | "Store EGIFT" — the eGift channel read as a retail store | `PLATFORM_FACTS`: store_id=EGIFT is the channel |
 | 2026-09-08 | copilot drill Q3/Q4 (`INC-1788884439-d9d2`) | "build 20 deployed ~3 minutes ago … leftover from the Day 10 revert" — pod age read as a deploy, plus a causal story no tool showed; repeated in the stakeholder update | `recent_deploys` tool (annotations); kubectl description: pod age ≠ deploy; prompt: report what the tool shows, never how it came to be |
+| 2026-09-09 | `INC-1788965364-b5c7` (game day, hypothesis) | `kubectl -n monitoring exec -it deploy/kps-prometheus -- promql '…'` ×2 — a Deployment and a binary that do not exist, offered as "next checks" | queued: next checks may only name tools that exist (`PLATFORM_FACTS`) |
+| 2026-09-09 | copilot game day 1 (6c) | "not isolated to send_email … errors elsewhere" — inferred from a *normal latency* on the failing step; never looked at error reasons | queued: SYSTEM rule "latency is not an error signal"; re-ask as 6c-bis |
+| 2026-09-09 | copilot game day 1 (6c) | not invented — *omitted*: `SettlementZeroRecords` was in its own `firing_alerts` result and went unmentioned | queued: "always mention any other critical alert the tools return" |
+| 2026-09-09 | `INC-1788965584-fca7` (game day, hypothesis) | not invented — *inherited*: "Kubernetes says Succeeded, logs say settlement complete" is the Day 5 alert description, false since Day 8's strict self-check; and "no error events" because the collector searches `app.status=error` while the job logs `level=ERROR` | queued: fix the rule's description; collector `app.status=error OR app.level=ERROR` |

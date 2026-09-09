@@ -15,7 +15,7 @@ grep -q 'week-over-week story' docs/ops-kpis.md && grep -qE '^> \*\*Detection\.\
 
 # Part A — the runbook audit
 if ./scripts/141-readme-audit.sh --quiet >/dev/null 2>&1; then t_ok "README audit passes (141)"; else t_fail "README audit fails — ./scripts/141-readme-audit.sh"; fi
-git log --format=%s -- README.md | grep -qi 'audit' && t_ok "README audit committed" || t_fail "no commit mentioning the README audit"
+[[ $(git log --format=%s -- README.md | grep -ci 'audit') -gt 0 ]] && t_ok "README audit committed" || t_fail "no commit mentioning the README audit"   # grep -c, not -q (N7)
 
 # Part B — the game day
 [[ -x gameday/scenario-1.sh && -x gameday/note.sh ]] && t_ok "gameday/scenario-1.sh + note.sh" || t_fail "gameday scripts missing"
