@@ -138,6 +138,15 @@ python3 tools/rem.py pending|approve <token>|decline <token>|actions|signatures
 ./scripts/142-gameday.sh retro     # ground truth vs your timeline; scaffolds INC-0016/0017 and gameday/retro-<n>.md
 ./scripts/148-checkpoint-day14.sh
 
+# Day 15 — AWS foundations (guardrails first)
+./scripts/150-aws-guardrails.sh [--install|--sso]   # CLI, SSO profile 'lab'; verifies root MFA, budget, Cost Explorer via the API
+./scripts/151-aws-state.sh         # S3 state bucket (versioned, private, encrypted, S3-native lock) -> infra/aws/*/backend.hcl
+./scripts/152-aws-vpc.sh plan|apply|destroy|status   # VPC (2+2 subnets, ONE NAT) + 5 ECR repos; destroy when pausing
+./scripts/153-aws-ecr-push.sh [svc|--verify]         # buildx --platform linux/amd64 --push, tags mirrored from kind
+./scripts/154-aws-cost.sh [--row N]                   # yesterday's bill by service (Cost Explorer, ~24 h lag; $0.01/call)
+./scripts/155-aws-verify-destroyed.sh                 # EC2 / NAT / EIP / LB / EKS / ENI / EBS: anything still billing?
+./scripts/158-checkpoint-day15.sh
+
 # Any time, after a Docker restart / reboot
 ./scripts/up.sh                    # containers, kubeconfig, tombstones, knob reset, collectors, tf plan — docs/morning.md has the full routine
 ./scripts/up.sh --check            # read-only
@@ -162,6 +171,25 @@ incident-response question; this table is the answer.
 `./infra/local/tf.sh apply` (the whole platform layer, ~5 min), the secrets scripts, then one
 Jenkins build per service. State is local (`infra/local/terraform.tfstate`, gitignored — state
 is not code, and after `134` it holds no secret); in a company it lives in a remote backend with locking, same shape.
+
+---
+
+## AWS (Day 15 onward)
+
+**The standing rule:** everything in AWS is created by Terraform, so that `destroy` is
+trustworthy. Nothing is clicked into existence except the three one-time guardrails (budget,
+free-tier alerts, root MFA) and IAM Identity Center itself. A resource made in the console is
+invisible to `destroy` and bills until someone notices.
+
+| | |
+|---|---|
+| Region | **`us-east-2`** (Ohio) — one variable everywhere (`AWS_REGION` in `scripts/lib.sh`, `var.region` in `infra/aws/*`) |
+| Identity | IAM Identity Center (SSO), profile `lab`, short-lived credentials. Login: `aws sso login --profile lab`. Sessions expire — that is the feature. *(Fallback, if ever used: an IAM user with MFA + access key — note it here; leaked long-lived keys are among the most common real cloud incidents.)* |
+| State | `s3://<bucket in infra/aws/env/backend.hcl>` — versioned, private, encrypted, **locked by S3 itself** (`use_lockfile`, Terraform ≥ 1.10, no DynamoDB). Keys: `env/terraform.tfstate`, `platform/terraform.tfstate` (Day 16). The bucket root `infra/aws/backend` keeps *local* state (chicken-and-egg; it names one bucket). |
+| Environment | `infra/aws/env`: VPC `10.0.0.0/16`, 2 public + 2 private subnets, **one** NAT gateway (the cost decision — see the comment in `vpc.tf`), subnet tags for EKS load balancers, 5 ECR repos with scan-on-push and a lifecycle policy. `./scripts/152-aws-vpc.sh plan` → read → `apply`; **`destroy` when pausing** (the NAT bills ~$1.10/day idle). |
+| Images | `./scripts/153-aws-ecr-push.sh` — `docker buildx build --platform linux/amd64 --push` for all five, tags mirrored from what kind runs. Login is a 12-hour token from the SSO session (`aws ecr get-login-password`). |
+| The bill | `./scripts/154-aws-cost.sh` every morning; `./scripts/155-aws-verify-destroyed.sh` after every destroy. Rules and the per-day table: `docs/aws-costs.md`. |
+| Rebuild | `151` (bucket, if gone) → `152 plan/apply` → `153` — about ten minutes to a warm start for Day 16. |
 
 ---
 

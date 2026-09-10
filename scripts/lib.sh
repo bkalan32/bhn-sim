@@ -190,3 +190,31 @@ alertmanager_get() {
 # ---------------------------------------------------------------- Day 12 ----
 REM_PROXY="/api/v1/namespaces/${PAYMENTS_NS}/services/remediator:8030/proxy"
 rem_get() { kubectl --context "$KUBE_CONTEXT" get --raw "${REM_PROXY}$1" 2>/dev/null || true; }
+
+# ---------------------------------------------------------------- Day 15 ----
+# AWS. One profile (SSO, short-lived credentials — 150-aws-guardrails.sh) and one region,
+# everywhere. Change the region in ONE place (here and infra/aws/*/variables) — B1.
+# shellcheck disable=SC2034
+export AWS_PROFILE="${AWS_PROFILE:-lab}"
+# shellcheck disable=SC2034
+export AWS_REGION="${AWS_REGION:-us-east-2}"
+export AWS_DEFAULT_REGION="$AWS_REGION"
+export AWS_PAGER=""
+AWS_ENV="$LAB_ROOT/infra/aws/env"
+AWS_BACKEND_ROOT="$LAB_ROOT/infra/aws/backend"
+
+require_aws() {
+  have aws || die "aws CLI not installed — ./scripts/150-aws-guardrails.sh --install"
+  aws sts get-caller-identity >/dev/null 2>&1 \
+    || die "no AWS session for profile '$AWS_PROFILE' — aws sso login --profile $AWS_PROFILE   (or ./scripts/150-aws-guardrails.sh)"
+}
+aws_account() { aws sts get-caller-identity --query Account --output text 2>/dev/null; }
+aws_registry() { printf '%s.dkr.ecr.%s.amazonaws.com' "$(aws_account)" "$AWS_REGION"; }
+# terraform for a root under infra/aws, with the S3 backend config file if present
+tf_aws() {  # root args...
+  local root="$1"; shift
+  if [[ -f "$root/backend.hcl" && ! -d "$root/.terraform" ]]; then
+    terraform -chdir="$root" init -input=false -backend-config=backend.hcl >/dev/null
+  fi
+  terraform -chdir="$root" "$@"
+}

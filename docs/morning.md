@@ -76,6 +76,17 @@ python3 tools/kpis.py | tail -5      # the numbers Day 14 will review
 kubectl -n logging get pods          # Fluent Bit RESTARTS — should still be 0 (Day 13's fix, verification pending)
 ```
 
+## 5 · Week 3 — the cloud side (Day 15 onward)
+
+```bash
+aws sso login --profile lab             # sessions expire overnight; this is normal
+./scripts/155-aws-verify-destroyed.sh   # anything billing that should not be? (EIPs are the usual leftover)
+./scripts/154-aws-cost.sh --row <day>   # yesterday's bill -> the row for docs/aws-costs.md
+./scripts/152-aws-vpc.sh status         # what exists right now
+```
+
+Paused last night with `152 destroy`? `./scripts/152-aws-vpc.sh plan` then `apply` — five minutes.
+
 ## When it is not this simple
 
 | Symptom | Cause / fix |
@@ -86,4 +97,5 @@ kubectl -n logging get pods          # Fluent Bit RESTARTS — should still be 0
 | Jenkins on :8081 not answering | `docker start jenkins` (up.sh does it) then ~60 s |
 | Splunk UI on :8000 not answering | still booting; 2–3 min after `docker start splunk` |
 | load generator `TimeoutError` after it ran fine for a while | the relay again: `wsl --shutdown` from PowerShell, then from step 1 |
+| `aws` says token expired / no session | `aws sso login --profile lab` |
 | a settlement ticket opened overnight | look at the timeline before anything: the remediator may already have re-run it (tier 1) |

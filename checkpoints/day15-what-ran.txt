@@ -1,0 +1,1 @@
+VPC (2 public + 2 private subnets), 1 NAT gateway + EIP, 5 ECR repos — no compute
