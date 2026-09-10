@@ -153,7 +153,21 @@ done
 
 step "Host"
 free -g | awk 'NR==2{printf "  memory: %s GB available of %s\n",$7,$2}'
+say "  cpus: $(nproc)   (Day 15: 8 in .wslconfig; 4 was why one big process made the load average hit 90)"
 powershell.exe -NoProfile -Command 'Get-PSDrive C | ForEach-Object { "  C: free {0:N1} GB" -f ($_.Free/1GB) }' 2>/dev/null || true
+# Day 15: WSL 2.7's DNS relay (10.255.255.254) stalls Go's resolver — helm, terraform and every
+# provider time out "awaiting headers" while curl works. /etc/wsl.conf has generateResolvConf=false
+# and the file names a real resolver. If WSL regenerated it (an upgrade, a re-symlink), say so.
+# With systemd=true, systemd-resolved owns the file (127.0.0.53) and its upstream lives in
+# /etc/systemd/resolved.conf.d/lab.conf — so test resolution, not the address in the file.
+NS=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf 2>/dev/null)
+if [[ "$NS" == 10.255.255.254 ]]; then
+  warn "resolver is the WSL relay ($NS) — Go tools (helm, terraform) will stall. See docs/morning.md step 0"
+elif timeout 5 getent hosts github.com >/dev/null 2>&1; then
+  ok "resolver $NS answers (github.com resolved)"
+else
+  warn "resolver $NS does not answer — if it is 127.0.0.53: sudo systemctl restart systemd-resolved; upstream is /etc/systemd/resolved.conf.d/lab.conf (docs/morning.md step 0)"
+fi
 
 step "Not automated — start these in their own terminals"
 say "  #2  ./scripts/12-loadgen.sh          activation traffic"

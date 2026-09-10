@@ -16,6 +16,19 @@ Then start **Docker Desktop** and wait for the whale to settle (~1 min). The shu
 optional after a sleep: the symptom of skipping it is `TimeoutError` from the load
 generators and `helm`/`kubectl` "cluster unreachable" while `docker ps` looks fine.
 
+Since Day 15 the VM is shaped by `C:\Users\bkala\.wslconfig` (8 CPUs, 10 GB, 4 GB swap,
+`autoMemoryReclaim=gradual`), and DNS is **systemd-resolved with its own upstream**
+(`/etc/systemd/resolved.conf.d/lab.conf` → 1.1.1.1 / 8.8.8.8) instead of WSL's relay
+`10.255.255.254`, which stalls every Go program — helm, terraform, the AWS provider — while
+curl works. `/etc/wsl.conf` has `generateResolvConf=false` so WSL leaves the file to
+resolved. `up.sh` checks that a name actually resolves; if it warns:
+
+```bash
+sudo systemctl restart systemd-resolved && resolvectl query github.com | head -1
+```
+
+(and if `lab.conf` is gone: recreate it with `[Resolve]` / `DNS=1.1.1.1 8.8.8.8`, then restart).
+
 ## 1 · Terminal 1 — the platform
 
 ```bash
@@ -92,6 +105,8 @@ Paused last night with `152 destroy`? `./scripts/152-aws-vpc.sh plan` then `appl
 | Symptom | Cause / fix |
 |---|---|
 | `up.sh` dies at *Docker daemon unreachable* | Docker Desktop not up yet; wait, re-run |
+| `terraform`/`helm` time out "awaiting headers" or "TLS handshake timeout" while `curl` works | the WSL DNS relay is back in `/etc/resolv.conf` — the one-liner in step 0 |
+| `kubectl` hangs (not refused) and load average is far above the CPU count | the VM thrashed on memory; `cat /proc/pressure/memory`; if `docker exec bhn-sim-control-plane true` also hangs: `docker kill bhn-sim-control-plane && docker start bhn-sim-control-plane`, 60 s, `up.sh` |
 | node never Ready | `docker restart bhn-sim-control-plane; sleep 30; ./scripts/up.sh` |
 | `kubectl` works, `helm` says *cluster unreachable* | you skipped `wsl --shutdown` |
 | Jenkins on :8081 not answering | `docker start jenkins` (up.sh does it) then ~60 s |

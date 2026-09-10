@@ -50,7 +50,7 @@ case "${1:-}" in
     ok "VPC $VPC"
     aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC" \
       --query 'Subnets[].[AvailabilityZone,CidrBlock,MapPublicIpOnLaunch,join(`,`,Tags[?starts_with(Key,`kubernetes.io/role`)].Key)]' --output text \
-      | sort | awk '{printf "  %-14s %-16s auto-ip=%-5s %s\n",$1,$2,$3,$4}'
+      | sort | awk '{printf "  %-14s %-16s auto-ip=%-5s %s\n",$1,$2,$3,$4}'   # auto-ip = MapPublicIpOnLaunch (off by design); "public" is the elb tag + the IGW route
     N=$(aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=$VPC" "Name=state,Values=available,pending" --query 'length(NatGateways)' --output text)
     [[ "$N" == 1 ]] && ok "exactly one NAT gateway ($(tf_aws "$AWS_ENV" output -raw nat_public_ip)) — the cost decision, in effect" || warn "$N NAT gateways (expected 1)"
     R=$(aws ecr describe-repositories --query 'length(repositories[?starts_with(repositoryName,`bhn-sim/`)])' --output text)

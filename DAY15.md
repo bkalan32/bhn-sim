@@ -74,7 +74,7 @@ Sign in to https://console.aws.amazon.com as the **root** user.
 - [ ] **Budget:** Billing and Cost Management → Budgets → Create budget → *Customize* →
       Cost budget → Monthly → amount **$20** → alert thresholds **50 %** and **80 %** of
       *actual* → your email. This is the smoke detector.
-- [ ] **Free Tier alerts:** Billing → *Billing preferences* → *Alert preferences* → enable
+- [x] **Free Tier alerts:** Billing → *Billing preferences* → *Alert preferences* → enable
       *Receive AWS Free Tier alerts* (the API cannot read this one — tick it here when done: `[x] Free Tier`).
 - [ ] **Cost Explorer:** Billing → Cost Explorer → *Launch* (once; data appears within 24 h).
 - [ ] **Root MFA:** IAM → *Add MFA* for the root user (an authenticator app is fine). Then sign out of root.

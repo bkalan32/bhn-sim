@@ -11,7 +11,7 @@ else t_fail "no AWS session — aws sso login --profile $AWS_PROFILE"; exit 1; f
 [[ "$(aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled' --output text 2>/dev/null)" == 1 ]] && t_ok "root MFA enabled" || t_fail "root MFA not enabled"
 NB=$(aws budgets describe-budgets --account-id "$ACCT" --query 'length(Budgets)' --output text 2>/dev/null || echo 0)
 (( NB >= 1 )) && t_ok "budget exists ($NB)" || t_fail "no budget"
-grep -qE '\[x\] Free Tier' DAY15.md && t_ok "free-tier alerts ticked in DAY15.md" || t_fail "tick '[x] Free Tier' in DAY15.md once enabled (not readable via API)"
+grep -qE '^- \[x\] \*\*Free Tier alerts' DAY15.md && t_ok "free-tier alerts ticked in DAY15.md" || t_fail "tick the Free Tier box in DAY15.md ('- [x] **Free Tier alerts:**') once enabled — not readable via the API"
 # state
 B=$(grep -oE 'bucket *= *"[^"]+"' infra/aws/env/backend.hcl 2>/dev/null | cut -d'"' -f2)
 [[ -n "$B" ]] && t_ok "backend.hcl -> $B" || t_fail "no infra/aws/env/backend.hcl — 151"
@@ -40,7 +40,7 @@ grep -q 'single_nat_gateway *= *true' infra/aws/env/vpc.tf && grep -q 'kubernete
 [[ -x scripts/153-aws-ecr-push.sh ]] && grep -q 'linux/amd64' scripts/153-aws-ecr-push.sh && t_ok "push loop builds --platform linux/amd64" || t_fail "push script missing"
 # docs
 grep -q '## AWS' README.md && grep -q 'sso login' README.md && grep -q 'terraform destroy\|152-aws-vpc.sh destroy' README.md && t_ok "README: AWS section (login, state bucket, apply/destroy, push loop, the rule)" || t_fail "README lacks the AWS section"
-grep -qE '^\| 15 \| .*\| *\$[0-9]' docs/aws-costs.md && t_ok "docs/aws-costs.md has Day 15's real cost" || t_fail "docs/aws-costs.md row 15 has no cost yet (154-aws-cost.sh --row 15, tomorrow morning when Cost Explorer has caught up)"
+grep -qE '^\| 15[^|]*\|[^|]*\|[^|]*\| *\$[0-9]' docs/aws-costs.md && t_ok "docs/aws-costs.md has a Day 15 row with a real cost" || t_fail "docs/aws-costs.md row 15 has no cost yet (154-aws-cost.sh --row 15, tomorrow morning when Cost Explorer has caught up)"
 git status --porcelain 2>/dev/null | grep -q . && warn "uncommitted changes" || t_ok "working tree clean"
 step "Score"; say "passed: $PASS   failed: $FAIL"
 (( FAIL == 0 )) && ok "Day 15 done." || { warn "Not done yet."; exit 1; }
