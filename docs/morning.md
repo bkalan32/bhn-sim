@@ -87,6 +87,8 @@ python3 tools/inc.py list open       # expect: nothing
 python3 tools/rem.py pending         # expect: nothing
 python3 tools/kpis.py | tail -5      # the numbers Day 14 will review
 kubectl -n logging get pods          # Fluent Bit RESTARTS — should still be 0 (Day 13's fix, verification pending)
+./scripts/171-newrelic-up.sh --status   # Day 17+: agents Running, remote-write succeeded climbing, failed 0
+./scripts/172-kb.sh --check             # Day 17+: the running bot sees kb/ (7 entries)
 ```
 
 ## 5 · Week 3 — the cloud side (Day 15 onward)

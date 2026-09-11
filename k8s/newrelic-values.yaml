@@ -1,0 +1,64 @@
+# New Relic Kubernetes integration (nri-bundle) — Day 17, Part A. Applied by Terraform
+# (infra/local/releases.tf, pinned version), NOT by the "guided install" command the New
+# Relic UI generates: that command embeds your license key in the shell line (history,
+# screen, Jenkins log) and installs whatever chart version is newest today (Day 8's lesson).
+#
+# The license key is NOT in this file. scripts/170-newrelic-secret.sh puts it in
+# secret/newrelic-license (key `license`) in the `newrelic` namespace — and a copy in
+# `monitoring` for Prometheus's remote write — the same way the Anthropic key (Day 9) and
+# the HEC token (Day 13 B9) live in Secrets and nowhere else.
+global:
+  cluster: bhn-sim
+  customSecretName: newrelic-license
+  customSecretLicenseKey: license
+  # Hosted platforms bill by INGEST. Low data mode drops metadata and slows collection;
+  # for a lab it is free money, in a company it is the knob you noticed (PDF, Step 1).
+  lowDataMode: true
+
+# Cluster metrics: nodes, pods, containers, the control plane. The bundle's own
+# kube-state-metrics stays OFF (the chart default) — kube-prometheus-stack already runs one,
+# and nri-kubernetes discovers it by its app.kubernetes.io/name label (CORRECTIONS-DAY17 B3:
+# the guided install turns it on and you get two KSMs scraping the same API server).
+newrelic-infrastructure:
+  enabled: true
+  privileged: true            # kind nodes are containers; the unprivileged mode cannot read them
+  common:
+    config:
+      interval: 30s           # lowDataMode's default; explicit so it is visible
+kube-state-metrics:
+  enabled: false
+
+# Kubernetes events -> New Relic (the "what changed" feed; cheap and useful)
+nri-kube-events:
+  enabled: true
+
+# Container logs -> New Relic. The guided install ships EVERY container log on the
+# cluster: Prometheus, Grafana, CoreDNS, its own agents. Day 3 B4, again: tail the payments
+# namespace only. (100 GB/month free; the lab's payments logs are ~50 MB/day.)
+newrelic-logging:
+  enabled: true
+  lowDataMode: true
+  fluentBit:
+    path: /var/log/containers/*_payments_*.log
+
+# Metadata injection: a MutatingWebhookConfiguration on every pod create in the cluster,
+# so APM agents inside pods get cluster/deployment attributes. We run no APM agent — the
+# webhook would add a network hop to every scheduling decision for nothing — and its chart
+# patches its own caBundle into the webhook after install (a post-install job + `lookup`),
+# which the helm provider's dry-run can never predict: "inconsistent result after apply"
+# on every apply (CORRECTIONS-DAY17 B9; Day 13 B10's class). Off.
+nri-metadata-injection:
+  enabled: false
+
+# NOT enabled, deliberately: the Prometheus agent (newrelic-prometheus-agent) would scrape
+# every ServiceMonitor target a second time. The business metrics reach New Relic by
+# REMOTE WRITE from the Prometheus you already run (k8s/kps-values.yaml) — one scraper,
+# two destinations, and a keep-list that is the ingest-cost control (PDF troubleshooting).
+newrelic-prometheus-agent:
+  enabled: false
+nri-prometheus:
+  enabled: false
+newrelic-pixie:
+  enabled: false
+pixie-chart:
+  enabled: false

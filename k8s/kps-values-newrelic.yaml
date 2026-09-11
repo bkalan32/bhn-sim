@@ -1,0 +1,29 @@
+# kube-prometheus-stack overlay — New Relic remote write (Day 17, Part A, Step 2). Layered
+# OVER k8s/kps-values.yaml by infra/local/releases.tf ONLY: it references
+# secret/newrelic-license in the monitoring namespace, which exists on kind (170) and not
+# on EKS — a remoteWrite whose secret is missing leaves Prometheus's pod unable to mount
+# and the whole stack stuck. Add it to infra/aws/platform on Day 19 only if the secret
+# goes there too.
+# The business metrics into New Relic by REMOTE WRITE from this
+# Prometheus — one scraper, two destinations. The license key is secret/newrelic-license
+# (key `license`) in the monitoring namespace, written by scripts/170-newrelic-secret.sh;
+# the operator mounts it. The keep-list is the ingest-cost control the PDF's troubleshooting
+# note arrives at after a 413/429: without it every kube-state-metrics / node-exporter /
+# cAdvisor series (tens of thousands) goes out too, and a hosted platform bills for each.
+# Ours: the five services' metrics, the health-score and SLO recording rules, and `up`.
+# The `prometheus_server` label tells New Relic which Prometheus it came from.
+prometheus:
+  prometheusSpec:
+    remoteWrite:
+      - url: https://metric-api.newrelic.com/prometheus/v1/write?prometheus_server=bhn-sim
+        authorization:
+          credentials:
+            name: newrelic-license
+            key: license
+        writeRelabelConfigs:
+          - sourceLabels: [__name__]
+            regex: "(activation_.*|egift_.*|settlement_.*|.*:health_score|activation:.*|platform:.*|up|ALERTS)"
+            action: keep
+        queueConfig:
+          maxSamplesPerSend: 1000
+          batchSendDeadline: 30s

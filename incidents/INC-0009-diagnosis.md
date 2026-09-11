@@ -1,71 +1,64 @@
-# INC-0009 — Drill A: dependency outage, enriched (generated 2026-09-08T00:41:33Z)
+# INC-0009 — Drill A: dependency outage, enriched (generated 2026-09-11T19:01:22Z)
 
-Record: `INC-1788827585-6b7f`
+Record: `INC-1789153026-7443`
 
 ## Timeline
 
 ```
-  INC-1788827585-6b7f  resolved  service=activation  severity=critical
-  first alert 2026-09-08T00:32:40Z   opened 2026-09-08T00:33:05Z   resolved 2026-09-08T00:41:21Z   duration 8.3 min
-  2026-09-08T00:33:05Z  alerts_firing     ActivationHighErrorRate(critical)
-  2026-09-08T00:33:05Z  context_attached  {"collectors": {"metrics": "ok", "deploys": "ok", "logs": "ok"}, "latency_ms": 161}
-  2026-09-08T00:33:09Z  ai_draft_attached {"draft": "open", "ok": true, "model": "claude-sonnet-4-5", "latency_ms": 4711}
-  2026-09-08T00:33:23Z  ai_draft_attached {"draft": "hypothesis", "ok": true, "model": "claude-sonnet-4-5", "latency_ms": 12926}
-  2026-09-08T00:33:25Z  note              drill: fault injected at 2026-09-08T00:30:04Z (FRAUD_SVC_DOWN=true)
-  2026-09-08T00:35:09Z  alerts_firing     ActivationHighErrorRate(critical), ActivationErrorBudgetBurnFast(critical)
-  2026-09-08T00:35:58Z  note              drill: fault removed at 2026-09-08T00:35:58Z (FRAUD_SVC_DOWN=false)
-  2026-09-08T00:37:12Z  alerts_firing     ActivationHighErrorRate(critical), ActivationErrorBudgetBurnFast(critical)
-  2026-09-08T00:39:17Z  alerts_firing     ActivationHighErrorRate(critical), ActivationErrorBudgetBurnFast(critical)
-  2026-09-08T00:41:21Z  alerts_resolved   ActivationHighErrorRate(critical), ActivationErrorBudgetBurnFast(critical)
-  2026-09-08T00:41:21Z  incident_resolved {"duration_min": 8.3}
-  2026-09-08T00:41:31Z  ai_draft_attached {"draft": "resolved", "ok": true, "model": "claude-sonnet-4-5", "latency_ms": 9681}
+  INC-1789153026-7443  resolved  service=activation  severity=critical
+  first alert 2026-09-11T18:56:40Z   opened 2026-09-11T18:57:06Z   resolved 2026-09-11T19:01:09Z   duration 4.0 min
+  2026-09-11T18:57:06Z  alerts_firing     ActivationHighErrorRate(critical)
+  2026-09-11T18:57:06Z  context_attached  {"collectors": {"metrics": "ok", "deploys": "ok", "logs": "ok"}, "latency_ms": 93}
+  2026-09-11T18:57:08Z  note              [remediator] no remediation signature matched (ActivationHighErrorRate) — tier 3: human required. Context and hypothesis are on this record; the fix is not an action this platform can take on its own.
+  2026-09-11T18:57:12Z  ai_draft_attached {"draft": "open", "ok": true, "model": "claude-sonnet-4-5", "latency_ms": 5172}
+  2026-09-11T18:57:27Z  ai_draft_attached {"draft": "hypothesis", "ok": true, "model": "claude-sonnet-4-5", "latency_ms": 15461}
+  2026-09-11T18:57:28Z  note              drill: fault injected at 2026-09-11T18:53:25Z (FRAUD_SVC_DOWN=true)
+  2026-09-11T18:58:55Z  note              drill: fault removed at 2026-09-11T18:58:55Z (FRAUD_SVC_DOWN=false)
+  2026-09-11T19:01:09Z  alerts_resolved   ActivationHighErrorRate(critical)
+  2026-09-11T19:01:09Z  incident_resolved {"duration_min": 4.0}
+  2026-09-11T19:01:21Z  ai_draft_attached {"draft": "resolved", "ok": true, "model": "claude-sonnet-4-5", "latency_ms": 11830}
 ```
 
 ## Context (enrichment)
 
 ```
-  collected 2026-09-08T00:33:05Z  service=activation
+  collected 2026-09-11T18:57:06Z  service=activation
   metrics      ok
-    error_rate_pct           34.48
+    error_rate_pct           52.22
     p95_latency_s            0.48
-    req_per_s                4.2
+    req_per_s                4.16
     health_score             0.0
-    error_budget_burn_1h     18.22
+    error_budget_burn_1h     13.96
   deploys      ok
     no deploys or rollbacks of activation in the last 6h
   log reasons  ok
-       435  fraud_service_timeout
-        45  issuer_declined
+       941  fraud_service_timeout
+        35  issuer_declined
 ```
 
 ## ai_hypothesis
 
 ```
-## 1. WHAT WE KNOW
-
-- **ActivationHighErrorRate** firing since 2026-09-08T00:32:40.222Z: error rate is 100.0% over the last 2 minutes; cards are being declined at the till.
-- Current metrics snapshot shows error_rate_pct at 34.48%, req_per_s at 4.2, and error_budget_burn_1h at 18.22.
-- Top error reason is **fraud_service_timeout** with 435 occurrences, followed by issuer_declined with 45 occurrences.
+## WHAT WE KNOW
+- ActivationHighErrorRate firing at 2026-09-11T18:56:40Z: error rate is 100.0% over the last 2 minutes; cards are being declined at the till.
+- Metrics snapshot at 2026-09-11T18:57:06Z: error_rate_pct 52.22%, health_score 0.0, error_budget_burn_1h 13.96x the budget.
+- Top error reason: fraud_service_timeout (941 occurrences), followed by issuer_declined (35 occurrences).
 - No deploys or rollbacks of activation in the last 6 hours.
-- P95 latency is 0.48s; health score is 0.0.
+- Request rate 4.16 req/s, p95 latency 0.48s.
 
-## 2. MOST LIKELY CAUSE
+## MOST LIKELY CAUSE
+The fraud check dependency (an outbound call inside activation) is timing out. Evidence: fraud_service_timeout is the dominant error reason (941 vs. 35 for issuer_declined), and the error rate spiked to 100% over 2 minutes with no recent code changes. The fraud service is external to the cluster; a network issue, capacity problem, or outage on that service would cause widespread activation failures.
 
-**Fraud service dependency failure or severe degradation.** The top error reason is fraud_service_timeout (435 occurrences), accounting for the vast majority of errors. The activation service appears to depend on a fraud check that is timing out, blocking card activations. The 0.48s p95 latency suggests requests are waiting for the fraud service before failing.
+## ALTERNATIVE
+A configuration change or infrastructure issue affecting activation's ability to reach the fraud service (DNS, network policy, credentials). Confirming evidence would be: activation pod logs showing connection errors or DNS resolution failures in app.msg fields; Kubernetes events for the activation deployment; or correlation with other services that call the same fraud endpoint.
 
-## 3. ALTERNATIVE
+## SUGGESTED NEXT CHECKS
+1. **Splunk**: `index=main app.service=activation app.status=error app.reason=fraud_service_timeout earliest=-5m | head 20` — examine app.msg and app.trace_id fields for timeout details (connection vs. read timeout, endpoint, duration).
+2. **PromQL**: `rate(activation_requests_total{status="error"}[5m])` and `rate(activation_requests_total{status="ok"}[5m])` — confirm whether ALL requests are failing or only a subset.
+3. **kubectl**: `kubectl -n payments logs deployment/activation --tail=50 --timestamps` — check for recent connection errors, DNS failures, or credential issues in the fraud service call path.
 
-**Issuer API degradation affecting a subset of BINs.** The second error reason is issuer_declined (45 occurrences). Evidence to confirm: check if errors cluster by card BIN or issuer in Splunk (`index=main app.service=activation app.status=error | stats count by app.card_bin, app.issuer`), and verify fraud service health independently.
-
-## 4. SUGGESTED NEXT CHECKS
-
-1. **Check fraud service health**: `kubectl get pods -l app=fraud-service -n production` and query Prometheus for fraud service error rate: `rate(http_requests_total{service="fraud",status=~"5.."}[5m])`
-2. **Analyze timeout distribution**: Splunk search `index=main app.service=activation app.reason=fraud_service_timeout | timechart span=1m count` to see when timeouts started.
-3. **Verify fraud service latency**: PromQL query `histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{service="fraud"}[5m]))`
-
-## 5. CONFIDENCE
-
-**Medium.** All context collectors succeeded. The fraud_service_timeout error dominates the logs and aligns with the error spike, but we lack direct visibility into the fraud service's current state. No recent deploys rules out a code change in activation itself.
+## CONFIDENCE
+**Medium**. All three context collectors succeeded. The fraud_service_timeout pattern is clear and dominant, but we have no visibility into the fraud service itself (it's external). The absence of recent deploys rules out a code change, but we cannot yet confirm whether the issue is in the fraud service, the network path, or activation's configuration for reaching it.
 ```
 
 ## ai_open_draft
@@ -73,13 +66,11 @@ Record: `INC-1788827585-6b7f`
 ```
 ## 1. INTERNAL SUMMARY
 
-**ActivationHighErrorRate** is firing for the activation service, which handles card activation (revenue-critical: activation errors mean cards are being declined at retail tills). The alert first fired at **2026-09-08T00:32:40Z** and reports an error rate of 100.0% over the last 2 minutes. The runbook says to check Grafana 'Activation Service', then Splunk: `index=main app.service=activation app.status=error | stats count by app.reason`. Top error reason is `fraud_service_timeout` (435 occurrences), followed by `issuer_declined` (45 occurrences); no recent deploys of activation in the last 6h.
-
----
+ActivationHighErrorRate is firing (critical). The activation service and card activation customer flow are affected. The alert fired at 2026-09-11T18:56:40Z. The runbook says to check Grafana 'Activation Service', then Splunk: `index=main app.service=activation app.status=error | stats count by app.reason`. Current error rate is 52.22% with 941 fraud_service_timeout errors and 35 issuer_declined errors in recent logs; no deploys in the last 6 hours.
 
 ## 2. STAKEHOLDER UPDATE
 
-Customers attempting to activate cards are experiencing failures, with cards being declined at the till. The issue began at 2026-09-08T00:32:40Z; no responder actions recorded yet. We will provide the next update within 30 minutes.
+Customers attempting to activate prepaid cards are experiencing failures at retail tills starting at 18:56 UTC. The majority of errors appear related to fraud check timeouts. The team will provide the next update within 30 minutes.
 ```
 
 ## ai_resolution_draft
@@ -87,32 +78,32 @@ Customers attempting to activate cards are experiencing failures, with cards bei
 ```
 ## 1. RESOLUTION NOTE
 
-The activation service experienced a critical incident lasting 8.3 minutes. Error rates reached 100.0% over 2-minute windows, causing cards to be declined at retail tills. All alerts have now resolved as of 2026-09-08T00:41:21Z.
+The activation service experienced a critical outage lasting 4.0 minutes. Error rate reached 100.0% at peak, with 941 activations failing due to fraud_service_timeout and 35 due to issuer_declined. The ActivationHighErrorRate alert has resolved as of 2026-09-11T19:00:40Z; the service is now operational.
 
 ## 2. STAKEHOLDER CLOSE-OUT
 
-Card activation has recovered after an 8-minute outage that caused cards to be declined at the till. The service is now operating normally.
+Card activation was unavailable for 4 minutes starting at 18:56 UTC, causing cards to be declined at retail tills. The service has recovered and activations are processing normally.
 
 ## 3. POST-INCIDENT REVIEW SKELETON
 
 **Impact**  
-Duration: 8.3 minutes (first alert at 2026-09-08T00:32:40Z, resolved at 2026-09-08T00:41:21Z). Error rate reached 100.0% over 2-minute windows and 34.48% overall during the incident. The 1-hour error rate was 14.4x the 0.5% budget. Cards were being declined at retail tills. Request rate during the incident: 4.2 req/s.
+Duration: 4.0 minutes (2026-09-11T18:56:40Z to 2026-09-11T19:00:40Z). Error rate peaked at 100.0%, later measured at 52.22% over the incident window. 941 activations failed with fraud_service_timeout; 35 failed with issuer_declined. Cards were declined at the till during this period.
 
 **Timeline**  
-- 2026-09-08T00:32:40Z: ActivationHighErrorRate alert fired (error rate 100.0%)
-- 2026-09-08T00:33:04Z: ActivationErrorBudgetBurnFast alert fired (burning at 22x)
-- 2026-09-08T00:37:40Z: ActivationHighErrorRate alert resolved
-- 2026-09-08T00:40:34Z: ActivationErrorBudgetBurnFast alert resolved
-- 2026-09-08T00:41:21Z: Incident resolved
+- 2026-09-11T18:56:40Z: ActivationHighErrorRate alert fired (error rate 100.0%)
+- 2026-09-11T18:57:06Z: Incident opened
+- 2026-09-11T18:57:08Z: Remediator determined no automated fix available; human required
+- 2026-09-11T19:00:40Z: Alert resolved (error rate 22.7%)
+- 2026-09-11T19:01:09Z: Incident closed
 
 **Detection**  
-Automated alerting detected the incident 25 seconds before the incident record opened (first alert at 2026-09-08T00:32:40.222Z).
+ActivationHighErrorRate alert at 2026-09-11T18:56:40Z, 26 seconds before incident opened.
 
 **Root cause**  
-Not yet known. Top error reasons during the incident: fraud_service_timeout (435 occurrences), issuer_declined (45 occurrences). No deploys or rollbacks of activation in the 6 hours preceding the incident.
+Not yet known. The fraud check dependency (an outbound call inside the activation service) timed out in 941 cases. No deploys or rollbacks of activation occurred in the 6 hours preceding the incident. No responder actions recorded yet.
 
 **What went well**  
-No responder actions recorded yet.
+Alert fired promptly. Context collection completed in 93ms.
 
 **Follow-up actions**  
 Not yet known.
@@ -127,28 +118,28 @@ Not yet known.
       "provider": "anthropic",
       "model": "claude-sonnet-4-5",
       "kind": "open",
-      "input_tokens": 1359,
-      "output_tokens": 243,
+      "input_tokens": 2186,
+      "output_tokens": 197,
       "ok": true,
-      "latency_ms": 4711
+      "latency_ms": 5172
     },
     "hypothesis": {
       "provider": "anthropic",
       "model": "claude-sonnet-4-5",
       "kind": "hypothesis",
-      "input_tokens": 1639,
-      "output_tokens": 598,
+      "input_tokens": 2650,
+      "output_tokens": 614,
       "ok": true,
-      "latency_ms": 12926
+      "latency_ms": 15461
     },
     "resolved": {
       "provider": "anthropic",
       "model": "claude-sonnet-4-5",
       "kind": "resolved",
-      "input_tokens": 3806,
-      "output_tokens": 528,
+      "input_tokens": 2933,
+      "output_tokens": 526,
       "ok": true,
-      "latency_ms": 9681
+      "latency_ms": 11830
     }
   },
   "context_meta": {
@@ -158,11 +149,11 @@ Not yet known.
     },
     "deploys": {
       "ok": true,
-      "latency_ms": 5
+      "latency_ms": 4
     },
     "logs": {
       "ok": true,
-      "latency_ms": 150
+      "latency_ms": 83
     }
   }
 }

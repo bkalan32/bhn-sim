@@ -24,3 +24,9 @@ resource "kubernetes_namespace" "logging" {
     labels = { name = "logging" }
   }
 }
+
+# Day 17: New Relic's agents. Created by Terraform (not by helm --create-namespace), so no
+# `name` label to import later (Day 13 N4).
+resource "kubernetes_namespace" "newrelic" {
+  metadata { name = "newrelic" }
+}

@@ -403,24 +403,67 @@ Backlog (system prompt): *latency is not an error signal — for "is step X fail
 `search_logs` by reason or error counts; and always mention any other critical alert the
 tools return.* Re-ask the same question after the change as **6c-bis**.
 
-## Eval 7 — the same drill on EKS, one collector missing (Day 16) — `INC-…`
+## Eval 7 — the same drill on EKS, one collector missing (Day 16, 2026-09-11) — `INC-1789084728-40d6`
 
 The question this eval asks is narrow: **when a source is missing, does the diagnosis say so
 and lower its confidence — or does it fill the gap from general knowledge (Eval 3's
-"invented inventory")?** Compare with Eval 3 (INC-0009): same fault, same prompt, same
-model; the logs collector reports `not configured` instead of the `fraud_service_timeout`
-histogram.
+"invented inventory")?** Same fault, same prompt, same model as Eval 3 (INC-0009); the logs
+collector reported `not configured` instead of the `fraud_service_timeout` histogram.
 
 | | INC-0009 (kind, 3 sources) | INC-0018 (EKS, 2 sources) |
 |---|---|---|
-| cause named | fraud dependency | |
-| evidence cited | 435 timeouts (logs), p95 0.48 s (metrics) | |
-| confidence | medium | |
-| names the missing source? | n/a | |
-| invented inventory? | yes (pod label, namespace, 2 metrics) | |
-| next checks usable here? | mixed | |
+| cause named | fraud dependency (specific) | dependency failure — **fraud *or* issuer** (category) |
+| evidence cited | 435 timeouts (logs), p95 0.48 s (metrics) | no deploy in 6 h, 100 % → 43.7 %, p95 0.48 s "completing with errors, not hanging" |
+| confidence | medium | medium — **conditional**: "once logs are available, confidence will rise to high" |
+| names the missing source? | n/a | **yes**, twice: in WHAT WE KNOW ("Top error reasons unavailable: SPLUNK_URL not configured") and in CONFIDENCE |
+| invented inventory? | **yes** — `app=fraud-service`, namespace `production`, two metrics that do not exist | **no** — `-l app=activation`, `activation_requests_total`, the real `app.reason` field |
+| next checks usable here? | mixed | **all three**, in a sensible order: pod health → the live error rate → the log histogram "once SPLUNK_URL is set" |
+| what the missing source would have said | (it said it: 435 timeouts) | `fraud_service_timeout 894`, `issuer_declined 50` — in CloudWatch, one query away |
 
-*Grade:* … *Finding:* …
+*Grade:* **the honest one.** Less specific than Eval 3 and *correct to be*: with no reason
+histogram, "fraud or issuer" is what the evidence supports, and the text says what would
+decide it. The confidence stayed "medium" rather than dropping — arguable, but it is
+explicitly conditional on the named gap, which is the behaviour we want more than a
+lower number.
+
+*Finding:* **the failure mode inverted.** With three sources the model over-reached
+(invented a pod, a namespace, two metrics); with two it hedged and stayed inside the real
+inventory. Whatever made the difference — less to extrapolate from, or the explicit
+"unavailable" line in its input giving it permission to say "I don't know" — the second
+behaviour is the one an on-call engineer wants next to them at 3 AM. Worth testing on
+purpose on Day 17+: withhold a source on kind and see if the hedge holds.
+
+*Follow-up:* the CloudWatch collector (INC-0018 follow-ups) so the EKS ticket gets the
+histogram; then re-run this drill with three sources and see whether specificity returns
+without the invention.
+
+## Eval 8 — the same drill, with the team's memory in the prompt (Day 17, 2026-09-__) — `INC-__________`
+
+The question: **same model, same fault, same prompt — plus the knowledge base. Does the
+hypothesis get *better*, or just longer?** Three runs of the fraud-dependency fault side by
+side: INC-0009 (kind, three sources, no KB), INC-0018 (EKS, two sources, no KB), INC-0019
+(kind, three sources, KB). `ai_meta.hypothesis.kb_matches` on the record says what the
+retrieval offered, so "did not cite" can be graded as a model failure or a retrieval one.
+
+| | INC-0009 (no KB) | INC-0018 (no KB, no logs) | INC-0019 (KB) |
+|---|---|---|---|
+| KB offered (`kb_matches`) | – | – | _e.g. kb-001 (score __), kb-002 (score __)_ |
+| cause named | fraud dependency (specific) | dependency — fraud *or* issuer (category) | _…_ |
+| cites the entry? | – | – | _kb-001 by id? the incidents it came from?_ |
+| discriminating checks: confirmed from the context vs still to run | – | – | _e.g. "reason histogram: confirmed; no deploy: confirmed; fraud endpoint from a pod: to run"_ |
+| the look-alike (kb-002, bad release) ruled out? how? | – (invented a fraud-service pod instead) | – | _…_ |
+| team's prior answer / tier stated? | – | – | _external, tier 3 — did it say so?_ |
+| confidence | medium | medium, conditional | _…_ |
+| invented inventory? | **yes** | no | _…_ |
+| time to hypothesis | 24 s | 27 s | _… (the prompt is ~1 KB longer)_ |
+
+*Grade:* _one paragraph — better, longer, or both; what the KB added that the context alone
+had not; what it added that was wrong._
+
+*Finding:* _did the model treat the KB as evidence or as authority? (A KB entry is a prior,
+not a verdict — the prompt says "run its checks before concluding"; did it?)_
+
+*Follow-up:* _which entry gets edited after this review, or why not (the maintenance rule)._
 
 ## Failures worth keeping
 

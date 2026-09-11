@@ -9,9 +9,14 @@ resource "helm_release" "kps" {
   repository = "https://prometheus-community.github.io/helm-charts"
   chart      = "kube-prometheus-stack"
   version    = var.chart_versions["kps"]
-  values     = [file("${path.module}/../../k8s/kps-values.yaml")]
-  timeout    = 900
-  wait       = true
+  # Day 17: + the New Relic remote-write overlay (kind only — it references a Secret that
+  # exists here; the EKS root layers kps-values-eks.yaml instead). Later files win.
+  values = [
+    file("${path.module}/../../k8s/kps-values.yaml"),
+    file("${path.module}/../../k8s/kps-values-newrelic.yaml"),
+  ]
+  timeout = 900
+  wait    = true
 }
 
 # Installed on Day 5 with --set flags (serviceMonitor + honorLabels + resources). The PDF's
@@ -69,4 +74,20 @@ resource "helm_release" "fluent_bit" {
   ]
   timeout = 300
   wait    = true
+}
+
+# Day 17, Part A: the New Relic Kubernetes integration, as a pinned release with a values
+# file — not the UI's "guided install" one-liner (which embeds the license key in the
+# command and floats the chart version). The key is in secret/newrelic-license (170);
+# the chart reads it by name (global.customSecretName). No secret in values, none in state.
+resource "helm_release" "newrelic" {
+  name       = "newrelic"
+  namespace  = kubernetes_namespace.newrelic.metadata[0].name
+  repository = "https://helm-charts.newrelic.com"
+  chart      = "nri-bundle"
+  version    = var.chart_versions["newrelic"]
+  values     = [file("${path.module}/../../k8s/newrelic-values.yaml")]
+  timeout    = 600
+  wait       = true
+  depends_on = [helm_release.kps]   # it discovers kps's kube-state-metrics rather than shipping its own
 }

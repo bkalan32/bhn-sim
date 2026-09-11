@@ -74,6 +74,7 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 import ai
+import kb
 import enrich
 
 VERSION = os.getenv("APP_VERSION", "0.4")
@@ -285,6 +286,10 @@ def _draft(iid: str, kind: str):
     except HTTPException:
         return
     text, meta = DRAFT_FN[kind](inc)
+    if kind == "hypothesis":
+        # Day 17: record WHICH KB entries were offered to the model, so a grader can tell
+        # "it cited kb-001" from "kb-001 was never in the prompt" (docs/ai-eval.md Eval 8).
+        meta["kb_matches"] = [{"id": m["id"], "score": m.get("score")} for m in ai.kb_matches(inc)]
     AI_DRAFTS.labels(kind=kind, outcome="ok" if meta.get("ok") else "error").inc()
     if meta.get("latency_ms") is not None:
         AI_LATENCY.labels(kind=kind).observe(meta["latency_ms"] / 1000)
@@ -481,7 +486,27 @@ async def tool_search_logs(request: Request):
 
 @app.get("/ai")
 def ai_status():
-    return {"enabled": ai.enabled(), **ai.describe(), "enrich": {"enabled": ENRICH_ENABLED, **enrich.configured()}}
+    return {"enabled": ai.enabled(), **ai.describe(), "enrich": {"enabled": ENRICH_ENABLED, **enrich.configured()},
+            "kb": _kb_status()}
+
+
+def _kb_status():
+    """Day 17: is the team's memory mounted, and does it parse?"""
+    try:
+        entries = kb.load()
+        return {"dir": kb.KB_DIR, "entries": [e["id"] for e in entries], "ok": True}
+    except Exception as e:  # noqa: BLE001
+        return {"dir": kb.KB_DIR, "entries": [], "ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+@app.get("/kb/search")
+def kb_search(q: str):
+    """Day 17: what the bot would match for a bag of symptoms — the copilot and 172 --search use the same scorer."""
+    try:
+        return [{"id": e["id"], "title": e["title"], "score": e["score"], "learned_from": e["learned_from"], "tier": e["tier"]}
+                for e in kb.search(q)]
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
 
 
 @app.delete("/incidents/{iid}")

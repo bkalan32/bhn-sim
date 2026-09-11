@@ -89,6 +89,12 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            # Day 17: the knowledge base (kb/*.md) as a ConfigMap, read-only. Optional, so
+            # the bot starts without it (and says so on /ai) — the KB improves diagnosis,
+            # it must never gate intake. scripts/172-kb.sh builds and refreshes it.
+            - name: kb
+              mountPath: /kb
+              readOnly: true
           readinessProbe:
             httpGet: {path: /readyz, port: 8020}
             initialDelaySeconds: 2
@@ -105,6 +111,10 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: incident-bot-data
+        - name: kb
+          configMap:
+            name: kb
+            optional: true
 ---
 apiVersion: v1
 kind: Service

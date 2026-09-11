@@ -6,4 +6,5 @@ chart_versions = {
   "tempo" = "1.24.4"   # tempo-1.24.4 in tracing, rev 1
   "otel" = "0.172.0"   # opentelemetry-collector-0.172.0 in tracing, rev 1
   "fluent-bit" = "0.58.1"   # fluent-bit-0.58.1 in logging, rev 7
+  "newrelic" = "8.0.24"   # nri-bundle, Day 17 (pinned by hand: not installed by helm first, so 130 never saw it)
 }

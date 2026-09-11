@@ -270,7 +270,7 @@ Run `./scripts/02-verify.sh` to regenerate `checkpoints/day1-versions.txt`.
 |---|---|---|---|
 | GitHub | https://github.com | ☐ | private repo `bhn-sim` |
 | ServiceNow PDI | https://developer.servicenow.com | ☐ | **request Day 1** — waitlisted, and PDIs hibernate |
-| New Relic | https://one.newrelic.com | ☐ | free forever · 100 GB/mo · 1 full user |
+| New Relic | https://one.newrelic.com | ☐ | free forever · 100 GB/mo · 1 full user — **wired Day 17**: `171-newrelic-up.sh` (nri-bundle as a Terraform release, key in `secret/newrelic-license`, remote write with a keep-list); judgment in `docs/newrelic-notes.md` |
 | Splunk | https://splunk.com | ☐ | account Day 1, **start the container Day 3** (60-day trial clock) |
 | AWS | https://aws.amazon.com | ☐ | **create around Day 14**, not Day 1 (6-month credit window) |
 
@@ -391,6 +391,27 @@ database and runs more than one replica); `DELETE /incidents/{id}` exists for th
 via the API server's proxy, which *is* authenticated); `SPLUNK_VERIFY=false` accepts Splunk's
 self-signed certificate for the REST lookups.
 
+## The knowledge base (Day 17) — the team's memory, retrievable
+
+`kb/` holds one file per failure pattern in a strict shape (`kb/README.md`): symptoms in
+the platform's own vocabulary, the **discriminating checks** that tell look-alikes apart,
+the fix that worked, the remediator tier, the incidents it was learned from. Seven entries
+from eighteen incidents. One parser and scorer (`services/incident-bot/kb.py`) serves both
+readers: the **incident bot** injects matching entries into the hypothesis prompt and cites
+the id (`ai_meta.hypothesis.kb_matches` records what it was offered), and the **copilot**'s
+`search_kb` tool runs before it concludes on any "why" question.
+
+| | |
+|---|---|
+| Validate + ship | `./scripts/172-kb.sh` — the shape is the contract; ConfigMap `kb` in `payments`, mounted read-only at `/kb`, optional (the bot starts without it and says so on `/ai`) |
+| What would match | `./scripts/172-kb.sh --search "<alert names, app.reason values>"` — or the bot's `/kb/search?q=` |
+| Tests | `services/incident-bot/tests/test_kb.py` — the pipeline's test stage refuses a malformed entry |
+| Proof | INC-0019 (`173-kb-drill.sh`): the fraud drill's hypothesis cites kb-001 and its prior answer; `docs/ai-eval.md` Eval 8 |
+
+**The maintenance rule: every incident review either updates a KB entry or says why not.**
+A KB nobody feeds dies in a quarter. The review checklist (`incidents/INC-<n>.md` →
+"Follow-ups") ends with the entry it touched or the sentence explaining why none.
+
 ## The activation service (Day 2)
 
 The crown-jewel transaction: cashier scans a card, POS calls this API, card must
@@ -456,5 +477,9 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 - **[DAY11.md](DAY11.md)** · **[CORRECTIONS-DAY11.md](CORRECTIONS-DAY11.md)** · **[tools/copilot.py](tools/copilot.py)** · **[docs/copilot-questions/](docs/copilot-questions/)**
 - **[DAY12.md](DAY12.md)** · **[CORRECTIONS-DAY12.md](CORRECTIONS-DAY12.md)** · **[docs/remediation-policy.md](docs/remediation-policy.md)** · **[services/remediator/app.py](services/remediator/app.py)** · **[k8s/remediator.yaml](k8s/remediator.yaml)**
 - **[DAY13.md](DAY13.md)** · **[CORRECTIONS-DAY13.md](CORRECTIONS-DAY13.md)** · **[infra/local/](infra/local/)** · **[ci/Jenkinsfile.drift](ci/Jenkinsfile.drift)**
+- **[DAY14.md](DAY14.md)** · **[CORRECTIONS-DAY14.md](CORRECTIONS-DAY14.md)** · **[gameday/](gameday/)** · **[docs/morning.md](docs/morning.md)**
+- **[DAY15.md](DAY15.md)** · **[CORRECTIONS-DAY15.md](CORRECTIONS-DAY15.md)** · **[infra/aws/](infra/aws/)** · **[docs/aws-costs.md](docs/aws-costs.md)**
+- **[DAY16.md](DAY16.md)** · **[CORRECTIONS-DAY16.md](CORRECTIONS-DAY16.md)** · **[docs/eks-notes.md](docs/eks-notes.md)**
+- **[DAY17.md](DAY17.md)** · **[CORRECTIONS-DAY17.md](CORRECTIONS-DAY17.md)** · **[kb/](kb/)** · **[services/incident-bot/kb.py](services/incident-bot/kb.py)** · **[docs/newrelic-notes.md](docs/newrelic-notes.md)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up

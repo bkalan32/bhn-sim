@@ -28,6 +28,8 @@ import time
 import urllib.error
 import urllib.request
 
+import kb            # Day 17: the team's memory (kb/*.md via a ConfigMap at /kb), best-effort
+
 # Day 11: the inventory the model may reference — and nothing else. Eval 3 found three
 # of four "next checks" naming a namespace, a pod label and two metrics that do not
 # exist here. Shared with tools/copilot.py (it imports this constant) so the bot and the
@@ -213,14 +215,28 @@ Incident record:
 {_record(inc)}""", "open")
 
 
+def kb_matches(inc: dict) -> list:
+    """Day 17: the KB entries whose symptoms overlap this ticket's words. Best-effort —
+    a missing or malformed KB must never stop a hypothesis (the AI rule, applied to
+    the AI's input)."""
+    try:
+        return kb.search(kb.query_from_incident(inc))
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def hypothesize(inc: dict):
-    """Day 10: the junior diagnostician. Diagnosis only — never remediation."""
+    """Day 10: the junior diagnostician. Diagnosis only — never remediation.
+    Day 17: with the team's memory in the prompt — matching KB entries, their
+    discriminating checks, their fix and tier — and the instruction to cite the entry id."""
     ctx = inc.get("context") or {}
     opened = inc.get("first_alert_at_iso") or inc.get("opened_at_iso")
+    matches = kb_matches(inc)
+    kb_block = kb.render(matches)
     return _call(f"""A production incident just opened. The current time is {_now()}; the
-first alert fired at {opened}. Using ONLY the incident record and its "context" section
+first alert fired at {opened}. Using ONLY the incident record, its "context" section
 (metrics snapshot, recent deploys with their age in minutes before the first alert, and
-top error reasons from the logs), write:
+top error reasons from the logs), and the KNOWLEDGE BASE MATCHES below, write:
 
 1. WHAT WE KNOW: 3-5 bullet facts drawn from the alerts, metrics snapshot, recent
 deploys and top error reasons. Cite the numbers as they appear.
@@ -236,11 +252,19 @@ using this platform's tools (kubectl, PromQL, Splunk search) and ONLY the invent
 PLATFORM FACTS (namespace payments; the listed metrics and log fields). Diagnostic only.
 5. CONFIDENCE: low / medium / high, one sentence why. If any context collector
 reported an error, say which and lower your confidence accordingly.
+6. KNOWLEDGE BASE: if a listed entry matches the evidence, say "matches <id> (seen in
+<incidents>)", name which of its discriminating checks the context already confirms and
+which remain to run, and state its fix and tier as the team's prior answer. If an entry
+is listed but the evidence contradicts it (e.g. the reason histogram points elsewhere,
+or a deploy is present), say so and which look-alike fits better. If no entry matches,
+say "no KB match". Never cite an entry that is not listed below.
 
 Do not propose remediation actions. Diagnosis only.
 
+{kb_block}
+
 Incident record:
-{_record(inc)}""", "hypothesis", max_tokens=1200)
+{_record(inc)}""", "hypothesis", max_tokens=1400)
 
 
 def summarize_resolved(inc: dict):
