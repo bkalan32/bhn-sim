@@ -53,9 +53,9 @@ hours it ran, yesterday's cost from the console. The Day 20 write-up quotes this
 | Day | What ran | Hours | Cost (console, next morning) | Notes |
 |---|---|---|---|---|
 | pre | **found on Day 15:** a stopped t2.xlarge (`bhn-practice`, 1 Sep) + its 30 GB volume, three unattached EIPs, one KMS key — all in us-east-1 | 1–10 Sep | **$0.51/day, $5.10 total** | $0.36 of it was three public IPs attached to nothing. Released, terminated, key scheduled (17 Sep). `155` now sweeps every region |
-| 15 (9 Sep) | VPC + 1 NAT + 5 ECR repos, no images; destroyed at night | ~1.5 h NAT | (`154 --row 15`) | the VPC's first round trip: apply, 90 min, destroy, verified empty |
-| 15 (10 Sep) | VPC + 1 NAT + 5 ECR repos with the five kind images | from ~15:00 CT | (`154 --row 15` on the 11th) | DNS relay fixed, images pushed as the bytes kind runs |
-| 16 | EKS (control plane $0.10/h) + 2 × t3.medium SPOT (~$0.013/h each) + NAT + 1 EBS GiB + CloudWatch ingest; NLB for ~5 min; destroyed the same day | ~… h | (`154 --row 16` on the 12th) | estimate ≈ $3–4; anything above $5 means something outlived the teardown — `155` |
+| 15 (9 Sep) | VPC + 1 NAT + 5 ECR repos, no images; destroyed at night | ~1.5 h NAT | $0.07 est. — not separable: the 9th shows $0.52 and all of it is the `pre` row (3 EIPs $0.36 + the 30 GB volume $0.08 + KMS) | the VPC's first round trip: apply, 90 min, destroy, verified empty |
+| 15 (10 Sep) | VPC + 1 NAT + 5 ECR repos with the five kind images | ~9 h NAT on the 10th, ~13 h on the 11th (destroyed 11th, ~15:00 CT) | $0.40 (10 Sep: NAT hours inside "EC2 - Other" $0.46) + ≈$0.30 on the 11th | DNS relay fixed, images pushed as the bytes kind runs; the env outlived the EKS teardown by a night — `167 --all` next time |
+| 16 | EKS (control plane $0.10/h) + 2 × t3.medium SPOT + NAT + 1 EBS GiB + CloudWatch ingest; NLB for ~9 min; torn down the same night | ~3 h (22:09Z–01:xxZ) | $2.40 (10 Sep: EKS $1.00, compute $0.04, KMS $0.13, VPC $0.34; 11 Sep: EKS $0.38, EC2-Other $0.36, ELB $0.02, KMS $0.02 — Cost Explorer; NAT hours counted on the Day 15 rows) | estimate was $3–4; came in under — SPOT nodes were $0.04, the control plane was 60 % of the bill |
 | 17 | | | | |
 | 18 | | | | |
 | 19 | | | | |
