@@ -437,33 +437,47 @@ purpose on Day 17+: withhold a source on kind and see if the hedge holds.
 histogram; then re-run this drill with three sources and see whether specificity returns
 without the invention.
 
-## Eval 8 — the same drill, with the team's memory in the prompt (Day 17, 2026-09-__) — `INC-__________`
+## Eval 8 — the same drill, with the team's memory in the prompt (Day 17, 2026-09-11) — `INC-1789157010-9d18`
 
 The question: **same model, same fault, same prompt — plus the knowledge base. Does the
 hypothesis get *better*, or just longer?** Three runs of the fraud-dependency fault side by
 side: INC-0009 (kind, three sources, no KB), INC-0018 (EKS, two sources, no KB), INC-0019
 (kind, three sources, KB). `ai_meta.hypothesis.kb_matches` on the record says what the
-retrieval offered, so "did not cite" can be graded as a model failure or a retrieval one.
+retrieval offered — kb-001 (12.5), kb-002 (5.5) — so "did not cite" would have been gradable
+as a model failure rather than a retrieval one. It did not arise.
 
 | | INC-0009 (no KB) | INC-0018 (no KB, no logs) | INC-0019 (KB) |
 |---|---|---|---|
-| KB offered (`kb_matches`) | – | – | _e.g. kb-001 (score __), kb-002 (score __)_ |
-| cause named | fraud dependency (specific) | dependency — fraud *or* issuer (category) | _…_ |
-| cites the entry? | – | – | _kb-001 by id? the incidents it came from?_ |
-| discriminating checks: confirmed from the context vs still to run | – | – | _e.g. "reason histogram: confirmed; no deploy: confirmed; fraud endpoint from a pod: to run"_ |
-| the look-alike (kb-002, bad release) ruled out? how? | – (invented a fraud-service pod instead) | – | _…_ |
-| team's prior answer / tier stated? | – | – | _external, tier 3 — did it say so?_ |
-| confidence | medium | medium, conditional | _…_ |
-| invented inventory? | **yes** | no | _…_ |
-| time to hypothesis | 24 s | 27 s | _… (the prompt is ~1 KB longer)_ |
+| KB offered (`kb_matches`) | – | – | kb-001 (12.5), kb-002 (5.5) |
+| cause named | fraud dependency (specific) | dependency — fraud *or* issuer (category) | fraud dependency — **"matches kb-001 exactly"** |
+| cites the entry? | – | – | **yes**: id, title, and the six incidents it was learned from |
+| discriminating checks: confirmed vs still to run | listed, mixed real/invented | three real, in a sensible order | **split explicitly**: confirmed by the context (611 ≫ 57 histogram, p95 cap 0.48 s, no deploy) vs to run (timechart, the PromQL cap, the knob / provider status) |
+| the look-alike (kb-002) ruled out? how? | – (invented a `fraud-service` pod instead) | – | **yes**, on the entry's discriminator: no deploy in 6 h; reason is the dependency signature, not `velocity_check_blocked` |
+| team's prior answer / tier stated? | – | – | **yes**: "Fix (tier 3): restore the dependency — external … no safe automated action; escalate with the histogram attached" |
+| confidence | medium | medium, conditional on the missing source | **high** — same three sources as 0009 |
+| invented inventory? | **yes** | no | **no** — every check is the entry's, i.e. real |
+| time to hypothesis (after the ticket) | 24 s | 27 s | 27 s (20.8 s model time) — the KB block cost nothing measurable |
+| errors of reading | the invention | – | "100 % then fell to ~45 %" read as possible recovery (it is the 2-min alert window vs the 5-min snapshot rate); "most-rehearsed pattern" offered as evidence |
 
-*Grade:* _one paragraph — better, longer, or both; what the KB added that the context alone
-had not; what it added that was wrong._
+*Grade:* **better, and not longer where it matters.** The gain is not the cause — 0009 named
+fraud too — it is the *shape* of the answer: cited prior, evidence sorted against the
+entry's own symptoms, the look-alike dismissed for a stated reason, the fix with its tier.
+That is what a senior engineer's handover looks like, and it is what the on-call person
+reads at 3 AM. Confidence moved from medium to high on identical evidence because the
+model had something to compare the evidence *to*.
 
-*Finding:* _did the model treat the KB as evidence or as authority? (A KB entry is a prior,
-not a verdict — the prompt says "run its checks before concluding"; did it?)_
+*Finding:* **evidence, mostly.** The hypothesis ran the entry's checks against the context
+rather than repeating the entry — but "the most-rehearsed pattern in the repository" is
+frequency dressed as evidence, and the 5m/2m gap was mis-read as a possible recovery. The
+copilot, asked the same question with no incident open, did the cleaner thing: cited
+kb-001, ran four checks, and answered *"known pattern, not active"* — it let the evidence
+overrule the prior. Both readings are now symptoms in kb-001, which is the maintenance rule
+working as designed: the review edits the entry.
 
-*Follow-up:* _which entry gets edited after this review, or why not (the maintenance rule)._
+*Follow-up:* re-run after the kb-001 edit and see whether the two mis-readings disappear
+(the KB as a prompt-level fix, not a model-level one). And the withheld-source test from
+Eval 7 still stands: KB present, logs collector off — does it hedge or does the entry make
+it over-confident?
 
 ## Failures worth keeping
 
