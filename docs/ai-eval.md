@@ -403,6 +403,25 @@ Backlog (system prompt): *latency is not an error signal — for "is step X fail
 `search_logs` by reason or error counts; and always mention any other critical alert the
 tools return.* Re-ask the same question after the change as **6c-bis**.
 
+## Eval 7 — the same drill on EKS, one collector missing (Day 16) — `INC-…`
+
+The question this eval asks is narrow: **when a source is missing, does the diagnosis say so
+and lower its confidence — or does it fill the gap from general knowledge (Eval 3's
+"invented inventory")?** Compare with Eval 3 (INC-0009): same fault, same prompt, same
+model; the logs collector reports `not configured` instead of the `fraud_service_timeout`
+histogram.
+
+| | INC-0009 (kind, 3 sources) | INC-0018 (EKS, 2 sources) |
+|---|---|---|
+| cause named | fraud dependency | |
+| evidence cited | 435 timeouts (logs), p95 0.48 s (metrics) | |
+| confidence | medium | |
+| names the missing source? | n/a | |
+| invented inventory? | yes (pod label, namespace, 2 metrics) | |
+| next checks usable here? | mixed | |
+
+*Grade:* … *Finding:* …
+
 ## Failures worth keeping
 
 Any draft with a ❌ goes here with the prompt version that produced it. A documented

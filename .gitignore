@@ -28,3 +28,7 @@ infra/aws/**/terraform.tfstate.*
 infra/aws/**/.terraform.tfstate.lock.info
 infra/aws/**/plan.txt
 infra/aws/**/apply.txt
+# Day 16 — the EKS root and the platform chart cache
+infra/aws/**/*.tfplan
+infra/aws/platform/charts/
+checkpoints/day16-evidence.txt

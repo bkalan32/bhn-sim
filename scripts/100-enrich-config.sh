@@ -55,6 +55,15 @@ GTOKEN=$(gcurl -X POST "http://localhost:3000/api/serviceaccounts/$SA_ID/tokens"
 ok "token minted (not shown)"
 
 step "Splunk: management endpoint"
+if on_eks; then
+  # Day 16: Splunk is a container on the laptop; a pod in Ohio cannot reach it. The bot
+  # handles an empty SPLUNK_URL by saying "not configured" in its context (enrich.py), and
+  # the diagnosis lowers its confidence — honest, and part of what the EKS drill tests.
+  # Logs on EKS go to CloudWatch (Fluent Bit, Day 16); a CloudWatch log collector for the
+  # bot is Day 17+ work. Until then: two collectors of three, and the record says so.
+  SURL=""
+  warn "on EKS: no Splunk reachable from the cluster — logs collector left unconfigured (CloudWatch holds the logs; see docs/eks-notes.md #3)"
+else
 SIP=$(splunk_ip)
 [[ -n "$SIP" ]] || die "splunk container not running (docker start splunk)"
 SURL="https://${SIP}:8089"
@@ -67,6 +76,7 @@ case "$CODE" in
   401) die "Splunk REST at $SURL says HTTP 401 — wrong admin password (SPLUNK_PASSWORD env, default Changeme123!)" ;;
   *)   dim "WSL cannot reach $SURL directly (HTTP $CODE) — expected on Docker Desktop; the in-cluster check below is the real one" ;;
 esac
+fi
 
 step "Storing secret/$SECRET"
 k create secret generic "$SECRET" -n "$PAYMENTS_NS" \
@@ -77,7 +87,7 @@ k create secret generic "$SECRET" -n "$PAYMENTS_NS" \
   --from-literal=SPLUNK_VERIFY=false \
   --dry-run=client -o yaml | k apply -f - >/dev/null
 unset GTOKEN
-ok "stored: GRAFANA_TOKEN, SPLUNK_URL=$SURL, SPLUNK_USER, SPLUNK_PASSWORD, SPLUNK_VERIFY=false"
+ok "stored: GRAFANA_TOKEN, SPLUNK_URL=${SURL:-(none — EKS)}, SPLUNK_USER, SPLUNK_PASSWORD, SPLUNK_VERIFY=false"
 dim "SPLUNK_VERIFY=false accepts Splunk's self-signed certificate. Lab only; flagged in the README."
 
 if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then
@@ -87,6 +97,7 @@ if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then
   sleep 3
   if bot_get /ai | grep -q '"enrich"'; then
     if test_collectors; then ok "all three collectors healthy"
+    elif on_eks; then ok "metrics + deploys healthy; logs 'not configured' is expected on EKS (Splunk is on the laptop)"
     else
       warn "a collector is degraded — see above."
       say "  logs 'HTTP 401'      -> wrong Splunk admin password: SPLUNK_PASSWORD=... $0"

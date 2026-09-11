@@ -16,8 +16,9 @@ dim " this script adds one. Single-quoted jsonpath is also the safer bash habit.
 printf 'grafana admin / %s\n' "$PASS" > "$CHECKPOINTS/day1-grafana-credentials.txt"
 chmod 600 "$CHECKPOINTS/day1-grafana-credentials.txt"
 
-step "Port-forwarding Grafana to localhost:3000"
-say "Open http://localhost:3000 in your WINDOWS browser — WSL2 forwards localhost"
+GRAFANA_PORT="${GRAFANA_PORT:-3000}"   # Day 16: GRAFANA_PORT=3001 for the EKS Grafana while kind's keeps 3000
+step "Port-forwarding Grafana ($KUBE_CONTEXT) to localhost:$GRAFANA_PORT"
+say "Open http://localhost:$GRAFANA_PORT in your WINDOWS browser — WSL2 forwards localhost"
 say "into the distro automatically, so no extra flag is needed."
 dim "If it ever stops working after a Windows sleep/resume, run 'wsl --shutdown' in"
 dim "PowerShell and start over; the fallback is --address=0.0.0.0."
@@ -28,4 +29,4 @@ say "  Kubernetes / Compute Resources / Namespace (Pods)"
 say "  Node Exporter / Nodes"
 echo
 dim "Ctrl-C to stop the port-forward."
-k port-forward svc/"${HELM_RELEASE}-grafana" -n "$MONITORING_NS" 3000:80
+k port-forward svc/"${HELM_RELEASE}-grafana" -n "$MONITORING_NS" "$GRAFANA_PORT":80

@@ -1,0 +1,4 @@
+2026-09-10T22:23:22.201000+00:00	At 2026-09-10T22:23:22Z an instance was taken out of service in response to an EC2 instance rebalance recommendation.
+2026-09-10T22:22:22.171000+00:00	At 2026-09-10T22:22:20Z an instance was launched in response to an EC2 instance rebalance recommendation.
+2026-09-10T22:21:10.496000+00:00	At 2026-09-10T22:21:02Z a user request created an AutoScalingGroup changing the desired capacity from 0 to 2.  At 2026-09-10T22:21:08Z an instance was started in respo
+2026-09-10T22:21:10.491000+00:00	At 2026-09-10T22:21:02Z a user request created an AutoScalingGroup changing the desired capacity from 0 to 2.  At 2026-09-10T22:21:08Z an instance was started in respo

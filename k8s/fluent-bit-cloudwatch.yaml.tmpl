@@ -1,0 +1,65 @@
+# Fluent Bit -> CloudWatch Logs (Day 16, EKS). Same collector, different backend — the
+# reason the collector layer exists. Rendered by infra/aws/platform (Terraform substitutes
+# __REGION__); the kind cluster keeps k8s/fluent-bit-values.yaml.tmpl and Splunk.
+#
+# Inputs and filters are IDENTICAL to the Splunk file on purpose: the payments namespace
+# only (Day 3 B4), the cri `message` -> `log` rename (Day 3 B10) so Merge_Log can parse the
+# JSON into `app.*`. CloudWatch Logs Insights auto-discovers those nested fields, so the
+# query that works is `filter app.status = "error"` — NOT the PDF's `filter log like
+# /activation failed/`: with Keep_Log Off there is no `log` field to match, and the
+# services never log that sentence (CORRECTIONS-DAY16 B6).
+config:
+  inputs: |
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*_payments_*.log
+        Parser            cri
+        Tag               kube.*
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+        Refresh_Interval  5
+
+  filters: |
+    [FILTER]
+        Name                modify
+        Match               kube.*
+        Rename              message log
+
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Merge_Log           On
+        Merge_Log_Key       app
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+  outputs: |
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               kube.*
+        region              __REGION__
+        log_group_name      /bhn-sim/containers
+        log_stream_prefix   payments.
+        auto_create_group   On
+        # a lab log group that outlives the cluster is a $0.03/GB-month orphan; one day
+        log_retention_days  1
+
+# Credentials: NONE in this file, no env, no node role. The chart's service account
+# (logging/fluent-bit) carries an EKS Pod Identity association (infra/aws/eks/pod-identity.tf)
+# to a role with CloudWatchAgentServerPolicy; Fluent Bit's AWS client picks the credentials
+# up from the pod-identity agent on the node. Same idea as the Splunk token living in a
+# Secret rather than in values (Day 13 B9), one layer further out.
+serviceAccount:
+  create: true
+  name: fluent-bit
+
+# Day 13's probe fix, kept (the chart default of 1 s killed the pod under load)
+livenessProbe:
+  timeoutSeconds: 5
+readinessProbe:
+  timeoutSeconds: 5
+
+resources:
+  requests: {cpu: 20m, memory: 48Mi}
+  limits:   {cpu: 200m, memory: 128Mi}

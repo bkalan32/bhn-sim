@@ -7,3 +7,8 @@
 **/apply.txt
 **/*.tfvars
 **/*.tfplan
+
+# Day 16: the platform root reads chart versions from a copy of infra/local's file; the
+# chart cache is derived (helm pull) and never committed
+!platform/chart-versions.auto.tfvars
+platform/charts/

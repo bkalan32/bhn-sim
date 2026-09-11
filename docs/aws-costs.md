@@ -55,7 +55,7 @@ hours it ran, yesterday's cost from the console. The Day 20 write-up quotes this
 | pre | **found on Day 15:** a stopped t2.xlarge (`bhn-practice`, 1 Sep) + its 30 GB volume, three unattached EIPs, one KMS key — all in us-east-1 | 1–10 Sep | **$0.51/day, $5.10 total** | $0.36 of it was three public IPs attached to nothing. Released, terminated, key scheduled (17 Sep). `155` now sweeps every region |
 | 15 (9 Sep) | VPC + 1 NAT + 5 ECR repos, no images; destroyed at night | ~1.5 h NAT | (`154 --row 15`) | the VPC's first round trip: apply, 90 min, destroy, verified empty |
 | 15 (10 Sep) | VPC + 1 NAT + 5 ECR repos with the five kind images | from ~15:00 CT | (`154 --row 15` on the 11th) | DNS relay fixed, images pushed as the bytes kind runs |
-| 16 | EKS + 2 nodes, destroyed same day | | | |
+| 16 | EKS (control plane $0.10/h) + 2 × t3.medium SPOT (~$0.013/h each) + NAT + 1 EBS GiB + CloudWatch ingest; NLB for ~5 min; destroyed the same day | ~… h | (`154 --row 16` on the 12th) | estimate ≈ $3–4; anything above $5 means something outlived the teardown — `155` |
 | 17 | | | | |
 | 18 | | | | |
 | 19 | | | | |

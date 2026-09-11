@@ -1,0 +1,30 @@
+# kube-prometheus-stack on EKS — layered OVER k8s/kps-values.yaml by infra/aws/platform
+# (same routing, same Grafana secret, same repeat_interval), with the one difference a
+# managed control plane forces: there is no kube-scheduler, kube-controller-manager or
+# etcd to scrape — AWS runs them, out of reach — and EKS's kube-proxy binds its metrics
+# to 127.0.0.1. Left enabled, the chart's defaults ship four permanently-down targets and
+# their alerts (KubeSchedulerDown, KubeControllerManagerDown, etcd*, TargetDown) on a
+# cluster where nothing is wrong: the Day 14 "kind false positives", reborn on AWS.
+# "The control plane is not yours" (docs/eks-notes.md #4), as configuration. The PDF says
+# the Day 13 code applies "with only provider changes" — this file is the exception
+# (CORRECTIONS-DAY16 B5).
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+# Control-plane health arrives as CloudWatch metrics and the EKS console instead. The API
+# server itself IS scrapable (kubernetes.default) and stays on.
+
+# Two spot t3.mediums: give Prometheus a request it can schedule with and a limit it
+# cannot blow the node with.
+prometheus:
+  prometheusSpec:
+    retention: 12h
+    resources:
+      requests: {cpu: 100m, memory: 400Mi}
+      limits:   {memory: 1Gi}

@@ -96,9 +96,13 @@ aws sso login --profile lab             # sessions expire overnight; this is nor
 ./scripts/155-aws-verify-destroyed.sh   # anything billing that should not be? (EIPs are the usual leftover)
 ./scripts/154-aws-cost.sh --row <day>   # yesterday's bill -> the row for docs/aws-costs.md
 ./scripts/152-aws-vpc.sh status         # what exists right now
+./scripts/160-eks.sh status             # Day 16+: cluster, nodes, add-ons, load balancers (should be "not found" after a teardown)
 ```
 
 Paused last night with `152 destroy`? `./scripts/152-aws-vpc.sh plan` then `apply` — five minutes.
+Cluster day? `160 plan/apply` (~15 min) → `162 plan/apply` (~5) → `163` (~3): a warm start in
+about twenty-five minutes from network-up. Nothing on kind changes: the same scripts run against
+EKS with `KUBE_CONTEXT=aws-lab`, and without it they still mean kind.
 
 ## When it is not this simple
 

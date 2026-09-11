@@ -6,7 +6,14 @@ set -Eeuo pipefail
 LAB_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECKPOINTS="$LAB_ROOT/checkpoints"
 CLUSTER_NAME="bhn-sim"
-KUBE_CONTEXT="kind-${CLUSTER_NAME}"   # kind prefixes contexts with "kind-" (see CORRECTIONS-DAY1.md B1)
+# kind prefixes contexts with "kind-" (CORRECTIONS-DAY1.md B1). Day 16: the SAME scripts run
+# against EKS with one variable — `KUBE_CONTEXT=aws-lab ./scripts/06-grafana.sh` — because
+# every kubectl call below is pinned to $KUBE_CONTEXT and the Python tools read the same
+# env. Default stays kind, so nothing you ran for two weeks changes behaviour.
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}"
+export KUBE_CONTEXT
+# Exactly one context is "the cloud": these scripts refuse anything that is not kind or aws-lab.
+case "$KUBE_CONTEXT" in kind-*|aws-lab) ;; *) echo "lib.sh: KUBE_CONTEXT='$KUBE_CONTEXT' is neither the kind context nor aws-lab — refusing" >&2; exit 1 ;; esac
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
 MONITORING_NS="monitoring"
 # shellcheck disable=SC2034
@@ -47,11 +54,19 @@ require_docker() {
 
 require_cluster() {
   have kubectl || die "kubectl not found. Run scripts/01-install-tools.sh first."
+  if [[ "$KUBE_CONTEXT" == aws-lab ]]; then
+    kubectl config get-contexts -o name 2>/dev/null | grep -qx "$KUBE_CONTEXT" \
+      || die "Context 'aws-lab' not found. ./scripts/161-eks-kubeconfig.sh (after 160 apply)."
+    kubectl --context "$KUBE_CONTEXT" get nodes >/dev/null 2>&1 \
+      || die "EKS cluster not answering on context aws-lab — aws sso login --profile ${AWS_PROFILE:-lab}? destroyed? (./scripts/160-eks.sh status)"
+    return 0
+  fi
   kubectl config get-contexts -o name 2>/dev/null | grep -qx "$KUBE_CONTEXT" \
     || die "Context '$KUBE_CONTEXT' not found. Run scripts/03-cluster-up.sh first."
   kubectl --context "$KUBE_CONTEXT" get nodes >/dev/null 2>&1 \
     || die "Cluster '$CLUSTER_NAME' is not responding. Is Docker Desktop running?"
 }
+on_eks() { [[ "$KUBE_CONTEXT" == aws-lab ]]; }
 
 # Every kubectl call in these scripts is context-pinned, so an unrelated
 # kubeconfig context can never send lab commands at the wrong cluster.
@@ -202,6 +217,13 @@ export AWS_DEFAULT_REGION="$AWS_REGION"
 export AWS_PAGER=""
 AWS_ENV="$LAB_ROOT/infra/aws/env"
 AWS_BACKEND_ROOT="$LAB_ROOT/infra/aws/backend"
+# Day 16: two more roots, one state key each (CORRECTIONS-DAY16 D1)
+# shellcheck disable=SC2034
+AWS_EKS="$LAB_ROOT/infra/aws/eks"
+# shellcheck disable=SC2034
+AWS_PLATFORM="$LAB_ROOT/infra/aws/platform"
+# shellcheck disable=SC2034
+EKS_CLUSTER="bhn-sim"
 
 require_aws() {
   have aws || die "aws CLI not installed — ./scripts/150-aws-guardrails.sh --install"
