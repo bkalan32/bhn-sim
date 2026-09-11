@@ -125,6 +125,20 @@ server's critical path.
 
 ---
 
+## [BUG] B10 — The pipeline left the bot down and said "nothing was deployed"
+
+**Found on the first Day 17 deploy (build 34).** `Jenkinsfile`'s post block set `DEPLOYED`
+only *after* `rollout status` succeeded, so a rollout that never became ready — the new pod
+crash-looping — fell through to *"Build failed before Deploy — nothing was deployed,
+nothing to roll back"*. But the apply had happened, and under `strategy: Recreate` the old
+pod was already gone: the incident bot was **down for 20 minutes** with the pipeline
+reporting there was nothing to undo. **Substitute:** `APPLIED` is set the moment the
+manifest is applied; a failed rollout on a Deployment now `rollout undo`s, waits for the
+previous revision to be ready, annotates the change-cause and the Grafana timeline. A
+pipeline's rollback must key on *what the cluster has*, not on which stage printed OK.
+
+---
+
 ## [DESIGN] D1 — How the KB reaches the bot: a ConfigMap, not the image
 
 The PDF does not say. Baking `kb/` into the image means a rebuild and a deploy to fix a
@@ -176,6 +190,18 @@ Prometheus 2.20 (2020). kps 88 ships Prometheus 3.x, so the proof printed "no da
 samples that were in fact landing; `_samples_pending` (unchanged) was the only live number.
 Now `prometheus_remote_storage_samples_total` / `_samples_failed_total` / `_samples_retried_total`.
 The lesson is Day 5's, pointed at me: a metric name is an interface with a version.
+
+---
+
+## [NOTE] N5 — My bug, kept: the image never had `kb.py`
+
+`services/incident-bot/Dockerfile` copies files by name (`COPY app.py ai.py enrich.py ./`)
+and the first Day 17 build shipped without `kb.py`: `ModuleNotFoundError` at import,
+CrashLoopBackOff, B10 above. The tests passed because pytest runs from the source tree,
+not the image — a green test stage proves the code, not the artifact. The Verify stage
+would have caught it; the rollout never got that far. Fixed by adding the file, and by the
+rollback above. The durable lesson: an explicit COPY list is a second place a new module
+must be declared, and `--previous` logs are the first thing to read on a crash-loop.
 
 ---
 

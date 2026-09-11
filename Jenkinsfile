@@ -99,6 +99,10 @@ pipeline {
           kubectl -n ${NS} annotate ${KIND}/${params.SERVICE} kubernetes.io/change-cause="build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}" --overwrite
         """
         script {
+          // Day 17 B10: from here the cluster HAS the new spec. If the rollout never becomes
+          // ready (image missing a module, probe never passing) the old pod is already gone
+          // under strategy Recreate — the post block must roll back, not say "nothing deployed".
+          env.APPLIED = 'true'
           if (env.KIND == 'deployment') {
             sh "kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s"
           } else {
@@ -193,6 +197,15 @@ pipeline {
           sh "kubectl -n ${NS} annotate ${KIND}/${params.SERVICE} kubernetes.io/change-cause=\"AUTO-ROLLBACK of build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}\" --overwrite"
           grafanaAnnotate("rollback", "AUTO-ROLLBACK build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}")
           echo "ROLLED BACK ${params.SERVICE} to ${env.PREV_IMAGE ?: 'previous revision'}"
+        } else if (env.APPLIED == 'true' && env.KIND == 'deployment') {
+          // Day 17 B10: applied, but the rollout never became ready. The service is DOWN
+          // (Recreate). Roll back to the previous revision and prove it is serving.
+          echo "Rollout of build ${env.BUILD_NUMBER} never became ready — rolling back ${params.SERVICE}"
+          sh "kubectl -n ${NS} rollout undo deployment/${params.SERVICE}"
+          sh "kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s"
+          sh "kubectl -n ${NS} annotate ${KIND}/${params.SERVICE} kubernetes.io/change-cause=\"AUTO-ROLLBACK of build ${BUILD_NUMBER} (rollout never ready): ${params.CHANGE_CAUSE}\" --overwrite"
+          grafanaAnnotate("rollback", "AUTO-ROLLBACK build ${env.BUILD_NUMBER} (rollout never ready): ${params.CHANGE_CAUSE}")
+          echo "ROLLED BACK ${params.SERVICE} — the new pod never passed readiness; see 'kubectl logs --previous' on the failed pod above"
         } else if (env.DEPLOYED == 'true') {
           echo "WARNING: build ${env.BUILD_NUMBER} WAS deployed but Verify errored before reaching a verdict."
           echo "It has NOT been rolled back. Check the dashboard now; roll back by hand if needed:"
