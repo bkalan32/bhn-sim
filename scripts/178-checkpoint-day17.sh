@@ -7,7 +7,7 @@ step "Day 17 exit criteria"
 require_cluster
 
 # Part A — New Relic, as code, proven from inside
-[[ -f k8s/newrelic-values.yaml ]] && grep -q 'customSecretName: newrelic-license' k8s/newrelic-values.yaml && ! grep -qiE 'licenseKey: *[A-Za-z0-9]' k8s/newrelic-values.yaml && t_ok "newrelic-values.yaml: key by Secret reference, not in the file" || t_fail "k8s/newrelic-values.yaml missing or carries a key"
+[[ -f k8s/newrelic-values.yaml ]] && grep -q 'customSecretName: newrelic-license' k8s/newrelic-values.yaml && ! grep -qE '^\s*licenseKey: *[A-Za-z0-9]' k8s/newrelic-values.yaml && t_ok "newrelic-values.yaml: key by Secret reference, not in the file" || t_fail "k8s/newrelic-values.yaml missing or carries a key"
 grep -q 'lowDataMode: true' k8s/newrelic-values.yaml && t_ok "low data mode on (ingest is the bill)" || t_fail "lowDataMode not on"
 grep -q '_payments_' k8s/newrelic-values.yaml && t_ok "log forwarding: payments namespace only (Day 3 B4)" || t_fail "newrelic-logging tails the whole cluster"
 grep -q 'helm_release" "newrelic"' infra/local/releases.tf && grep -qE '^\s*"newrelic"\s*=' infra/local/chart-versions.auto.tfvars && t_ok "nri-bundle is a pinned Terraform release ($(grep -oE '"newrelic"\s*=\s*"[0-9.]+"' infra/local/chart-versions.auto.tfvars))" || t_fail "nri-bundle not in releases.tf / not pinned"
@@ -31,7 +31,9 @@ PY
 grep -q 'kb_matches' services/incident-bot/ai.py && grep -q 'import kb' services/incident-bot/app.py && t_ok "bot: hypothesis prompt carries KB matches; /ai and /kb/search expose them" || t_fail "bot not wired to the KB"
 grep -q 'mountPath: /kb' k8s/incident-bot.yaml && t_ok "bot manifest mounts the kb ConfigMap (optional)" || t_fail "k8s/incident-bot.yaml has no /kb mount"
 grep -q '"search_kb"' tools/copilot.py && grep -q 'call search_kb' tools/copilot.py && t_ok "copilot: search_kb tool + the before-concluding rule" || t_fail "copilot not wired to the KB"
-[[ -f services/incident-bot/tests/test_kb.py ]] && (cd services/incident-bot && python3 -m pytest -q tests/test_kb.py >/dev/null 2>&1) && t_ok "kb tests pass" || t_fail "services/incident-bot/tests/test_kb.py missing or failing"
+# pytest: the system python, or the Day 6 venv (services/activation/.venv) — the tests need only the stdlib + kb.py
+PY=python3; python3 -c 'import pytest' 2>/dev/null || PY="$LAB_ROOT/services/activation/.venv/bin/python"
+[[ -f services/incident-bot/tests/test_kb.py ]] && (cd services/incident-bot && "$PY" -m pytest -q tests/test_kb.py >/dev/null 2>&1) && t_ok "kb tests pass ($("$PY" -m pytest --version 2>&1 | head -1))" || t_fail "services/incident-bot/tests/test_kb.py missing or failing (pytest: system python or services/activation/.venv; Jenkins build 35 ran them green)"
 bot_get /ai | python3 -c 'import json,sys; d=json.load(sys.stdin).get("kb") or {}; sys.exit(0 if d.get("ok") and len(d.get("entries",[]))>=7 else 1)' 2>/dev/null && t_ok "the running bot sees the KB (the Day 17 build is deployed)" || t_fail "the running bot has no KB — Jenkins SERVICE=incident-bot, then 172"
 [[ -f incidents/INC-0019-diagnosis.md ]] && grep -qi 'kb-001' incidents/INC-0019-diagnosis.md && t_ok "INC-0019: the hypothesis cites kb-001" || t_fail "no incidents/INC-0019-diagnosis.md citing kb-001 (173)"
 [[ -f incidents/INC-0019.md ]] && t_ok "incidents/INC-0019.md written" || t_fail "write incidents/INC-0019.md"
