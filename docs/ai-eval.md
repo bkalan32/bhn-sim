@@ -479,7 +479,7 @@ working as designed: the review edits the entry.
 Eval 7 still stands: KB present, logs collector off — does it hedge or does the entry make
 it over-confident?
 
-## Eval 9 — the daily ops report, three of them (Day 18, 2026-09-__)
+## Eval 9 — the daily ops report, three of them (Day 18, 2026-09-12)
 
 The question the PDF puts exactly right: **is the report only as dramatic as the data?** An
 event-driven draft (Days 9/10) is read once, under pressure, by someone who already knows
@@ -487,29 +487,42 @@ something is wrong. A scheduled brief is read every morning by someone who knows
 yet — and a daily brief that exaggerates is ignored by week two, taking the real risks down
 with it. So the grade is not "is it good"; it is *traceable, proportionate, capped*.
 
-Three runs, same script, same prompt (`tools/daily_report.py`): a quiet platform, right
-after a drill resolved, and the next morning from the Jenkins schedule. Every number the
-model saw is in each report's appendix (`reports/daily/*.md`, and `/reports/<day>` on the
-bot); `numbers not traceable to the data` is computed by the script itself.
+Four runs in the end, same script, same prompt (`tools/daily_report.py`): a quiet platform
+(twice — the first attempt truncated), right after a drill resolved, and the scheduled one
+from Jenkins. Every number the model saw is in each report's appendix (`reports/daily/*.md`,
+and `/reports/<day>` on the bot); *numbers not traceable to the data* and the four-section
+check are computed by the script itself.
 
-| | run 1: quiet (`reports/daily/____.md`) | run 2: after the drill (`____-drill.md`) | run 3: Jenkins, 07:00 (`____.md`) |
+| | run 1: quiet (`2026-09-12-truncated.md`, then re-run) | run 2: after the drill (`2026-09-12-drill.md`) | run 3: Jenkins, unattended (`2026-09-12.md`) |
 |---|---|---|---|
-| words (cap 250) | _…_ | _…_ | _…_ |
-| every number traceable? (script check + your read) | _…_ | _…_ | _…_ |
-| HEADLINE proportionate to the data? | _…_ | _…_ | _…_ |
-| RISKS: neither empty-when-something-burns nor crying wolf | _e.g. "none" on a quiet day — correct?_ | _the resolved drill: risk or history?_ | _…_ |
-| NEEDS A HUMAN: the real pending items (open incidents, pending/declined proposals, incidents without a write-up or KB cite) | _…_ | _…_ | _…_ |
-| 'no data' reported as such (drift line without --plan; deploys if Jenkins unauthenticated) | _…_ | _…_ | _…_ |
-| anything invented, inferred or advised beyond the data? | _…_ | _…_ | _…_ |
-| a boring day reads boring? | _…_ | n/a | _…_ |
+| words (cap 250) | 174 — **cut off mid-sentence** at the 520-token ceiling: no RISKS, no NEEDS A HUMAN; re-run at 900 tokens: 183, complete | 202, complete | 230, complete |
+| every number traceable? | yes (script + read) — but `63.381` restarts and `6.0697 times` quoted verbatim from unrounded `increase()` | yes; ints after rounding at the source | yes |
+| HEADLINE proportionate? | "one incident open (platform pod restarting); error budgets deeply exhausted; otherwise quiet" — **yes**, that is the state | "health is poor (43.3) … five alerts firing" — true at that second (the 5-min scores were still digesting a drill that ended 4 min earlier), loud for a reader who knows it was a drill; the model cannot know, and 07:00 never sees this | "stable with one open incident … budgets deeply negative" — yes |
+| RISKS: neither empty-when-burning nor crying wolf | budgets −742 %/−109 % ✅ named; firing alerts ✅ (KubeJobFailed ×3, PlatformPodRestarting ×2) | budgets ✅; **health scores put in RISKS** — the drill's metric tail, reported as risk (proportionality finding); the *resolved* drill itself correctly stayed in LAST 24H | budgets ✅; three firing alerts named incl. `AlertmanagerFailedToSendAlerts` (the bot was mid-restart — true); "All collectors UP" ✅ (added after run 2) |
+| NEEDS A HUMAN: the real pending items | open platform ticket, "8 resolved incidents missing write-ups and KB entries" ✅ (the maintenance rule, applied by the machine) | open ticket ✅; "INC-…-08d0 has write-up INC-0009-diagnosis" ❌ **traceable but false**: `102-drill-a.sh` always writes its diagnosis to INC-0009, so the write-up heuristic matched the wrong file | open ticket ✅; 13 without write-ups listed by suffix, two with write-ups but no KB cite ✅ |
+| 'no data' reported as such | "no 24h deltas" ✅ (laptop asleep at 17:00Z yesterday); drift not mentioned (it was "no data") — acceptable, arguably should have said so | "no 24h comparison" ✅ | 24h baselines "no baseline" ✅; drift line: clean from the job's own plan, not mentioned — fine (no risk) |
+| invented / inferred / advised beyond the data? | no | "OpenTelemetry collector crash-looping" — the alert said *restarting 6×/h*; "crash-looping" is an inference (a fair one) | no; the platform restart list is verbatim |
+| a boring day reads boring? | **yes** — 183 words, "otherwise quiet overnight", the only adjective is "deeply" on a −742 % budget, which earns it | n/a | yes — and the unattended run found the day's real story: 109 platform restarts / 11 pods in the last hour |
+| the logs collector was DOWN through the whole drill | not in the data → not in the report (the gap) | not reported — **fixed after this run**: `collectors_now` in the data and "any collector DOWN" in RISKS | "All collectors UP" |
 
-*Grade:* _…_
+*Grade:* **trustworthy on the third try, and the tries were the point.** The quiet report reads
+quiet; the after-drill report is louder than a human would be but every loud number is real;
+the scheduled report found something (a platform restart storm) without being told to look.
+Nothing was invented in any run. The two real defects were mine, not the model's: a token
+ceiling below the word cap (a truncated brief *looks* complete — the worst failure mode a
+daily report can have, now detected and flagged), and data the model was not given (the
+collectors' health, rounding).
 
-*Finding:* _…_ (the thing to look for: does the model treat "no data" as a fact or as a
-gap to fill; does a resolved incident get reported as a risk; does the KPI section tempt it
-into trend language the numbers do not support — n=2 is not a trend.)
+*Finding:* **the model does what the data does.** Unrounded floats came out as
+"6.0697 times"; a drill's metric tail came out as a risk; a write-up heuristic's wrong match
+came out as a fact. "Every number must appear in the data" was obeyed to the letter every
+time — which means the gather step, not the prompt, is where proportion is decided. A
+scheduled brief is only as boring as its inputs are honest.
 
-*Follow-up:* _…_
+*Follow-up:* (1) `102-drill-a.sh` should write its diagnosis under the *current* INC number
+(it hard-codes 0009); (2) a drill note on the record could let the report say "drill" —
+decide whether it should (in a company the report should not know); (3) tomorrow's 07:00 run
+is the real boring-day test: nothing injected overnight, the laptop awake.
 
 ## Failures worth keeping
 

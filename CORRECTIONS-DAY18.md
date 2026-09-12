@@ -159,6 +159,19 @@ prompt because caps stated last survive best (the PDF's troubleshooting note is 
 
 ---
 
+## [NOTE] N4 — Mine, kept: the fetch overwrote the quiet run; a truncated brief looked complete
+
+Two tooling defects found by running it three times. (1) The plain date was both the local
+run's file name and the scheduled run's store key, so `--fetch` after the Jenkins run
+replaced run 1's file: the plain date now belongs to the scheduled run only, hand runs get
+`-manual` (or `--day <slug>`), and `--fetch` refuses to overwrite a local run. (2) The first
+report stopped mid-sentence at a 520-token ceiling with no RISKS and no NEEDS A HUMAN, and
+nothing said so — the word cap held, the token cap did not, and "caps stated last survive
+best" is true of words only. Now 900 tokens, a four-heading check, and a loud `TRUNCATED`
+in the footer and the file (Eval 9's first row; `188` fails on a truncated current report).
+
+---
+
 ## Verified as correct
 
 The four-question interrogation; "route, don't delete" for chart rules you *could* scrape;

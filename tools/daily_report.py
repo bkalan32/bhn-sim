@@ -306,10 +306,14 @@ def main():
     if a.fetch:
         rec = cp._raw_get(f"{BOT}/reports/{a.fetch}")
         path = os.path.join(outdir, f"{a.fetch}.md")
+        if os.path.exists(path) and "stored by the bot" not in open(path, encoding="utf-8").read():
+            sys.exit(f"{path} exists and is a local run — rename it (e.g. {a.fetch}-manual.md) before fetching")
         with open(path, "w", encoding="utf-8") as f:
             f.write(f"# Daily ops report — {a.fetch}\n\n_stored by the bot at {rec.get('stored_at_iso')} · {rec.get('words')} words · {rec.get('model')}_\n\n{rec['text']}\n\n## Data the model was given\n\n```json\n{json.dumps(rec.get('data'), indent=1)}\n```\n")
         print(f"fetched -> {path}"); return
-    day = a.day or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    # The plain date belongs to the SCHEDULED run (Jenkins, fetched with --fetch); a hand run
+    # gets a slug so it never overwrites it (Day 18: run 1 was overwritten by the fetch).
+    day = a.day or (dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d") + ("" if os.getenv("JENKINS_HOME") else "-manual"))
     t0 = time.time()
     data = gather(run_plan=a.plan, days=a.days)
     print(f"gathered in {time.time() - t0:.1f}s: {len(data['incidents_24h']) if isinstance(data['incidents_24h'], list) else 'no'} incidents in 24h, "

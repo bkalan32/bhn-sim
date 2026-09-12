@@ -75,17 +75,7 @@ Four of the seven are pure PromQL and sit on the **Platform Overview** dashboard
 ### Current values
 
 <!-- kpis:start -->
-KPIs — last 7 days (generated 2026-09-12T16:59:35Z)
-| KPI | value (7d) | all time | source |
-|---|---|---|---|
-| MTTD (fault → first alert) | 183.4 s (n=5) | 183.4 s (n=5) | incident records (drill notes) |
-| MTTR (opened → resolved) | 6.9 min (n=43) | 6.8 min (n=45) | `duration_min` on the record |
-| Incidents / week by service | 44: activation 14, crashtest 4, egift 14, incident-bot 2, platform 1, settlement 8, smoke-test 1 | – | records; PromQL `sum by (service) (increase(incidents_created_total[7d]))` |
-| % incidents auto/approved-remediated | 0.0 % (0 of 44) | – | remediator history; PromQL twin in docs |
-| Error budget remaining (30d) | availability -743.6 % · latency -110.1 % | – | recording rules / Prometheus |
-| Alert precision | 46.7 % (14 of 30 names) — noise: AlertmanagerClusterCrashlooping, AlertmanagerClusterFailedToSendAlerts, AlertmanagerFailedToSendAlerts, InfoInhibitor, KubeAPIErrorBudgetBurn, KubeControllerManagerInstanceUnreachable, KubeDaemonSetRolloutStuck, KubeJobFailed, KubePodCrashLooping, KubePodNotReady, KubeProxyInstanceUnreachable, KubeSchedulerInstanceUnreachable, NodeSystemSaturation, RemediatorDown, etcdInsufficientMembers, etcdMembersDown | – | Prometheus ALERTS × records |
-| Deploy frequency / failure rate | 29 builds (4.14/day), 5 failed = 17.2 % | – | Jenkins deploy-service |
-
+_run `./scripts/182-kpis.sh`_
 <!-- kpis:end -->
 
 ## Week over week — every incident, five columns (Day 14, Step 1)
@@ -123,6 +113,7 @@ filled after the game day.
 | 0018 | 16 | **the Day 10 dependency drill on EKS** (`FRAUD_SVC_DOWN=true`, 2 × t3.medium SPOT, images from ECR; zero application changes, one manifest line) — `INC-1789084728-40d6` | alert (`ActivationHighErrorRate` 23:58:33Z, `BurnFast` +23 s) | **2 m 48 s** from the env change (INC-0009: 2 m 40 s — same `for:` windows) | bot: **+42 s** after the alert (hypothesis 23:59:15Z) — category right (dependency: fraud *or* issuer), hedged because the logs collector was **not configured** (Splunk is on the laptop); CloudWatch had the histogram (`fraud_service_timeout 894`) | alert → resolved **8 m 00 s**; fix (00:01:47Z, the 2-min hold) → resolved 5 min = the windows | manual revert; remediator tier 3, stayed out and said so |
 | 0019 | 17 | **the dependency drill, fourth run — with the knowledge base in the prompt** (`FRAUD_SVC_DOWN=true`, kind, `incident-bot:35`) — `INC-1789157010-9d18` | alert (`ActivationHighErrorRate` 20:03:10Z) | **2 m 59 s** from the env change (0009: 2 m 40 s, 0018: 2 m 48 s — the windows) | bot: **+47 s** after the alert (hypothesis 20:03:57Z): **kb-001 cited**, the six incidents named, checks split into confirmed-by-context vs to-run, kb-002 ruled out on its own discriminator, fix stated as tier 3 — confidence *high* (0009: medium, same sources) | alert → resolved **8 m 22 s**; fix (20:05:48Z, the 90-s hold) → resolved 5 m 44 s = the windows; **BurnFast fired 3 m 43 s after the fix** | manual revert; remediator tier 3 and kb-001 tier 3 agree |
 | 0020-a | 18 | **pipeline Grafana annotations silently failing since Day 13** (`kps-grafana` secret gone with B10; `grafanaAnnotate` read the old name; every deploy/rollback since unrecorded — the bot's deploys collector and the remediator's tier-2 signature blind to real releases) | never — a WARNING line in green builds; read by a human on build #37 | 5 days | 1 min (the build log said it) | Jenkinsfile fix, same build | none; follow-up: alert on a missing annotation after a deploy-service build |
+| 0020-b | 18 | **platform restart storm, caught by the new alert**: `PlatformPodRestarting` opened its first tickets within an hour of existing (`INC-1789231840-517b` 16:50Z: otel collector 6×/h — Day 14's 0017-c, still going — and the kps operator 3×; `INC-1789234779-6ada` 17:3xZ: 11 pods in the hour, scheduler and controller-manager 6× each: the Jenkins build + drill + Splunk squeezing the VM again, 0017-a's shape) | alert (`PlatformPodRestarting`, warning, service=platform) — the Day 14 ask, first day in service; the 17:42Z daily report carried it unprompted | 5 min (`for:`) | — (cause: VM load; otel's exit 2 still unexplained) | self-resolving as load drops | none — tier 3; follow-up: the otel exit capture (0017-c) and a `startupProbe`/limits pass on the kps operator |
 
 **The week-over-week story** (the paragraph that summarises the project — numbers with
 trend, no adjectives):
