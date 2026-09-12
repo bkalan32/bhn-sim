@@ -242,7 +242,10 @@ def grafanaAnnotate(String tag, String text) {
   // The password travels in an env var with `set +x`, so it never appears in the build
   // log. Jenkins echoes every sh command line by default — a secret on the command line
   // is a secret in the log.
-  def pw = sh(returnStdout: true, script: "set +x; kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d").trim()
+  // Day 18 (CORRECTIONS-DAY18 B8): the password moved to secret/grafana-admin on Day 13 (B10)
+  // and this line kept reading the chart's secret — every deploy since wrote NO annotation,
+  // behind a WARNING that "continues". Ours first, the chart's as a fallback, same as lib.sh.
+  def pw = sh(returnStdout: true, script: "set +x; kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' 2>/dev/null | base64 -d || kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d").trim()
   def body = groovy.json.JsonOutput.toJson([tags: [tag, params.SERVICE], text: text])
   def rc = 1
   withEnv(["GRAFANA_PW=${pw}", "ANN_BODY=${body}"]) {
@@ -251,5 +254,9 @@ def grafanaAnnotate(String tag, String text) {
         curl -sf -u "admin:$GRAFANA_PW" -H 'Content-Type: application/json' \\
         -X POST http://localhost:3000/api/annotations -d "$ANN_BODY" >/dev/null''')
   }
-  if (rc != 0) { echo "WARNING: Grafana annotation failed (rc=${rc}) — deploy continues" }
+  if (rc != 0) {
+    // Day 18: an annotation that fails is a change the bot, the remediator and the KB will
+    // never see. Still not a reason to fail a deploy — but it is a reason to SHOUT.
+    echo "!!!!!!!!!!  Grafana annotation FAILED (rc=${rc}): this ${tag} is INVISIBLE to the incident bot's deploys collector and the remediator's post-deploy signature. Fix before the next release: kubectl -n monitoring get secret grafana-admin  !!!!!!!!!!"
+  }
 }

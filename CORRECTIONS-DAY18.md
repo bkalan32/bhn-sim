@@ -86,6 +86,26 @@ purpose is the verification record and is not numbered.
 
 ---
 
+## [BUG] B8 — Found in a build log: the pipeline's Grafana annotations have failed silently since Day 13
+
+**Ours, not the PDF's.** Deploy #37 (the remediator) printed `secrets "kps-grafana" not found …
+WARNING: Grafana annotation failed (rc=22) — deploy continues`. Day 13 B10 moved Grafana's
+password to `secret/grafana-admin`; `Jenkinsfile`'s `grafanaAnnotate` kept reading the
+chart's secret. Consequence, for five days: **no pipeline deploy or rollback was annotated**,
+so the bot's *deploys* collector (Grafana annotations are its source of truth for "what
+changed", Day 10) saw none of them, the remediator's tier-2 `post-deploy-errors` signature
+(deploy within 30 min) could not have matched a real bad release, and every hypothesis's
+"no deploy in 6 h" was true for the wrong reason. Nothing alerted, because the failure was a
+line in a green build. **Substitute:** `grafana-admin` first, `kps-grafana` as fallback (the
+same order as `lib.sh`), and the warning now shouts what the missing annotation *means*. A
+build should not fail for it — a deploy that shipped is a deploy that shipped — but the
+change-record gap is exactly the kind of silent failure the audit exists to find. Logged as
+**0020-a** in `docs/ops-kpis.md` (found, not alerted; Day 14's 0017-x family); follow-up: an
+alert on `grafana_annotations` absence after a `deploy-service` build, or the pipeline
+posting the change to the bot directly as a second channel.
+
+---
+
 ## [DESIGN] D1 — The judgments live in the script's map, the data in Prometheus and the bot
 
 The PDF's table is written by hand. Ours is generated: `180` pulls every rule, its hours
