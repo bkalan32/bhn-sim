@@ -524,36 +524,53 @@ scheduled brief is only as boring as its inputs are honest.
 decide whether it should (in a company the report should not know); (3) tomorrow's 07:00 run
 is the real boring-day test: nothing injected overnight, the laptop awake.
 
-## Eval 10 — game day 2 on EKS: three hypotheses, one closing brief (Day 19, 2026-09-__)
+## Eval 10 — game day 2 on EKS: three hypotheses, one closing brief (Day 19, 2026-09-12)
 
 Three faults chosen so that the *correct* response differs — investigate / let the
 automation work / escalate outside — and, for the first time on EKS, three collectors of
 three (logs from CloudWatch through Pod Identity). The question for each hypothesis: did
 it recommend the right **class** of response, and did the KB make the difference where an
 entry exists (kb-004 settlement crash, kb-003 partner email) and *not* overreach where none
-does (creeping latency)?
+does (creeping latency)? Same model (`claude-sonnet-4-5`), same prompt as Eval 8/9.
 
-| | INC-0020 latency (`…`) | INC-0021 settlement (`…`) | INC-0022 email (`…`) |
+| | INC-0020 latency (`INC-1789245416-72a4`) | INC-0021 settlement (`INC-1789245706-ac0f`) | INC-0022 email (`INC-1789245911-ce45`) |
 |---|---|---|---|
-| alert that opened it | _ActivationLatencyBudgetBurn? after how long_ | _SettlementJobFailed_ | _EgiftHighErrorRate_ |
-| context: three collectors ok? logs backend | | | |
-| cause named | _"internal latency regression, no dependency, no deploy"?_ | _crash / exit non-zero_ | _partner email, send_email step_ |
-| KB cited (id) — and was it offered (`kb_matches`)? | _none should fit; did it force one?_ | _kb-004_ | _kb-003_ |
-| recommended class of response | _investigate / keep watching_ | _tier-1 re-run (the remediator's own signature)_ | _escalate to the partner; not a remediation_ |
-| honest limit stated? | _"cannot distinguish env knob from real regression"_ | | |
-| remediator on the record | _nothing — correct (no signature; if it acted, a detect is too loose)_ | _re-run ×2 failed → after the reset, the next run succeeds_ | _nothing — correct_ |
-| the copilot question | _"activation is slow but not failing — what changed, is any dependency implicated?" trail: latency histogram, traces (uniformly slower own span, no slow child), rollout history_ | | |
-| confidence | | | |
+| alert that opened it | `ActivationLatencyBudgetBurn` (warning), 3 m 35 s after the fault — not ~9 min: the 1h window was only 30 min old on a fresh cluster | `SettlementZeroRecords` (critical), 3 m 40 s — the crash pushes `records=0` before exiting; `SettlementJobFailed` joined +2 m, *after* the hypothesis | `EgiftHighErrorRate` (critical), 2 m 49 s |
+| context: three collectors ok? logs backend | ✅ 3/3, 790 ms, logs = **cloudwatch** (`issuer_declined 51`) | ✅ 3/3, 753 ms, cloudwatch | ✅ 3/3, 784 ms, cloudwatch — **`email_delivery_failed 82`, `activation_failed 7`** — the deciding rows |
+| cause named | "slow issuer dependency" — **wrong**: the lead was the 3 % baseline declines read as a signal. Shape right (slow, not failing, not kb-001, no deploy *it could see*) | crash → reasoned as **kb-005 silent/zero-records** — wrong entry, and the KB's fault: kb-004 said "a crash pushes nothing" | **"Email partner degradation — matches kb-003"**, five reasons, cascade ruled out on the activate step's normal p95 — **right, first try** |
+| KB cited (id) — and was it offered? | none — **correct**, none fits; it did not force one (kb-001 and kb-002 named and rejected on their discriminators) | kb-005 cited; kb-004 was the right one and its own symptom line pointed away from it | **kb-003**, with INC-0003/0016, checks split into settled-by-context vs to-run |
+| recommended class of response | "next checks" only (Splunk histogram, Tempo, the p95 query) — investigate; no fix proposed — correct class, wrong direction | tier-1 re-run — right class regardless of the entry (kb-004 and kb-005 both say re-run once the cause is clear) | **"the email partner must recover … Tier 3 — no safe automated action"** — escalate, in the team's words |
+| honest limit stated? | "medium … the issuer is an outbound dependency with no pod to inspect, and we have no direct measurement of its response time yet" — honest about *its* limit; the env-knob-vs-regression limit was stated by the human (note 20:47:37Z), not the model, because the model never saw the deployment | not applicable | not needed — the evidence was decisive and it said so |
+| remediator on the record | nothing — **correct** (tier 3 at open) | tier 3 on `ZeroRecords`; then **AUTO ×2 FAILED** (20:44:02, 20:47:19), cooldown, vendor reset 20:50:19, cron clean 20:55, AUTO succeeded 21:02:02 (stale), resolved 21:05:46 | nothing — **correct** |
+| the copilot question | *"activation is slow but not failing — what changed in the last 15 minutes, and is any dependency implicated?"* — **18 hands, 64.6 s, 73 762 → 1 762 tokens**: `firing_alerts` → `query_prometheus` (p95 975 ms, p50 750 ms, errors 1.84 %) → `search_logs` (**SPL → Insights, translated live**: 67 errors, all `issuer_declined`) → `recent_deploys` (none) → `kubectl_get` describe deployment → **`BASE_LATENCY_MS: 600`, `FRAUD_SVC_DOWN: false`, pods 8 m 35 s old**. Conclusion: a configuration change ~9 min ago that rolled the pods, not a deploy, no dependency. **Right and complete**; it spotted the collector's blind spot itself ("no deploys" vs 8-minute pods). Cost note: 74 k input tokens for one question — the `kubectl_get` results are large | not asked | not asked |
+| confidence | medium (right to be) | — | **high** (right to be) |
 
-**The closing brief** (`reports/daily/2026-09-__-eks-closing.md`): did it narrate all three
-incidents, their remediation modes and the budget impact unprompted? Every number traceable?
-Proportionate? _…_
+**The closing brief** (`reports/daily/2026-09-12-eks-closing.md`, 170 words, complete, no
+untraceable numbers, 15 s): it narrated **all three unprompted** with durations and KB ids,
+plus the morning's routing probe, and its section 4 said the true thing — "four incidents
+lack write-ups". Budget impact: yes (availability −300.6 %, latency −1732.1 %, 1h burn 4.0).
+Misses: (1) **remediation modes absent** — every incident is "tier3/human" because the
+report reads the remediator's *first* verdict, so the machine's incident reads like a
+person fixed it, and egift never says "escalated"; (2) activation gets no cause though the
+cause is a note on its record — the report reads events, not notes; (3) "3 KubeJobFailed
+alerts still firing" were *pending*; (4) "Deploys: none in 24h" after two real rollouts —
+the annotations-only collector, now in a report; (5) egift "error rate 3.4 %" is the rate at
+report time, not the incident's. Proportionate: yes.
 
-*Grade:* _…_
+*Grade:* hypotheses **pass / fail-by-KB / pass** — one of three right by id, one wrong for
+a documented reason that is now fixed in the entry, one wrong lead honestly labelled where
+the input could not contain the answer. Copilot: **pass**, the best trail of the series.
+Closing brief: **B** — complete and honest, shallow on *how* things were fixed.
 
-*Finding:* _the graduation finding: automation quality tracks pattern maturity — the
-settlement case (most rehearsed, a signature, a KB entry) was handled almost entirely by the
-machine; the ambiguous and the external still needed a person. Say it with the timestamps._
+*Finding:* the graduation finding, with timestamps: **automation quality tracked pattern
+maturity.** Settlement — the most rehearsed pattern (signature, KB entry, a service that
+reports its own status) — went 20:44:02 auto → 20:47:19 auto → 20:50:19 vendor → 20:55:00
+clean → 21:05:46 resolved with zero operator actions. The ambiguous case needed a person to
+overrule a medium-confidence hypothesis, ask the copilot the right question and decide on
+an unclaimed change (20:47:50). The external case needed a person to post the ticket that
+leaves the building (20:52:12). The KB helped where it was right (kb-003) and hurt where it
+was wrong (kb-004): the hypothesis is only as good as the team's memory, which is the
+argument for maintaining it, not for removing it.
 
 ## Failures worth keeping
 

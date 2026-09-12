@@ -78,7 +78,7 @@ case "${1:-}" in
     ;;
 
   status)
-    [[ -f "$T0F" ]] && say "  T0 $(cat "$T0F")   now $(date -u +%FT%TZ)   notes so far: $(grep -c '^- ' "$TL" 2>/dev/null || echo 0)   faults still live: $(live_faults) of 3"
+    [[ -f "$T0F" ]] && say "  T0 $(cat "$T0F")   now $(date -u +%FT%TZ)   notes so far: $(grep -c '^- ' "$TL" 2>/dev/null || true)   faults still live: $(live_faults) of 3"
     step "Open incidents"
     python3 "$INC" list open
     step "Firing + pending alerts (Prometheus)"
@@ -153,6 +153,12 @@ for pair in ids:
     tth = next((e for e in d.get("timeline", []) if e.get("event") == "ai_draft_attached" and e.get("draft") == "hypothesis"), None)
     rem = [e["text"][:60] for e in d.get("timeline", []) if e.get("event") == "note" and "[remediator]" in e.get("text", "")]
     print(f"  {svc:<11} {iid}  TTD {ttd:<8} alert->ticket {int(op - fa) if op and fa else '-'} s  hypothesis +{int(tth['ts'] - op) if tth and op else '-'} s  TTR {ttr:<9} remediator: {rem[-1] if rem else 'none'}")
+    # Ground truth onto the record (once): kpis.py computes MTTD from "fault injected at <iso>" notes,
+    # which drills write at injection time and a sealed scenario cannot — so the retro writes it.
+    if f0 and not any("fault injected at" in e.get("text", "") for e in d.get("timeline", []) if e.get("event") == "note"):
+        iso = datetime.fromtimestamp(f0, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        subprocess.run([sys.executable, "tools/inc.py", "note", iid, f"gameday retro: fault injected at {iso} (scenario log, sealed until the retro) — TTD {ttd}"], capture_output=True)
+        print(f"              note posted: fault injected at {iso} (kpis.py MTTD reads it)")
 PY
     step "The graduation questions (answer them in gameday/retro-$RUN.md)"
     say "  1. Which of the three did the platform handle BEST, and why? (expected: settlement — the most known; automation quality tracks pattern maturity)"

@@ -23,6 +23,15 @@ spec:
     requests:
       storage: 1Gi
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: incident-bot
+  namespace: payments
+  # Day 19: on EKS this service account is associated with an IAM role through Pod Identity
+  # (infra/aws/eks/pod-identity.tf) so the bot can run CloudWatch Logs Insights queries —
+  # its logs collector on a cluster where Splunk is unreachable. On kind it is just a name.
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,12 +51,13 @@ spec:
       labels:
         app: incident-bot
     spec:
+      serviceAccountName: incident-bot
       # The image runs as uid 10001; fsGroup makes the mounted volume writable by it.
       securityContext:
         fsGroup: 10001
       containers:
         - name: incident-bot
-          image: 831926603642.dkr.ecr.us-east-2.amazonaws.com/bhn-sim/incident-bot:23
+          image: 831926603642.dkr.ecr.us-east-2.amazonaws.com/bhn-sim/incident-bot:40
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8020
@@ -90,6 +100,20 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            # Day 17: the knowledge base (kb/*.md) as a ConfigMap, read-only. Optional, so
+            # the bot starts without it (and says so on /ai) — the KB improves diagnosis,
+            # it must never gate intake. scripts/172-kb.sh builds and refreshes it.
+            - name: kb
+              mountPath: /kb
+              readOnly: true
+          # Day 18 (INC-0019's build 34, CORRECTIONS-DAY17 B10): under VM load the Python
+          # imports alone outran the liveness window and the kubelet killed a pod that was
+          # merely slow to start — a startup probe gates liveness until the app has bound
+          # once (up to 2 min), the way Day 13's Fluent Bit fix did.
+          startupProbe:
+            httpGet: {path: /healthz, port: 8020}
+            periodSeconds: 5
+            failureThreshold: 24
           readinessProbe:
             httpGet: {path: /readyz, port: 8020}
             initialDelaySeconds: 2
@@ -106,6 +130,10 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: incident-bot-data
+        - name: kb
+          configMap:
+            name: kb
+            optional: true
 ---
 apiVersion: v1
 kind: Service

@@ -81,7 +81,8 @@ services (163) → the deltas (172 for the KB, 181 `--verify` for the routing, a
 collectors — expect `logs ok (cloudwatch)` for the first time) → traffic (**terminal 2:**
 `./scripts/164-eks-traffic.sh`) → the first brief (`reports/daily/<date>-eks-warm.md`).
 Answer `yes` to the three Terraform prompts. If a phase fails, fix it and
-`190 --from N`. At the end it prints the minutes: write them into the README paragraph
+`190 --from N` (the clock keeps running from the first *begun* line; a phase you finished by
+hand goes in the log with `190 --mark N label`). At the end it prints the minutes: write them into the README paragraph
 *"The infrastructure story in two numbers"*. Read the brief's HEADLINE: if it does not say
 healthy, believe it and fix before the game.
 

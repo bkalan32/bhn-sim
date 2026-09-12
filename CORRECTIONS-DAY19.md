@@ -116,6 +116,17 @@ can say why the CloudWatch line is not zero.
 
 ---
 
+## [NOTE] N3 — The warm-start clock survives a resume (found on the first run)
+
+The first run stopped at phase 4 (the helm provider's "inconsistent result after apply"
+on kps — untaint, re-plan, apply by hand) and `--from 5` restarted the clock, so the script
+printed **6 minutes** for a warm start that took closer to fifty. A resumed run now reads
+the *begun* timestamp back from `checkpoints/day19-warm-start.txt.log`, and `--mark N label`
+appends the phase you finished by hand so the log lists eight. The number that goes in the
+README is the one *with* the fixes in it: that is the point of timing it.
+
+---
+
 ## Verified as correct
 
 The three faults and why each is different; "walk away for five minutes"; the settlement

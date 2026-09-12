@@ -56,7 +56,7 @@ hours it ran, yesterday's cost from the console. The Day 20 write-up quotes this
 | 15 (9 Sep) | VPC + 1 NAT + 5 ECR repos, no images; destroyed at night | ~1.5 h NAT | (`154 --row 15`) | the VPC's first round trip: apply, 90 min, destroy, verified empty |
 | 15 (10 Sep) | VPC + 1 NAT + 5 ECR repos with the five kind images | from ~15:00 CT | (`154 --row 15` on the 11th) | DNS relay fixed, images pushed as the bytes kind runs |
 | 16 | EKS (control plane $0.10/h) + 2 × t3.medium SPOT (~$0.013/h each) + NAT + 1 EBS GiB + CloudWatch ingest; NLB for ~5 min; destroyed the same day | ~3 h (22:09Z–01:xxZ) | (`154 --row 16` on the 12th) | estimate ≈ $3–4; anything above $5 means something outlived the teardown — `155` |
-| 19 | the final game day: EKS (control plane + 2 × t3.medium SPOT) + NAT + EBS + CloudWatch ingest/Insights queries; warm start in the morning, torn down by dinner (`167 --all`) | ~_N_ h | (`154 --row 19` on the 13th) | estimate ≈ $3–4 (Day 16's shape); Insights queries are $0.005/GB scanned — megabytes; **the week's total** goes here too |
+| 19 | the final game day: EKS (control plane + 2 × t3.medium SPOT) + NAT + EBS + CloudWatch ingest/Insights queries; warm start in the morning, torn down by dinner (`167 --all`) | ≈3.5 h (18:24Z → ≈21:50Z) | (`154 --row 19` on the 13th) | estimate ≈ $3–4 (Day 16's shape); Insights queries are $0.005/GB scanned — megabytes; **the week's total** goes here too |
 | 17 | | | | |
 | 18 | | | | |
 | 19 | | | | |

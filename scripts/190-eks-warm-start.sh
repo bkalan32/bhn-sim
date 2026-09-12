@@ -13,9 +13,17 @@
 # because phase 2 pushes the bytes kind RUNS — the CloudWatch collector is in that image.
 source "$(dirname "$0")/lib.sh"
 cd "$LAB_ROOT" || exit 1
-require_aws
 FROM=1; [[ "${1:-}" == --from ]] && FROM="$2"
 T0=$(date +%s); TF0="$CHECKPOINTS/day19-warm-start.txt"
+# --mark N label : record a phase you finished BY HAND (e.g. phase 4 after an untaint) so the log is complete
+if [[ "${1:-}" == --mark ]]; then printf '  phase %s done: %s  (by hand)\n' "$2" "${3:-manual}" | tee -a "$TF0.log"; exit 0; fi
+require_aws
+# A resumed run (--from N) keeps the ORIGINAL clock: the number the README wants is
+# network-up -> healthy brief including every fix in between, not the last few phases.
+if (( FROM > 1 )) && [[ -f "$TF0.log" ]]; then
+  B=$(grep -o 'begun [0-9T:-]*Z' "$TF0.log" | head -1 | cut -d' ' -f2)
+  [[ -n "$B" ]] && T0=$(date -d "$B" +%s) && say "resuming at phase $FROM — clock still runs from $B"
+fi
 phase() { local n="$1"; shift; (( n >= FROM )) || return 1; PT=$(date +%s); CUR=$n; step "Phase $n/8 · $*  ($(( (PT - T0) / 60 )) min elapsed)"; }
 mark()  { printf '  phase %s done: %s  (%s s)\n' "$1" "$2" "$(( $(date +%s) - PT ))" | tee -a "$TF0.log"; }
 # A failed phase STOPS the warm start (a warm start that carries on past a failure is how the
@@ -88,9 +96,11 @@ fi
 if phase 8 "The first brief — the daily report against the fresh environment"; then
   KUBE_CONTEXT=aws-lab python3 tools/daily_report.py --day "$(date -u +%F)-eks-warm" | tail -12
   mark 8 "report"
-  TOTAL=$(( ($(date +%s) - T0) / 60 ))
-  printf 'warm start %s: %s min from network-up to a healthy brief (phases: %s)\n' "$(date -u +%F)" "$TOTAL" "$(grep -c 'done' "$TF0.log")" > "$TF0"
+  TOTAL=$(( ($(date +%s) - T0) / 60 ))       # from the log's "begun" line, fixes included (see the top)
+  DONE=$(grep -c 'done' "$TF0.log")
+  printf 'warm start %s: %s min from network-up to a healthy brief (phases: %s of 8%s)\n' "$(date -u +%F)" "$TOTAL" "$DONE" "$( (( DONE < 8 )) && echo ', one finished by hand — 190 --mark N' )" > "$TF0"
   cat "$TF0.log" | sed 's/^/  /'
   ok "WARM START: $TOTAL minutes — write it in README next to Day 1's 30-minute laptop rebuild (the checkpoint looks for the row)"
+  (( DONE < 8 )) && warn "$((8 - DONE)) phase(s) missing from the log (done by hand after a failure): ./scripts/190-eks-warm-start.sh --mark 4 platform, then edit the 'phases:' count in $TF0"
   ok "Next: read the brief's HEADLINE. 'healthy' → GAMEDAY_RUN=2 ./scripts/192-gameday2.sh start. Anything else → believe it, fix it first."
 fi

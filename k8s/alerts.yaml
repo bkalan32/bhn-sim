@@ -167,6 +167,11 @@ spec:
             summary: "No successful settlement in 15 minutes (expected every 5)"
             description: "Either the job is not running, is crashing, or is running and not succeeding. If this fires alone, check kubectl get jobs -n payments."
         - alert: SettlementZeroRecords
+          # Day 19 (INC-0021): a CRASH also pushes records=0 (status=0) before it exits, so this
+          # fires ~2 min before SettlementJobFailed for a crash as well as for a silent run — the
+          # alert pair cannot tell kb-004 from kb-005; only the job's last log line can
+          # (db_unreachable / exit 1 vs "refusing to report success" / exit 2). Kept as is: it is
+          # the backstop if the Day 8 self-check ever regresses (exit 0 with 0 records).
           expr: settlement_records_processed == 0
           for: 1m
           labels:

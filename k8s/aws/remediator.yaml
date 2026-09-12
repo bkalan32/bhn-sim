@@ -96,7 +96,7 @@ spec:
       automountServiceAccountToken: true     # kubectl in the pod authenticates with THIS token
       containers:
         - name: remediator
-          image: 831926603642.dkr.ecr.us-east-2.amazonaws.com/bhn-sim/remediator:28
+          image: 831926603642.dkr.ecr.us-east-2.amazonaws.com/bhn-sim/remediator:37
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8030

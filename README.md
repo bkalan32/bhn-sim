@@ -175,7 +175,7 @@ is not code, and after `134` it holds no secret); in a company it lives in a rem
 **The infrastructure story in two numbers (Day 19).** Laptop stack, Day 1: **~30 minutes**
 of command replay. Full cloud platform, Day 19 — network, images, EKS, the platform layer,
 five services, the KB, the routing verified, traffic, and a healthy morning brief —
-**warm start: __ min** (`./scripts/190-eks-warm-start.sh`, `checkpoints/day19-warm-start.txt`).
+**warm start: 121 min** wall clock, network-up to a healthy brief (`./scripts/190-eks-warm-start.sh`, `checkpoints/day19-warm-start.txt`) — of which ≈55 min were the eight phases running and the rest was one failed phase (the helm provider's "inconsistent result" on the platform root) and a person diagnosing it; the honest number is the one with the person in it.
 Everything in between is code; nothing in between is a person typing.
 
 ---

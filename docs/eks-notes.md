@@ -42,10 +42,11 @@ cost in minutes, what the fix was, and whether it is now a script or a runbook l
 
 | # | what broke | minutes lost | fix | now in |
 |---|---|---|---|---|
-| 1 | _e.g. a tool ran against kind because `KUBE_CONTEXT` was not exported in that shell_ | | | |
-| 2 | _e.g. the bot's logs collector said "not configured" until the Pod Identity association existed (160's plan carries it since Day 19)_ | | | |
-| 3 | _e.g. stale port-forwards from a previous 164 (`pkill -f port-forward`)_ | | | |
-| 4 | | | | |
+| 1 | **Phase 1 of the warm start took 23 m 36 s to change nothing** — `152 status`/plan against an env root that already existed: every AWS API call from Terraform crawling through the WSL DNS relay (`getent` answered; Go's resolver did not, the Day 15 symptom) | ≈22 | none applied mid-run (a restart of `systemd-resolved` would have; the phase was left to finish) | `docs/morning.md` step 0; 190's DNS pre-check only proves *a* name resolves — follow-up: time one `aws sts get-caller-identity` and refuse to start if > 5 s |
+| 2 | **kind stopped answering during phase 2** — the images EKS runs are the bytes the *laptop's* cluster runs, so a warm start of the cloud depends on the laptop being healthy; the first version of 190 carried on past the failure (the Day 16 env-root lesson, again) | ≈5 + a re-run | Docker settled on its own; `190 --from 2` | 190 patch 1: `fail()` stops the run; kind and the Day 19 bot build are checked before 153 pushes |
+| 3 | **helm provider "inconsistent result after apply" on the platform root** (kps: Grafana clusterrole/configmap) — the Day 17 ghost (B9), third time in the series; the phase failed after a 10-minute apply | ≈8 | `tf.sh untaint helm_release.kps` → `162 plan` (in place) → `162 apply` → `190 --from 5` | `DAY19.md` troubleshooting, `CORRECTIONS-DAY19.md` N3 — and phase 4 recorded by hand with `190 --mark 4` |
+| 4 | **the warm-start clock reset on `--from`** — the script printed "6 minutes" for a ≈121-minute start; the wrong number was one `sed` from the README | 0 (caught) | 190 patch 2: the clock is the log's *begun* line; `--mark N` records a phase done by hand | `scripts/190-eks-warm-start.sh`, N3 |
+| 5 | **nothing during the game** — Pod Identity (no credential in any pod), CloudWatch Insights through the bot and through the copilot's translated SPL, ECR images, the API-server service proxy, the remediator's Jobs: all first time, all worked. `KUBE_CONTEXT=aws-lab` exported once in the responding terminal; no port-forward but 164's | 0 | — | the point of Days 15–18 |
 
 **Closed on Day 19:** the third collector. Splunk is a container on the laptop; on EKS the
 bot now reads CloudWatch Logs Insights through Pod Identity (`enrich.py`, `LOGS_BACKEND=
