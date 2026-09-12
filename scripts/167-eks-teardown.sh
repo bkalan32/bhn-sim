@@ -52,4 +52,4 @@ else
 fi
 
 date -u +%FT%TZ > "$CHECKPOINTS/day16-torn-down.txt"
-ok "teardown finished in $(( ($(date +%s) - T0) / 60 )) min — tomorrow: ./scripts/154-aws-cost.sh --row 16"
+ok "teardown finished in $(( ($(date +%s) - T0) / 60 )) min — tomorrow: ./scripts/154-aws-cost.sh --row <lab day>"

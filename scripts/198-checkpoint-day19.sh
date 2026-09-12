@@ -8,7 +8,9 @@ step "Day 19 exit criteria"
 [[ -f checkpoints/day19-warm-start.txt ]] && grep -qE 'warm start .*: [0-9]+ min' checkpoints/day19-warm-start.txt && t_ok "warm start timed: $(cat checkpoints/day19-warm-start.txt | cut -c1-80)" || t_fail "no checkpoints/day19-warm-start.txt (190)"
 grep -qE 'warm start: \*\*[0-9]+ min\*\*|\*\*warm start: [0-9]+ min\*\*' README.md && t_ok "README: the two-number infrastructure story (30 min laptop / N min cloud)" || t_fail "README still says 'warm start: __ min' — write the number"
 grep -q 'CW_LOG_GROUP' services/incident-bot/enrich.py && grep -q 'payments/incident-bot' infra/aws/eks/pod-identity.tf && t_ok "the third collector on EKS: CloudWatch via Pod Identity (enrich.py + pod-identity.tf)" || t_fail "CloudWatch collector not wired"
-(cd services/incident-bot && python3 -m pytest -q tests/test_cw.py >/dev/null 2>&1) && t_ok "SPL -> Insights translator tests pass" || t_fail "tests/test_cw.py failing"
+# pytest: the system python, or the Day 6 venv (services/activation/.venv) — as 178 does; the tests fake the CloudWatch client, no boto3 needed
+PY=python3; python3 -c 'import pytest' 2>/dev/null || PY="$LAB_ROOT/services/activation/.venv/bin/python"
+(cd services/incident-bot && "$PY" -m pytest -q tests/test_cw.py >/dev/null 2>&1) && t_ok "SPL -> Insights translator tests pass ($("$PY" -m pytest --version 2>&1 | head -1))" || t_fail "tests/test_cw.py failing — (cd services/incident-bot && $PY -m pytest -q tests/test_cw.py) to see why; the Day 19 Jenkins build ran all 29 green"
 ls reports/daily/*-eks-warm.md >/dev/null 2>&1 && t_ok "the first brief against the fresh environment ($(ls reports/daily/*-eks-warm.md | head -1))" || t_fail "no <date>-eks-warm report (190 phase 8)"
 
 # The game day
