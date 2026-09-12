@@ -51,5 +51,39 @@ output "pod_identity" {
   value = {
     "kube-system/ebs-csi-controller-sa" = aws_iam_role.ebs_csi.arn
     "logging/fluent-bit"                = aws_iam_role.fluent_bit.arn
+    "payments/incident-bot"             = aws_iam_role.incident_bot.arn   # Day 19
   }
+}
+
+# ---- Day 19: the incident bot reads CloudWatch Logs (its logs collector on EKS) ---------
+# Splunk is a container on the laptop; on EKS the bot's third collector was "not configured"
+# for three days (INC-0018's follow-up). Read-only Logs Insights on the one log group Fluent
+# Bit writes, and nothing else — least privilege with a name on it, like the other two.
+data "aws_iam_policy_document" "incident_bot_logs" {
+  statement {
+    effect    = "Allow"
+    actions   = ["logs:StartQuery", "logs:GetQueryResults", "logs:StopQuery", "logs:DescribeLogGroups", "logs:FilterLogEvents"]
+    resources = ["arn:aws:logs:${var.region}:*:log-group:/bhn-sim/containers:*", "arn:aws:logs:${var.region}:*:log-group:/bhn-sim/containers"]
+  }
+  statement {
+    # GetQueryResults/StopQuery are not resource-scoped in IAM; the group above is the only one queried
+    effect    = "Allow"
+    actions   = ["logs:GetQueryResults", "logs:StopQuery"]
+    resources = ["*"]
+  }
+}
+resource "aws_iam_role" "incident_bot" {
+  name               = "${local.cluster_name}-incident-bot"
+  assume_role_policy = data.aws_iam_policy_document.pod_identity_trust.json
+}
+resource "aws_iam_role_policy" "incident_bot_logs" {
+  name   = "cloudwatch-logs-insights-read"
+  role   = aws_iam_role.incident_bot.id
+  policy = data.aws_iam_policy_document.incident_bot_logs.json
+}
+resource "aws_eks_pod_identity_association" "incident_bot" {
+  cluster_name    = module.eks.cluster_name
+  namespace       = "payments"
+  service_account = "incident-bot"        # k8s/incident-bot.yaml (Day 19)
+  role_arn        = aws_iam_role.incident_bot.arn
 }

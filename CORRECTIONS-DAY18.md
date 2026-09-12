@@ -100,7 +100,7 @@ line in a green build. **Substitute:** `grafana-admin` first, `kps-grafana` as f
 same order as `lib.sh`), and the warning now shouts what the missing annotation *means*. A
 build should not fail for it — a deploy that shipped is a deploy that shipped — but the
 change-record gap is exactly the kind of silent failure the audit exists to find. Logged as
-**0020-a** in `docs/ops-kpis.md` (found, not alerted; Day 14's 0017-x family); follow-up: an
+**0019-a** in `docs/ops-kpis.md` (found, not alerted; Day 14's 0017-x family); follow-up: an
 alert on `grafana_annotations` absence after a `deploy-service` build, or the pipeline
 posting the change to the bot directly as a second channel.
 

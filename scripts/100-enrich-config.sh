@@ -61,9 +61,10 @@ if on_eks; then
   # the diagnosis lowers its confidence — honest, and part of what the EKS drill tests.
   # Logs on EKS go to CloudWatch (Fluent Bit, Day 16); a CloudWatch log collector for the
   # bot is Day 17+ work. Until then: two collectors of three, and the record says so.
-  SURL=""
-  warn "on EKS: no Splunk reachable from the cluster — logs collector left unconfigured (CloudWatch holds the logs; see docs/eks-notes.md #3)"
+  SURL=""; CWG="/bhn-sim/containers"
+  ok "on EKS: logs backend = CloudWatch Logs Insights, group $CWG (Day 19: the bot reads it through Pod Identity — no key anywhere)"
 else
+CWG=""
 SIP=$(splunk_ip)
 [[ -n "$SIP" ]] || die "splunk container not running (docker start splunk)"
 SURL="https://${SIP}:8089"
@@ -85,9 +86,11 @@ k create secret generic "$SECRET" -n "$PAYMENTS_NS" \
   --from-literal=SPLUNK_USER=admin \
   --from-literal=SPLUNK_PASSWORD="$SPLUNK_PASSWORD" \
   --from-literal=SPLUNK_VERIFY=false \
+  --from-literal=CW_LOG_GROUP="$CWG" \
+  --from-literal=AWS_REGION="${AWS_REGION:-us-east-2}" \
   --dry-run=client -o yaml | k apply -f - >/dev/null
 unset GTOKEN
-ok "stored: GRAFANA_TOKEN, SPLUNK_URL=${SURL:-(none — EKS)}, SPLUNK_USER, SPLUNK_PASSWORD, SPLUNK_VERIFY=false"
+ok "stored: GRAFANA_TOKEN, SPLUNK_URL=${SURL:-(none — EKS)}, CW_LOG_GROUP=${CWG:-(none — kind)}, SPLUNK_USER, SPLUNK_PASSWORD, SPLUNK_VERIFY=false"
 dim "SPLUNK_VERIFY=false accepts Splunk's self-signed certificate. Lab only; flagged in the README."
 
 if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then

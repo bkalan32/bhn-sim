@@ -172,6 +172,12 @@ incident-response question; this table is the answer.
 Jenkins build per service. State is local (`infra/local/terraform.tfstate`, gitignored — state
 is not code, and after `134` it holds no secret); in a company it lives in a remote backend with locking, same shape.
 
+**The infrastructure story in two numbers (Day 19).** Laptop stack, Day 1: **~30 minutes**
+of command replay. Full cloud platform, Day 19 — network, images, EKS, the platform layer,
+five services, the KB, the routing verified, traffic, and a healthy morning brief —
+**warm start: __ min** (`./scripts/190-eks-warm-start.sh`, `checkpoints/day19-warm-start.txt`).
+Everything in between is code; nothing in between is a person typing.
+
 ---
 
 ## AWS (Day 15 onward)
@@ -191,7 +197,7 @@ invisible to `destroy` and bills until someone notices.
 | The bill | `./scripts/154-aws-cost.sh` every morning — **read the last three days, not just yesterday**: identical non-zero days before anything existed is how a $0.51/day leftover in another region was found on Day 15. `./scripts/155-aws-verify-destroyed.sh` after every destroy and every morning: the lab's region in detail, then **every enabled region** for anything that bills while idle (instances, EIPs, volumes, NAT, load balancers, customer KMS keys). *The lab lives in one region; the bill does not.* Rules and the per-day table: `docs/aws-costs.md`. |
 | Cluster (Day 16) | `infra/aws/eks` — its **own state key**: EKS 1.33 by module v21, 2 × t3.medium **SPOT**, add-ons declared (v21 installs none by itself), prefix delegation, **Pod Identity** for the two pods that need AWS (EBS CSI, Fluent Bit). `./scripts/160-eks.sh plan` → read → `apply` (~15 min) → `161` writes context **`aws-lab`** (exec auth from SSO; the current-context is never changed). |
 | Platform on EKS | `infra/aws/platform` — the Day 13 root with three differences: context `aws-lab`, Fluent Bit → **CloudWatch** (`k8s/fluent-bit-cloudwatch.yaml.tmpl`, no credential), and `k8s/kps-values-eks.yaml` (a control plane you do not run is not scraped). Charts from a **local cache** (`tf.sh`, D4). `./scripts/162-eks-platform.sh plan` → `apply`. |
-| Services on EKS | `./scripts/163-eks-deploy.sh` renders `k8s/aws/` from `k8s/` (image line → ECR, kind's NodePort doors dropped — `diff -r k8s k8s/aws` is the whole difference), copies `secret/ai-keys` cluster-to-cluster, applies, wires the bot and remediator with the **same scripts** under `KUBE_CONTEXT=aws-lab`. Traffic: `164`. Drill: `165` (INC-0018). Differences, with evidence: `166` → `docs/eks-notes.md`. |
+| Services on EKS (logs = CloudWatch via Pod Identity, Day 19) | `./scripts/163-eks-deploy.sh` renders `k8s/aws/` from `k8s/` (image line → ECR, kind's NodePort doors dropped — `diff -r k8s k8s/aws` is the whole difference), copies `secret/ai-keys` cluster-to-cluster, applies, wires the bot and remediator with the **same scripts** under `KUBE_CONTEXT=aws-lab`. Traffic: `164`. Drill: `165` (INC-0018). Differences, with evidence: `166` → `docs/eks-notes.md`. |
 | Teardown | `./scripts/167-eks-teardown.sh` — LoadBalancer Services reverted, platform destroyed, cluster destroyed, the CloudWatch group removed, **`155` across every region**. `--all` takes the VPC/NAT/ECR too. |
 | Any script, either cluster | `KUBE_CONTEXT=aws-lab ./scripts/<anything>.sh` — every kubectl call in `scripts/lib.sh` and every Python tool is pinned to that variable (default: kind). `GRAFANA_PORT=3001` keeps the EKS Grafana off kind's port. |
 | Rebuild | `151` (bucket, if gone) → `152 plan/apply` → `153` — about ten minutes to a warm start; `160` → `162` → `163` another fifteen for the cluster. |
@@ -503,6 +509,7 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 - **[DAY14.md](DAY14.md)** · **[CORRECTIONS-DAY14.md](CORRECTIONS-DAY14.md)** · **[gameday/](gameday/)** · **[docs/morning.md](docs/morning.md)**
 - **[DAY15.md](DAY15.md)** · **[CORRECTIONS-DAY15.md](CORRECTIONS-DAY15.md)** · **[infra/aws/](infra/aws/)** · **[docs/aws-costs.md](docs/aws-costs.md)**
 - **[DAY16.md](DAY16.md)** · **[CORRECTIONS-DAY16.md](CORRECTIONS-DAY16.md)** · **[docs/eks-notes.md](docs/eks-notes.md)**
+- **[DAY19.md](DAY19.md)** · **[CORRECTIONS-DAY19.md](CORRECTIONS-DAY19.md)** · **[gameday/retro-2.md](gameday/retro-2.md)** · **[scripts/190-eks-warm-start.sh](scripts/190-eks-warm-start.sh)**
 - **[DAY18.md](DAY18.md)** · **[CORRECTIONS-DAY18.md](CORRECTIONS-DAY18.md)** · **[docs/alert-audit.md](docs/alert-audit.md)** · **[tools/daily_report.py](tools/daily_report.py)** · **[reports/daily/](reports/daily/)**
 - **[DAY17.md](DAY17.md)** · **[CORRECTIONS-DAY17.md](CORRECTIONS-DAY17.md)** · **[kb/](kb/)** · **[services/incident-bot/kb.py](services/incident-bot/kb.py)** · **[docs/newrelic-notes.md](docs/newrelic-notes.md)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library

@@ -42,6 +42,12 @@ PROM = os.getenv("PROM_URL", "http://kps-kube-prometheus-stack-prometheus.monito
 GRAFANA = os.getenv("GRAFANA_URL", "http://kps-grafana.monitoring").rstrip("/")
 GRAFANA_TOKEN = os.getenv("GRAFANA_TOKEN", "").strip()
 SPLUNK = os.getenv("SPLUNK_URL", "").rstrip("/")
+# Day 19: the second logs backend. On EKS, Splunk is a container on the laptop and unreachable;
+# Fluent Bit ships the same JSON to CloudWatch Logs (Day 16). The bot reads it with Logs
+# Insights through Pod Identity — no key in the pod, no key in a secret (CORRECTIONS-DAY19 D1).
+CW_LOG_GROUP = os.getenv("CW_LOG_GROUP", "").strip()
+AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-2"))
+LOGS_BACKEND = "splunk" if SPLUNK else ("cloudwatch" if CW_LOG_GROUP else "none")
 SPLUNK_USER = os.getenv("SPLUNK_USER", "admin")
 SPLUNK_PASSWORD = os.getenv("SPLUNK_PASSWORD", "")
 SPLUNK_VERIFY = os.getenv("SPLUNK_VERIFY", "false").strip().lower() != "false"
@@ -140,10 +146,102 @@ def recent_deploys(service, since_ts, hours=6):
     return out, meta
 
 
+# ------------------------------------------------- Day 19: CloudWatch Logs Insights ---
+_CW = None
+
+
+def _cw():
+    """boto3 client, created once. Credentials come from the Pod Identity agent (the
+    AWS_CONTAINER_CREDENTIALS_FULL_URI env the agent injects) — nothing to configure here."""
+    global _CW
+    if _CW is None:
+        import boto3                          # only imported when a CloudWatch backend is configured
+        _CW = boto3.client("logs", region_name=AWS_REGION)
+    return _CW
+
+
+def cw_insights(query, minutes, limit=50, timeout_s=None):
+    """Run a Logs Insights query and wait for it (poll ~0.5 s). Returns rows as dicts."""
+    timeout_s = timeout_s or TIMEOUT * 2
+    end = int(time.time()); start = end - minutes * 60
+    c = _cw()
+    qid = c.start_query(logGroupName=CW_LOG_GROUP, startTime=start, endTime=end, queryString=query, limit=limit)["queryId"]
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        r = c.get_query_results(queryId=qid)
+        if r.get("status") in ("Complete", "Failed", "Cancelled", "Timeout"):
+            if r["status"] != "Complete":
+                raise RuntimeError(f"Insights query {r['status']}")
+            return [{f["field"]: f["value"] for f in row} for row in r.get("results", [])]
+        time.sleep(0.5)
+    try:
+        c.stop_query(queryId=qid)
+    except Exception:  # noqa: BLE001
+        pass
+    raise TimeoutError("Insights query did not complete in time")
+
+
+_SPL_KV = re.compile(r'([A-Za-z_][\w.]*)\s*(!=|=)\s*("[^"]*"|\'[^\']*\'|\S+)')
+
+
+def spl_to_insights(spl):
+    """The subset of SPL the copilot and the collectors actually use, in Insights syntax:
+    `k=v k2!=v2 | stats count by f | sort -count | head N`. Anything else is refused with a
+    reason — the copilot gets the reason as a tool result and rephrases (Day 11's rule)."""
+    s = spl.strip()
+    if s.lower().startswith("search "):
+        s = s[7:]
+    parts = [x.strip() for x in s.split("|")]
+    head, pipes = parts[0], parts[1:]
+    head = re.sub(r"\bindex\s*=\s*\S+", "", head).strip()
+    filters = []
+    for m in _SPL_KV.finditer(head):
+        k, op, v = m.group(1), m.group(2), m.group(3).strip("\"'")
+        filters.append(f'{k} {"!=" if op == "!=" else "="} "{v}"')
+    rest = _SPL_KV.sub("", head).strip()
+    if rest:
+        raise ValueError(f"only key=value filters are supported on CloudWatch (unsupported: {rest[:40]!r})")
+    q = ["fields @timestamp, app.service, app.status, app.reason, app.msg"]
+    if filters:
+        q.append("filter " + " and ".join(filters))
+    fields_only = True
+    for pp in pipes:
+        m = re.match(r"^stats\s+count(?:\(\))?(?:\s+as\s+\w+)?\s+by\s+([\w.]+(?:\s*,\s*[\w.]+)*)$", pp, re.I)
+        if m:
+            q.append("stats count(*) as count by " + m.group(1)); fields_only = False; continue
+        m = re.match(r"^sort\s+(-?)(\w+)$", pp, re.I)
+        if m:
+            q.append(f"sort {m.group(2)} {'desc' if m.group(1) else 'asc'}"); continue
+        m = re.match(r"^head\s+(\d+)$", pp, re.I)
+        if m:
+            q.append(f"limit {m.group(1)}"); continue
+        m = re.match(r"^table\s+([\w.,\s]+)$", pp, re.I)
+        if m:
+            q[0] = "fields " + m.group(1); continue
+        raise ValueError(f"'| {pp[:30]}' is not supported on CloudWatch (stats count by, sort, head, table only)")
+    if fields_only:
+        q.append("sort @timestamp desc")
+    return " | ".join(q)
+
+
 def top_log_reasons(service, minutes=10):
-    """Splunk one-shot search over the REST API (8089), admin credentials, self-signed cert."""
+    """Top app.reason values for the service's error-status events, from whichever backend is
+    configured: Splunk (kind — REST 8089, admin credentials, self-signed cert) or CloudWatch
+    Logs Insights (EKS — Pod Identity). Same rows either way; the model never knows which."""
+    if LOGS_BACKEND == "cloudwatch":
+        def run_cw():
+            rows = cw_insights(f'fields app.reason | filter app.service = "{service}" and app.status = "error" '
+                               f'| stats count(*) as count by app.reason | sort count desc', minutes, limit=10)
+            return [{"reason": r.get("app.reason"), "count": int(float(r.get("count", 0)))} for r in rows[:5]]
+        out, meta = _timed(run_cw)
+        meta["backend"] = "cloudwatch"
+        if out is None:
+            return [{"error": f"log lookup unavailable: {meta.get('error')}"}], meta
+        if not out:
+            return [{"note": f"no error-status events for {service} in the last {minutes}m"}], meta
+        return out, meta
     if not SPLUNK:
-        return [{"error": "log lookup unavailable: SPLUNK_URL not configured (scripts/100-enrich-config.sh)"}], \
+        return [{"error": "log lookup unavailable: SPLUNK_URL not configured and no CW_LOG_GROUP — no logs backend (scripts/100-enrich-config.sh)"}], \
                {"ok": False, "error": "not configured", "latency_ms": 0}
 
     def run():
@@ -208,10 +306,20 @@ def search_logs(spl: str, earliest: str = "-30m", limit: int = 50):
     except ValueError as ex:
         return {"rows": [], "count": 0, "spl": spl, "earliest": earliest,
                 "meta": {"ok": False, "error": f"rejected: {ex}", "latency_ms": 0}}
+    limit = max(1, min(int(limit or 50), 200))
+    if LOGS_BACKEND == "cloudwatch":
+        try:
+            iq = spl_to_insights(s)
+        except ValueError as ex:
+            return {"rows": [], "count": 0, "spl": s, "earliest": e,
+                    "meta": {"ok": False, "error": f"rejected: {ex}", "latency_ms": 0, "backend": "cloudwatch"}}
+        minutes = {"s": 1 / 60, "m": 1, "h": 60, "d": 1440}[e[-1]] * int(e[1:-1])
+        out, meta = _timed(lambda: cw_insights(iq, max(1, int(minutes)), limit=limit))
+        meta["backend"] = "cloudwatch"; meta["insights"] = iq
+        return {"rows": out or [], "count": len(out or []), "spl": s, "earliest": e, "meta": meta}
     if not SPLUNK:
         return {"rows": [], "count": 0, "spl": s, "earliest": e,
-                "meta": {"ok": False, "error": "SPLUNK_URL not configured (scripts/100-enrich-config.sh)", "latency_ms": 0}}
-    limit = max(1, min(int(limit or 50), 200))
+                "meta": {"ok": False, "error": "SPLUNK_URL not configured and no CW_LOG_GROUP — no logs backend (scripts/100-enrich-config.sh)", "latency_ms": 0}}
 
     def run():
         body = urllib.parse.urlencode({"search": "search " + s, "output_mode": "json",
@@ -248,4 +356,5 @@ def enrich(service, since_ts=None):
 
 def configured():
     return {"prometheus": PROM, "grafana": GRAFANA, "grafana_token": bool(GRAFANA_TOKEN),
-            "splunk": SPLUNK or None, "splunk_verify": SPLUNK_VERIFY, "timeout_s": TIMEOUT}
+            "splunk": SPLUNK or None, "splunk_verify": SPLUNK_VERIFY, "timeout_s": TIMEOUT,
+            "logs_backend": LOGS_BACKEND, "cw_log_group": CW_LOG_GROUP or None, "aws_region": AWS_REGION if CW_LOG_GROUP else None}

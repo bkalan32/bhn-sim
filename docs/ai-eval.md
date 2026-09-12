@@ -524,6 +524,37 @@ scheduled brief is only as boring as its inputs are honest.
 decide whether it should (in a company the report should not know); (3) tomorrow's 07:00 run
 is the real boring-day test: nothing injected overnight, the laptop awake.
 
+## Eval 10 — game day 2 on EKS: three hypotheses, one closing brief (Day 19, 2026-09-__)
+
+Three faults chosen so that the *correct* response differs — investigate / let the
+automation work / escalate outside — and, for the first time on EKS, three collectors of
+three (logs from CloudWatch through Pod Identity). The question for each hypothesis: did
+it recommend the right **class** of response, and did the KB make the difference where an
+entry exists (kb-004 settlement crash, kb-003 partner email) and *not* overreach where none
+does (creeping latency)?
+
+| | INC-0020 latency (`…`) | INC-0021 settlement (`…`) | INC-0022 email (`…`) |
+|---|---|---|---|
+| alert that opened it | _ActivationLatencyBudgetBurn? after how long_ | _SettlementJobFailed_ | _EgiftHighErrorRate_ |
+| context: three collectors ok? logs backend | | | |
+| cause named | _"internal latency regression, no dependency, no deploy"?_ | _crash / exit non-zero_ | _partner email, send_email step_ |
+| KB cited (id) — and was it offered (`kb_matches`)? | _none should fit; did it force one?_ | _kb-004_ | _kb-003_ |
+| recommended class of response | _investigate / keep watching_ | _tier-1 re-run (the remediator's own signature)_ | _escalate to the partner; not a remediation_ |
+| honest limit stated? | _"cannot distinguish env knob from real regression"_ | | |
+| remediator on the record | _nothing — correct (no signature; if it acted, a detect is too loose)_ | _re-run ×2 failed → after the reset, the next run succeeds_ | _nothing — correct_ |
+| the copilot question | _"activation is slow but not failing — what changed, is any dependency implicated?" trail: latency histogram, traces (uniformly slower own span, no slow child), rollout history_ | | |
+| confidence | | | |
+
+**The closing brief** (`reports/daily/2026-09-__-eks-closing.md`): did it narrate all three
+incidents, their remediation modes and the budget impact unprompted? Every number traceable?
+Proportionate? _…_
+
+*Grade:* _…_
+
+*Finding:* _the graduation finding: automation quality tracks pattern maturity — the
+settlement case (most rehearsed, a signature, a KB entry) was handled almost entirely by the
+machine; the ambiguous and the external still needed a person. Say it with the timestamps._
+
 ## Failures worth keeping
 
 Any draft with a ❌ goes here with the prompt version that produced it. A documented

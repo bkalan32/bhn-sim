@@ -1,3 +1,4 @@
 fastapi
 uvicorn[standard]
 prometheus-client
+boto3          # Day 19: CloudWatch Logs Insights collector on EKS (Pod Identity; no key in the pod)

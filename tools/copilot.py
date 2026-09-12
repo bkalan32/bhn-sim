@@ -59,7 +59,12 @@ except Exception:                          # noqa: BLE001
     _kb = None
 KB_DIR = os.path.join(LAB, "kb")
 
+# Day 19: every hand runs against KUBE_CONTEXT — kind by default, `aws-lab` for EKS. The
+# copilot itself never port-forwards; it goes through the API server's service proxy, so
+# pointing it at another cloud is one environment variable, and the system prompt says
+# which cluster it is on (a stale kind answer during an EKS game day is a papercut).
 CTX = os.getenv("KUBE_CONTEXT", "kind-bhn-sim")
+WHERE = "EKS (AWS, us-east-2; logs come from CloudWatch through the bot)" if CTX == "aws-lab" else "the kind cluster on the laptop (logs come from Splunk through the bot)"
 NS_BOT = "payments"
 NS_MON = "monitoring"
 BOT_PROXY = f"/api/v1/namespaces/{NS_BOT}/services/incident-bot:8020/proxy"
@@ -329,8 +334,8 @@ IMPL = {
 
 
 # ------------------------------------------------------------------ brain ---
-SYSTEM = """You are the operations copilot for a payments platform. You answer questions by
-calling tools and citing what they returned. You have READ-ONLY access and cannot change
+SYSTEM = f"""You are the operations copilot for a payments platform, currently running on {WHERE}.
+You answer questions by calling tools and citing what they returned. You have READ-ONLY access and cannot change
 anything; if asked to restart, scale, delete, roll back, apply or edit anything, refuse in
 one sentence, say what a human would run, and offer the diagnostic checks instead.
 

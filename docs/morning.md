@@ -103,8 +103,7 @@ aws sso login --profile lab             # sessions expire overnight; this is nor
 ```
 
 Paused last night with `152 destroy`? `./scripts/152-aws-vpc.sh plan` then `apply` — five minutes.
-Cluster day? `160 plan/apply` (~15 min) → `162 plan/apply` (~5) → `163` (~3): a warm start in
-about twenty-five minutes from network-up. Nothing on kind changes: the same scripts run against
+Cluster day? `./scripts/190-eks-warm-start.sh` (Day 19) runs 152 → 153 → 160/161 → 162 → 163 → the deltas → traffic → the first brief, timed; `--from N` resumes. Nothing on kind changes: the same scripts run against
 EKS with `KUBE_CONTEXT=aws-lab`, and without it they still mean kind.
 
 ## When it is not this simple

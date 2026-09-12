@@ -22,6 +22,15 @@ spec:
     requests:
       storage: 1Gi
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: incident-bot
+  namespace: payments
+  # Day 19: on EKS this service account is associated with an IAM role through Pod Identity
+  # (infra/aws/eks/pod-identity.tf) so the bot can run CloudWatch Logs Insights queries —
+  # its logs collector on a cluster where Splunk is unreachable. On kind it is just a name.
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -41,6 +50,7 @@ spec:
       labels:
         app: incident-bot
     spec:
+      serviceAccountName: incident-bot
       # The image runs as uid 10001; fsGroup makes the mounted volume writable by it.
       securityContext:
         fsGroup: 10001
