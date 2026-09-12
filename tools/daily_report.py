@@ -37,19 +37,20 @@ import kpis            # noqa: E402  — Day 18 Part B: the seven KPIs
 BOT = cp.BOT_PROXY
 REM = "/api/v1/namespaces/payments/services/remediator:8030/proxy"
 WORD_CAP = 250
-MAX_TOKENS = 520        # ~250 words + headings; the cap is restated last in the prompt (caps stated last survive best)
+MAX_TOKENS = 900        # 250 words of incident ids and percentages is ~600 tokens; run 1 on Day 18 hit a 520 ceiling
+                        # mid-sentence with no RISKS section (Eval 9). The WORD cap is the constraint; tokens must not be.
 
 PROMPT = """Write the daily operations report for the payments platform from the data below.
 Audience: the on-call engineer starting their day. Format, exactly these four sections:
 1. HEADLINE: one sentence, overall state.
-2. LAST 24H: incidents (id, service, duration, how remediated), deploys, notable metric movements. Facts only, cite numbers.
-3. RISKS: error budgets below 50%, KPIs trending the wrong way, drift, anything still firing. If none, say so in one line.
+2. LAST 24H: incidents (id, service, duration, how remediated), deploys, notable metric movements. Facts only, cite numbers. If there are more than 5 incidents, list only the open ones and the 3 longest by id, and summarise the rest as counts per service.
+3. RISKS: error budgets below 50%, KPIs trending the wrong way, drift, anything still firing, any collector that is DOWN (tickets are being diagnosed without it). If none, say so in one line.
 4. NEEDS A HUMAN: decisions or follow-ups pending (open incidents, declined or pending remediations, incidents with no write-up or no KB entry).
 Rules: no invented numbers; every number must appear in the data; 'no data' is an acceptable value and must be reported as such, never guessed around; a quiet day is reported as quiet in few words — do not manufacture concern; no advice beyond what the data implies.
 Data:
 {data}
 
-Maximum {cap} words. Plain text with the four numbered headings; no markdown tables."""
+Maximum {cap} words. Plain text with the four numbered headings; no markdown, no bold, no tables."""
 
 
 # ----------------------------------------------------------------- gather ---
@@ -77,6 +78,11 @@ def r1(v):
     return None if v is None else round(v, 1)
 
 
+def r0(v):
+    """Counts are integers; increase() over a counter is not (extrapolation) — round before the model sees it."""
+    return None if v is None else int(round(float(v)))
+
+
 def health():
     out = {}
     for name in ("platform", "activation", "egift", "settlement"):
@@ -94,9 +100,9 @@ def budgets():
 def settlement():
     age = q("time() - max(settlement_last_success_timestamp)")
     return {"last_success_minutes_ago": None if age is None else round(age / 60, 1),
-            "last_run_records": q("max(settlement_records_processed)"),
-            "failed_jobs_24h": q('count(kube_job_status_failed{namespace="payments", job_name=~"settlement.*"} > 0) or vector(0)'),
-            "records_24h_sum_of_runs": q("sum(sum_over_time(settlement_records_processed[24h]))")}
+            "last_run_records": r0(q("max(settlement_records_processed)")),
+            "failed_jobs_24h": r0(q('count(kube_job_status_failed{namespace="payments", job_name=~"settlement.*"} > 0) or vector(0)')),
+            "records_24h_sum_of_runs": r0(q("sum(sum_over_time(settlement_records_processed[24h]))"))}
 
 
 def traffic():
@@ -119,8 +125,8 @@ def firing():
 
 
 def platform_restarts():
-    return {"restarts_24h": q('sum(increase(kube_pod_container_status_restarts_total{namespace=~"monitoring|logging|tracing|kube-system|newrelic"}[24h])) or vector(0)'),
-            "pods_restarting_1h": q_by('sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=~"monitoring|logging|tracing|kube-system|newrelic"}[1h])) > 0', "pod")}
+    return {"restarts_24h": r0(q('sum(increase(kube_pod_container_status_restarts_total{namespace=~"monitoring|logging|tracing|kube-system|newrelic"}[24h])) or vector(0)')),
+            "pods_restarting_1h": {k: r0(v) for k, v in q_by('sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=~"monitoring|logging|tracing|kube-system|newrelic"}[1h])) > 0', "pod").items()}}
 
 
 def incidents(since):
@@ -198,6 +204,19 @@ def drift(run_plan):
         return f"no data (plan could not run: {type(e).__name__})"
 
 
+def collectors():
+    """The three collectors' health right now, from the bot's own self-test. A collector that is
+    down is a RISK line: every ticket opened while it is down is diagnosed with one eye shut."""
+    try:
+        d = cp._raw_get(f"{BOT}/enrich/test?service=activation") or {}
+        out = {}
+        for name, m in (d.get("collectors") or {}).items():
+            out[name] = "ok" if m.get("ok") else f"DOWN ({str(m.get('error', 'error'))[:80]})"
+        return out or {"error": "no data (bot /enrich/test empty)"}
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"no data (bot: {e})"}
+
+
 def deploys():
     try:
         d = cp._raw_get(f"{BOT}/tools/deploys?hours=24") or {}
@@ -236,6 +255,7 @@ def gather(run_plan=False, days=7):
         "remediation_pending_proposals": pending if not rerr else rerr,
         "write_ups_and_kb": writeups_and_kb(recent) if recent else [],
         "deploys_24h": deploys(),
+        "collectors_now": collectors(),
         "alerts_firing_now": firing(),
         "platform_restarts": platform_restarts(),
         "drift": drift(run_plan),
@@ -256,6 +276,12 @@ def draft(data, key, model):
     return text, {"model": d.get("model", model), "latency_ms": int((time.time() - t0) * 1000),
                   "input_tokens": d.get("usage", {}).get("input_tokens"), "output_tokens": d.get("usage", {}).get("output_tokens"),
                   "stop_reason": d.get("stop_reason")}
+
+
+def sections_missing(text):
+    """All four headings must be present — a truncated brief looks complete and is worse than none."""
+    want = ["HEADLINE", "LAST 24H", "RISKS", "NEEDS A HUMAN"]
+    return [w for w in want if w not in text.upper()]
 
 
 def numbers_in(text):
@@ -295,16 +321,20 @@ def main():
         sys.exit("no API key — ./scripts/90-ai-secret.sh (or ANTHROPIC_API_KEY)")
     model = os.getenv("AI_MODEL") or cp._model_from_secret() or cp.DEFAULT_MODEL
     text, meta = draft(data, key, model)
-    words = len(text.split()); missing = trace_check(text, data)
-    meta.update({"words": words, "word_cap": WORD_CAP, "numbers_not_in_data": missing, "key_from": src})
+    words = len(text.split()); missing = trace_check(text, data); gone = sections_missing(text)
+    truncated = meta.get("stop_reason") == "max_tokens" or bool(gone)
+    meta.update({"words": words, "word_cap": WORD_CAP, "numbers_not_in_data": missing, "key_from": src,
+                 "sections_missing": gone, "truncated": truncated})
     path = os.path.join(outdir, f"{day}.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# Daily ops report — {day}\n\n_generated {data['generated_at']} · {meta['model']} · {words} words (cap {WORD_CAP}) · "
-                f"{meta['latency_ms']} ms · numbers not traceable to the data: {missing or 'none'}_\n\n{text}\n\n"
+                f"{meta['latency_ms']} ms · numbers not traceable to the data: {missing or 'none'}"
+                f"{' · **TRUNCATED — sections missing: ' + ', '.join(gone) + '** (stop_reason ' + str(meta.get('stop_reason')) + ')' if truncated else ' · complete (4 sections)'}_\n\n{text}\n\n"
                 f"## Data the model was given\n\n```json\n{json.dumps(data, indent=1)}\n```\n")
     print(text); print()
     print(f"-- {words} words (cap {WORD_CAP}){'  OVER THE CAP' if words > WORD_CAP else ''} · {meta['latency_ms']} ms · "
-          f"untraceable numbers: {', '.join(missing) if missing else 'none'} · {path}")
+          f"untraceable numbers: {', '.join(missing) if missing else 'none'} · "
+          f"{'TRUNCATED (missing: ' + ', '.join(gone) + ') — NOT a usable brief' if truncated else 'complete'} · {path}")
     if not a.no_store:
         try:
             r = cp._raw_post(f"{BOT}/reports", {"day": day, "text": text, "model": meta["model"], "data": data, "grade": None})

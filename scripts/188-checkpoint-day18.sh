@@ -43,6 +43,7 @@ bot_get /reports | python3 -c 'import json,sys; sys.exit(0 if len(json.load(sys.
 N=$(ls reports/daily/*.md 2>/dev/null | wc -l); (( N >= 3 )) && t_ok "reports/daily: $N reports (quiet, after-drill, scheduled)" || t_fail "reports/daily has $N of 3 (quiet / after a drill / the Jenkins run)"
 OVER=$(grep -hoE '· [0-9]+ words' reports/daily/*.md 2>/dev/null | awk '{if ($2+0>250) n++} END {print n+0}'); (( OVER == 0 )) && t_ok "every report under the 250-word cap" || t_fail "$OVER report(s) over the cap"
 grep -lE 'numbers not traceable to the data: none' reports/daily/*.md >/dev/null 2>&1 && t_ok "at least one report with every number traceable (the script's check)" || warn "no report passed the traceability check cleanly — read the 'numbers not traceable' lines"
+T=$(grep -l 'TRUNCATED' reports/daily/*.md 2>/dev/null | grep -vc 'truncated' || true); (( T == 0 )) && t_ok "no truncated report kept as current (a cut-off brief looks complete: Eval 9 finding 1)" || t_fail "$T report(s) truncated — re-run them"
 CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/job/daily-ops-report/ 2>/dev/null || echo 000)
 [[ "$CODE" == 200 || "$CODE" == 403 ]] && t_ok "Jenkins job daily-ops-report exists (H 7 * * *)" || t_fail "no daily-ops-report job (HTTP $CODE) — ./scripts/183-daily-report-job.sh"
 grep -q 'Eval 9' docs/ai-eval.md && ! grep -qE '^\| words \(cap 250\) \| _…_' docs/ai-eval.md && t_ok "ai-eval Eval 9 graded" || t_fail "docs/ai-eval.md Eval 9 not graded (three reports)"

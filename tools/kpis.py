@@ -82,18 +82,32 @@ def row(inc):
 
 
 # ------------------------------------------------------------- Day 18: the KPI set ---
-PROM = "/api/v1/namespaces/monitoring/services/kps-kube-prometheus-stack-prometheus:9090/proxy/api/v1/query"
 REM = "/api/v1/namespaces/payments/services/remediator:8030/proxy"
+_PROM = None
+
+
+def prom_path():
+    """Discover the Prometheus service by label (lib.sh's prom_svc), never by a guessed name."""
+    global _PROM
+    if _PROM is None:
+        r = subprocess.run(["kubectl", "--context", CTX, "get", "svc", "-n", "monitoring", "-l", "app.kubernetes.io/name=prometheus",
+                            "-o", "jsonpath={.items[0].metadata.name}"], capture_output=True, text=True)
+        svc = r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "kps-kube-prometheus-stack-prometheus"
+        _PROM = f"/api/v1/namespaces/monitoring/services/{svc}:9090/proxy/api/v1/query"
+    return _PROM
 
 
 def raw(path):
     r = subprocess.run(["kubectl", "--context", CTX, "get", "--raw", path], capture_output=True, text=True)
-    return json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else None
+    if r.returncode != 0 or not r.stdout.strip():
+        sys.stderr.write(f"kpis: kubectl get --raw failed: {r.stderr.strip()[-200:]}\n")
+        return None
+    return json.loads(r.stdout)
 
 
 def promql(q):
     import urllib.parse
-    d = raw(PROM + "?query=" + urllib.parse.quote(q))
+    d = raw(prom_path() + "?query=" + urllib.parse.quote(q))
     try:
         res = d["data"]["result"]
         return float(res[0]["value"][1]) if res else None
@@ -103,7 +117,7 @@ def promql(q):
 
 def promql_by(q, label):
     import urllib.parse
-    d = raw(PROM + "?query=" + urllib.parse.quote(q))
+    d = raw(prom_path() + "?query=" + urllib.parse.quote(q))
     try:
         return {r["metric"].get(label, "-"): float(r["value"][1]) for r in d["data"]["result"]}
     except Exception:
@@ -149,7 +163,9 @@ def summary(days=7):
     remediated = {h.get("incident") for h in hist if h.get("mode") in ("auto", "approved") and h.get("result") == "ok"}
     declined = {h.get("incident") for h in hist if h.get("mode") == "declined"}
     win_ids = {i["id"] for i in win_incs}
-    share = round(100 * len(remediated & win_ids) / len(win_ids), 1) if win_ids else None
+    # The remediator's history is in memory (200 entries, lost on restart — N1): an empty
+    # history is "no data since its last restart", not "0 %".
+    share = (round(100 * len(remediated & win_ids) / len(win_ids), 1) if win_ids else None) if hist else None
     # 5 error budgets remaining (30d), both SLOs
     eb_avail = promql('100 * (1 - (1 - sum(increase(activation_requests_total{status="ok"}[30d])) / clamp_min(sum(increase(activation_requests_total[30d])), 1)) / 0.005)')
     eb_lat = promql('100 * (1 - (1 - sum(increase(activation_latency_seconds_bucket{le="0.3"}[30d])) / clamp_min(sum(increase(activation_latency_seconds_count[30d])), 1)) / 0.01)')
@@ -172,7 +188,7 @@ def summary(days=7):
         "mttr_min": {"window": mean(dur_win), "all_time": mean(dur_all), "n_window": len(dur_win), "n_all": len(dur_all),
                      "definition": "resolved - opened (duration_min on the record); includes the alerts' resolve windows"},
         "incidents_by_service": {"window": by_svc, "total": len(win_incs), "promql": f"sum by (service) (increase(incidents_created_total[{days}d]))"},
-        "remediation_share_pct": {"window": share, "remediated_incidents": sorted(remediated & win_ids), "declined": sorted(declined & win_ids),
+        "remediation_share_pct": {"window": share, "history_entries": len(hist), "remediated_incidents": sorted(remediated & win_ids), "declined": sorted(declined & win_ids),
                                   "promql": f'sum(increase(remediation_actions_total{{mode=~"auto|approved",result="ok"}}[{days}d])) / sum(increase(incidents_created_total[{days}d]))'},
         "error_budget_remaining_pct": {"availability_30d": None if eb_avail is None else round(eb_avail, 1), "latency_30d": None if eb_lat is None else round(eb_lat, 1)},
         "alert_precision_pct": {"window": precision, "fired": sorted(fired_names), "ticketed": sorted(fired_names & ticketed), "noise": sorted(fired_names - ticketed),

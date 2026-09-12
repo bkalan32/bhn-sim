@@ -75,7 +75,17 @@ Four of the seven are pure PromQL and sit on the **Platform Overview** dashboard
 ### Current values
 
 <!-- kpis:start -->
-_run `./scripts/182-kpis.sh`_
+KPIs — last 7 days (generated 2026-09-12T16:59:35Z)
+| KPI | value (7d) | all time | source |
+|---|---|---|---|
+| MTTD (fault → first alert) | 183.4 s (n=5) | 183.4 s (n=5) | incident records (drill notes) |
+| MTTR (opened → resolved) | 6.9 min (n=43) | 6.8 min (n=45) | `duration_min` on the record |
+| Incidents / week by service | 44: activation 14, crashtest 4, egift 14, incident-bot 2, platform 1, settlement 8, smoke-test 1 | – | records; PromQL `sum by (service) (increase(incidents_created_total[7d]))` |
+| % incidents auto/approved-remediated | 0.0 % (0 of 44) | – | remediator history; PromQL twin in docs |
+| Error budget remaining (30d) | availability -743.6 % · latency -110.1 % | – | recording rules / Prometheus |
+| Alert precision | 46.7 % (14 of 30 names) — noise: AlertmanagerClusterCrashlooping, AlertmanagerClusterFailedToSendAlerts, AlertmanagerFailedToSendAlerts, InfoInhibitor, KubeAPIErrorBudgetBurn, KubeControllerManagerInstanceUnreachable, KubeDaemonSetRolloutStuck, KubeJobFailed, KubePodCrashLooping, KubePodNotReady, KubeProxyInstanceUnreachable, KubeSchedulerInstanceUnreachable, NodeSystemSaturation, RemediatorDown, etcdInsufficientMembers, etcdMembersDown | – | Prometheus ALERTS × records |
+| Deploy frequency / failure rate | 29 builds (4.14/day), 5 failed = 17.2 % | – | Jenkins deploy-service |
+
 <!-- kpis:end -->
 
 ## Week over week — every incident, five columns (Day 14, Step 1)
