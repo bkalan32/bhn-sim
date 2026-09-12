@@ -28,7 +28,7 @@ R=$(k exec -n "$MONITORING_NS" "$AM" -c alertmanager -- amtool --alertmanager.ur
 grep -qE '^\| 12 dry route tests \| (ok|12|pass)' docs/alert-audit.md && t_ok "verification table filled" || warn "docs/alert-audit.md verification table: fill the four rows from 181's output"
 grep -q 'startupProbe' k8s/incident-bot.yaml && t_ok "incident-bot: startupProbe (B10's lesson)" || t_fail "no startupProbe on the bot"
 grep -q '"bot-down"' services/remediator/signatures.py && t_ok "remediator: IncidentBotDown -> tier-1 restart signature" || t_fail "no bot-down signature"
-grep -q 'every page must be actionable and urgent' README.md && t_ok "README: the page rule" || t_fail "README lacks the page = actionable + urgent rule"
+grep -qi 'every page must be actionable and urgent' README.md && t_ok "README: the page rule" || t_fail "README lacks the page = actionable + urgent rule"
 
 # Part B — KPIs
 grep -q '## The KPI set (Day 18)' docs/ops-kpis.md && grep -cE '^\| [1-7] \| \*\*' docs/ops-kpis.md | grep -qx 7 && t_ok "docs/ops-kpis.md: seven KPIs defined with sources" || t_fail "docs/ops-kpis.md: the KPI set section / seven rows"
