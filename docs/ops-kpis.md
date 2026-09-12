@@ -52,6 +52,32 @@ bot. Paste `tools/kpis.py` output below and add the diagnosis columns.
 Cascade tickets from the same faults (egift calls activation): `INC-1788827580-2365` (with 0009) and
 `INC-1788828924-519d` (with 0010) — TTT 25s/18s, TTH 22s/20s, no separate diagnosis graded.
 
+## The KPI set (Day 18) — seven, defined precisely, each with a source
+
+Everything above is raw material: per-incident columns, a week-over-week paragraph. A team
+does not discuss forty columns; it discusses a handful of numbers it agreed the definitions
+of. These are the seven. Resist adding an eighth without removing one.
+
+| # | KPI | Definition (exactly) | Source / query | Who moves it |
+|---|---|---|---|---|
+| 1 | **MTTD** | mean of (first alert `startsAt` − fault injected), over incidents that carry a `drill: fault injected at …` note. Non-drill incidents have no fault time and are excluded, and the KPI says how many were counted | incident records (`tools/kpis.py --summary`) | the `for:` windows and scrape interval — engineering, not people |
+| 2 | **MTTR** | mean of `duration_min` = resolved − opened, over incidents resolved in the window. Includes the alerts' resolve windows (fix → resolved ≈ 5 min on this platform, by design) | `duration_min` on the record | fix speed **and** the alert windows: read it next to "fix → resolved" before blaming the responder |
+| 3 | **Incidents / week by service** | count of incidents opened in the window, grouped by the record's `service` | records; twin: `sum by (service) (increase(incidents_created_total[7d]))` (the bot's counter carries `service` since Day 18) | reliability work; drills inflate it on purpose in the lab |
+| 4 | **% incidents auto/approved-remediated** | incidents in the window with at least one remediator action of mode `auto` or `approved` and result `ok`, ÷ incidents opened. Tier 3 can never count — that is the policy, not a gap | remediator history (`/actions`); twin: `sum(increase(remediation_actions_total{mode=~"auto\|approved",result="ok"}[7d])) / sum(increase(incidents_created_total[7d]))` | new signatures (docs/remediation-policy.md) |
+| 5 | **Error budget remaining** | for each SLO, 100 × (1 − (1 − SLI over 30d) / budget). Availability 99.5 % (budget 0.5 %), latency 99 % under 300 ms (budget 1 %) | Prometheus, the exact panel queries on the overview KPI row | incidents spend it; the report flags < 50 % as a RISK |
+| 6 | **Alert precision** | alert *names* that reached a ticket ÷ alert names that fired at all in the window (Watchdog excluded). Coarse on purpose: the name is what the audit judges | Prometheus `ALERTS{alertstate="firing"}` × records | the audit (docs/alert-audit.md): every routed-away name raises it honestly; every silenced real alert would too — which is why the noise list is printed next to it |
+| 7 | **Deploy frequency and failure rate** | `deploy-service` builds in the window per day; builds with result FAILURE or ABORTED ÷ builds (a Verify rollback is a failed build — that is the point) | Jenkins API (needs `JENKINS_USER`/`JENKINS_PASS`; otherwise *no data*) | pipeline health, Verify's thresholds |
+
+Four of the seven are pure PromQL and sit on the **Platform Overview** dashboard's bottom row
+(KPIs, Day 18). The other three need the records (MTTD, MTTR, precision) or Jenkins
+(deploys) and are computed by `tools/kpis.py --summary` — which the daily report reads.
+
+### Current values
+
+<!-- kpis:start -->
+_run `./scripts/182-kpis.sh`_
+<!-- kpis:end -->
+
 ## Week over week — every incident, five columns (Day 14, Step 1)
 
 *Detected by* is the column that changed most; *mode* is the one that changed last.

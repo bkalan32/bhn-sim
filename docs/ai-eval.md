@@ -479,6 +479,38 @@ working as designed: the review edits the entry.
 Eval 7 still stands: KB present, logs collector off — does it hedge or does the entry make
 it over-confident?
 
+## Eval 9 — the daily ops report, three of them (Day 18, 2026-09-__)
+
+The question the PDF puts exactly right: **is the report only as dramatic as the data?** An
+event-driven draft (Days 9/10) is read once, under pressure, by someone who already knows
+something is wrong. A scheduled brief is read every morning by someone who knows nothing
+yet — and a daily brief that exaggerates is ignored by week two, taking the real risks down
+with it. So the grade is not "is it good"; it is *traceable, proportionate, capped*.
+
+Three runs, same script, same prompt (`tools/daily_report.py`): a quiet platform, right
+after a drill resolved, and the next morning from the Jenkins schedule. Every number the
+model saw is in each report's appendix (`reports/daily/*.md`, and `/reports/<day>` on the
+bot); `numbers not traceable to the data` is computed by the script itself.
+
+| | run 1: quiet (`reports/daily/____.md`) | run 2: after the drill (`____-drill.md`) | run 3: Jenkins, 07:00 (`____.md`) |
+|---|---|---|---|
+| words (cap 250) | _…_ | _…_ | _…_ |
+| every number traceable? (script check + your read) | _…_ | _…_ | _…_ |
+| HEADLINE proportionate to the data? | _…_ | _…_ | _…_ |
+| RISKS: neither empty-when-something-burns nor crying wolf | _e.g. "none" on a quiet day — correct?_ | _the resolved drill: risk or history?_ | _…_ |
+| NEEDS A HUMAN: the real pending items (open incidents, pending/declined proposals, incidents without a write-up or KB cite) | _…_ | _…_ | _…_ |
+| 'no data' reported as such (drift line without --plan; deploys if Jenkins unauthenticated) | _…_ | _…_ | _…_ |
+| anything invented, inferred or advised beyond the data? | _…_ | _…_ | _…_ |
+| a boring day reads boring? | _…_ | n/a | _…_ |
+
+*Grade:* _…_
+
+*Finding:* _…_ (the thing to look for: does the model treat "no data" as a fact or as a
+gap to fill; does a resolved incident get reported as a risk; does the KPI section tempt it
+into trend language the numbers do not support — n=2 is not a trend.)
+
+*Follow-up:* _…_
+
 ## Failures worth keeping
 
 Any draft with a ❌ goes here with the prompt version that produced it. A documented

@@ -37,6 +37,24 @@ SIGNATURES = [
         "retry_after_s": 180,
     },
     {
+        # Day 18 (docs/alert-audit.md A5): IncidentBotDown was delivered to... the bot. The
+        # remediator gets the same webhook (Day 12: two webhook_configs, one receiver), and a
+        # rollout restart of a one-replica Deployment is the crash-loop action's cousin:
+        # reversible, bounded, and the thing a human would do first. On Day 17 the bot was
+        # down 20 minutes behind a pipeline message that said "nothing deployed"; this would
+        # not have fixed THAT (a bad image restarts into the same crash) but it would have
+        # said so on the timeline the moment the bot was back — and it fixes the other
+        # cause: a pod the kubelet killed under load (0017-a) that never came back.
+        "id": "bot-down",
+        "tier": 1,
+        "action": "restart_bot",
+        "detect": {"alert": "IncidentBotDown", "service": "incident-bot"},
+        "rationale": "The bot is a one-replica Deployment with a PVC: `rollout restart` is the reversible first move; "
+                     "if the new pod does not become ready in 3 min the note says so and a human reads the previous log.",
+        "cooldown_s": 600,
+        "retry": 0,
+    },
+    {
         "id": "post-deploy-errors",
         "tier": 2,
         "action": "rollback_activation",
@@ -48,7 +66,7 @@ SIGNATURES = [
     },
 ]
 
-ACTIONS = {"delete_pod", "rerun_settlement", "rollback_activation"}
+ACTIONS = {"delete_pod", "rerun_settlement", "rollback_activation", "restart_bot"}
 
 
 def validate():

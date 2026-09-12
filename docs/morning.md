@@ -89,6 +89,7 @@ python3 tools/kpis.py | tail -5      # the numbers Day 14 will review
 kubectl -n logging get pods          # Fluent Bit RESTARTS — should still be 0 (Day 13's fix, verification pending)
 ./scripts/171-newrelic-up.sh --status   # Day 17+: agents Running, remote-write succeeded climbing, failed 0
 ./scripts/172-kb.sh --check             # Day 17+: the running bot sees kb/ (7 entries)
+python3 tools/daily_report.py --fetch $(date -u +%F) && sed -n 1,30p reports/daily/$(date -u +%F).md   # Day 18+: this morning's brief (the 07:00 job; if 404, the laptop was asleep — python3 tools/daily_report.py runs it now)
 ```
 
 ## 5 · Week 3 — the cloud side (Day 15 onward)

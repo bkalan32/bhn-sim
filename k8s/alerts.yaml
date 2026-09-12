@@ -35,17 +35,12 @@ spec:
             description: "Error rate is {{ $value | printf \"%.1f\" }}% over the last 2 minutes. Cards are being declined at the till."
             runbook: "Check Grafana 'Activation Service', then Splunk: index=main app.service=activation app.status=error | stats count by app.reason"
 
-        - alert: ActivationHighLatency
-          expr: |
-            histogram_quantile(0.95, sum(rate(activation_latency_seconds_bucket[2m])) by (le)) > 0.5
-          for: 2m
-          labels:
-            severity: warning
-            service: activation
-          annotations:
-            summary: "Activation p95 latency above 500ms"
-            description: "p95 is {{ $value | printf \"%.2f\" }}s. Checkout budget is well under a second; queues build at this level."
-            runbook: "Usually a slow dependency. Check FRAUD_SVC_DOWN and the fraud_service_timeout reason in Splunk."
+        # Day 18 (alert audit, docs/alert-audit.md): the static "p95 > 500 ms" rule is GONE.
+        # It fired in every fraud drill (the fail-fast timeout caps p95 at ~0.48 s) and told
+        # nobody anything the error-rate alert had not already said — the single most common
+        # fatigue source in real fleets is a static latency threshold. The latency SLO (Day 5:
+        # 99 % of requests under 300 ms) already has an SLI; it now has a burn-rate alert like
+        # availability does — see ActivationLatencyBudgetBurn in the activation-slo group.
 
         # ADDED: the alert the PDF does not have, and the one that would have caught
         # your Day 2 failure. If traffic stops entirely, every other rule here goes
@@ -97,12 +92,16 @@ spec:
         # The crude "error rate > 10%" rule from Day 3 catches catastrophes. It misses
         # the slow bleed: 1.5% errors for two days never trips it, yet burns 3x the
         # monthly budget. Long window = sustained. Short window = still happening.
+        # Day 18 (docs/alert-audit.md A3): NO `for:` on the fast burn. The 1h window needs
+        # ~4.3 min of a total outage before it crosses 14.4x, and the old `for: 2m` on top of
+        # that meant the alert fired AFTER the fix in INC-0019 (3 m 43 s after) and opened a
+        # second ticket on the Day 17 New Relic drill. The two windows ARE the persistence
+        # check (Google SRE workbook); a `for:` on top is double-counting.
         - alert: ActivationErrorBudgetBurnFast
           expr: |
             activation:error_budget_burn_rate:1h > 14.4
             and
             activation:error_budget_burn_rate:5m > 14.4
-          for: 2m
           labels:
             severity: critical
             service: activation
@@ -124,6 +123,32 @@ spec:
           annotations:
             summary: "Activation burning error budget at {{ $value | printf \"%.0f\" }}x — whole month gone in ~5 days"
             description: "Sustained over 6 hours and still happening. Not a page — a ticket for tomorrow morning."
+
+        # ---- Day 18: the latency SLO gets the same treatment ---------------
+        # 99 % under 300 ms over 30 days -> a 1 % budget. Burn rate = share over 300 ms / 1 %.
+        - record: activation:latency_budget_burn_rate:1h
+          expr: |
+            (1 - sum(rate(activation_latency_seconds_bucket{le="0.3"}[1h]))
+                   / clamp_min(sum(rate(activation_latency_seconds_count[1h])), 0.001)) / 0.01
+        - record: activation:latency_budget_burn_rate:5m
+          expr: (1 - activation:sli_latency:ratio_rate5m) / 0.01
+        # A ticket, not a page: slow-but-completing is a warning by the Day 18 rule
+        # ("every page must be actionable AND urgent; everything else is a ticket or a graph").
+        # It joins the activation ticket if one is open (group_by service), so it never adds noise
+        # to an error-rate incident — it adds a line.
+        - alert: ActivationLatencyBudgetBurn
+          expr: |
+            activation:latency_budget_burn_rate:1h > 14.4
+            and
+            activation:latency_budget_burn_rate:5m > 14.4
+          labels:
+            severity: warning
+            service: activation
+            slo: latency
+          annotations:
+            summary: "Activation latency budget burning at {{ $value | printf \"%.0f\" }}x — more than 14 % of requests over 300 ms"
+            description: "Over the last hour, and still now, far more requests exceed 300 ms than the 1 % budget allows. Requests complete; they are slow. Usually a slow dependency (FRAUD_SVC_DOWN's fail-fast shows here first)."
+            runbook: "Grafana 'Activation SLO' latency SLI panel; Tempo: service=activation sorted by duration; Splunk app.reason for timeouts"
 
     # ======================================================================
     # Day 5 — the settlement batch job: alert on ABSENCE, not presence
@@ -224,6 +249,28 @@ spec:
             summary: "incident-bot is not being scraped — alerts are not becoming incidents"
             description: "Alertmanager will retry webhooks with backoff while the bot is down, so nothing is lost yet — but nobody is being told."
             runbook: "kubectl get pods -n payments -l app=incident-bot; kubectl logs -n payments deploy/incident-bot | python3 tools/logfmt.py"
+
+    # ======================================================================
+    # Day 18 — the alert the audit found missing. Day 14 found kube-scheduler at 70 restarts
+    # and the otel collector at 112, both for over a week, both unalerted, both hidden behind
+    # kind's permanent false positives; Day 17 found Prometheus at 47. A restart is the one
+    # cause-level signal worth a ticket: it is cheap, it is specific, and it is always
+    # actionable ("why?"). Warning, service=platform -> the bot (routed on Day 18).
+    # ======================================================================
+    - name: platform-health
+      rules:
+        - alert: PlatformPodRestarting
+          expr: |
+            label_replace(
+              sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{namespace=~"monitoring|logging|tracing|kube-system|newrelic|ci"}[1h])) >= 3,
+              "service", "platform", "", "")
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.pod }} restarted {{ $value | printf \"%.0f\" }}x in the last hour"
+            description: "A platform pod in {{ $labels.namespace }} is restarting. Nobody alerts on this by default; Day 14 found 70 scheduler restarts and 112 collector restarts a week late. Find out why before it is a bigger alert."
+            runbook: "kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} | grep -A4 'Last State'; kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous --tail=30"
 
     # ======================================================================
     # Day 12 — what the remediator keys off, and monitoring the remediator.

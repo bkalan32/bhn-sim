@@ -208,7 +208,7 @@ def test_full_lifecycle(base_url):
     assert lst[0]["id"] == iid and lst[0]["status"] == "resolved"
     with urllib.request.urlopen(f"{base_url}/metrics", timeout=5) as r:
         txt = r.read().decode()
-    assert "incidents_created_total 1.0" in txt
+    assert 'incidents_created_total{service="activation"} 1.0' in txt
     assert "incidents_open 0.0" in txt
     assert 'ai_drafts_total{kind="open",outcome="ok"} 1.0' in txt
 

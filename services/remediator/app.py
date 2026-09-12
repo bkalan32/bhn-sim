@@ -303,6 +303,20 @@ def execute(sig, ctx):
             return False, f"could not create job: {out}"
         ok, detail = _job_outcome(job)
         return ok, f"created job {job} ({out[:160]}); {detail}"
+    if action == "restart_bot":
+        # Day 18. Refuse if the bot answers: a stale IncidentBotDown must not bounce a healthy bot.
+        try:
+            with urllib.request.urlopen(BOT + "/healthz", timeout=3) as r:
+                if r.status == 200:
+                    return False, "refused: the bot answers /healthz — the alert is stale, nothing restarted"
+        except Exception:  # noqa: BLE001 — not answering is the condition we act on
+            pass
+        ok, out = _run(["rollout", "restart", "deployment/incident-bot"], timeout=30)
+        if not ok:
+            return False, f"rollout restart failed: {out}"
+        ok2, out2 = _run(["rollout", "status", "deployment/incident-bot", "--timeout=180s"], timeout=200)
+        return ok2, (f"restarted deployment/incident-bot; {out2}" if ok2 else
+                     f"restarted, but the new pod is not ready after 3 min ({out2[-200:]}) — a human reads `kubectl -n payments logs deploy/incident-bot --previous`")
     if action == "rollback_activation":
         ok, out = _run(["rollout", "undo", "deployment/activation"], timeout=60)
         if not ok:

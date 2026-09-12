@@ -115,8 +115,8 @@ log.propagate = False
 
 
 # --------------------------------------------------------------- metrics ----
-CREATED = Counter("incidents_created_total", "Incidents created")
-RESOLVED = Counter("incidents_resolved_total", "Incidents resolved")
+CREATED = Counter("incidents_created_total", "Incidents created", ["service"])    # Day 18: by service (KPI 3)
+RESOLVED = Counter("incidents_resolved_total", "Incidents resolved", ["service"])
 OPEN = Gauge("incidents_open", "Currently open incidents")
 WEBHOOKS = Counter("alertmanager_webhooks_total", "Webhooks received from Alertmanager", ["status"])
 LAST_DURATION = Gauge("incident_last_duration_minutes", "Duration of the most recently resolved incident")
@@ -358,7 +358,7 @@ async def receive(request: Request):
                     "first_alert_at": first_seen, "first_alert_at_iso": _iso(first_seen),
                     "alerts": [], "groups": {}, "timeline": [],
                 }
-                CREATED.inc()
+                CREATED.labels(service=service).inc()
                 log.info("incident opened", extra={"extra": {
                     "incident": iid, "incident_service": service, "severity": inc["severity"],
                     "alerts": [a["name"] for a in alerts]}})
@@ -381,7 +381,7 @@ async def receive(request: Request):
                 inc["resolved_at_iso"] = _iso(inc["resolved_at"])
                 inc["duration_min"] = round((inc["resolved_at"] - inc["opened_at"]) / 60, 1)
                 inc["timeline"].append(_event("incident_resolved", duration_min=inc["duration_min"]))
-                RESOLVED.inc()
+                RESOLVED.labels(service=service).inc()
                 LAST_DURATION.set(inc["duration_min"])
                 log.info("incident resolved", extra={"extra": {
                     "incident": inc["id"], "incident_service": service, "duration_min": inc["duration_min"]}})
@@ -484,6 +484,19 @@ async def tool_search_logs(request: Request):
     return out
 
 
+@app.get("/tools/deploys")
+def tool_deploys(hours: int = 24):
+    """Day 18: deploys and rollbacks for every service in the last `hours`, from the same
+    Grafana-annotation collector the ticket enrichment uses — for the daily report."""
+    out = {}
+    for svc in ("activation", "egift", "settlement", "incident-bot", "remediator"):
+        rows, meta = enrich.recent_deploys(svc, time.time(), hours=max(1, min(int(hours), 168)))
+        out[svc] = [r for r in rows if "text" in r]
+        if not meta.get("ok"):
+            out[svc] = [{"error": meta.get("error", "deploy lookup unavailable")}]
+    return {"hours": hours, "deploys": out}
+
+
 @app.get("/ai")
 def ai_status():
     return {"enabled": ai.enabled(), **ai.describe(), "enrich": {"enabled": ENRICH_ENABLED, **enrich.configured()},
@@ -507,6 +520,58 @@ def kb_search(q: str):
                 for e in kb.search(q)]
     except Exception as e:  # noqa: BLE001
         return {"error": f"{type(e).__name__}: {e}"}
+
+
+# ------------------------------------------------------------ reports (Day 18) ---
+# The daily ops report is generated OUTSIDE the bot (tools/daily_report.py, on a Jenkins
+# schedule) and stored here, next to the incidents it summarises, so "what did the platform
+# tell me on the 12th" has one answer. Ten lines, as the PDF says; the same atomic-write rule.
+def _report_path(day: str) -> str:
+    if not re.match(r"^\d{4}-\d{2}-\d{2}(-[a-z0-9-]{1,24})?$", day):
+        raise HTTPException(400, "day must be YYYY-MM-DD or YYYY-MM-DD-<slug> (a re-run after a drill)")
+    d = os.path.join(DATA_DIR, "reports")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, f"{day}.json")
+
+
+@app.post("/reports")
+async def put_report(request: Request):
+    body = await request.json()
+    day = str(body.get("day", "")); text = str(body.get("text", ""))
+    if not text.strip():
+        raise HTTPException(400, "text is required")
+    rec = {"day": day, "text": text, "words": len(text.split()), "stored_at_iso": _iso(_now()),
+           "model": body.get("model"), "data": body.get("data"), "grade": body.get("grade")}
+    p = _report_path(day); tmp = p + ".tmp"
+    with _lock:
+        with open(tmp, "w") as f:
+            json.dump(rec, f, indent=2)
+        os.replace(tmp, p)
+    log.info("report stored", extra={"extra": {"day": day, "words": rec["words"]}})
+    return {"ok": True, "day": day, "words": rec["words"]}
+
+
+@app.get("/reports")
+def list_reports():
+    d = os.path.join(DATA_DIR, "reports")
+    if not os.path.isdir(d):
+        return []
+    out = []
+    for name in sorted(os.listdir(d), reverse=True):
+        if name.endswith(".json"):
+            with open(os.path.join(d, name)) as f:
+                r = json.load(f)
+            out.append({"day": r.get("day"), "words": r.get("words"), "stored_at_iso": r.get("stored_at_iso"), "model": r.get("model")})
+    return out
+
+
+@app.get("/reports/{day}")
+def get_report(day: str):
+    p = _report_path(day)
+    if not os.path.exists(p):
+        raise HTTPException(404, f"no report for {day}")
+    with open(p) as f:
+        return json.load(f)
 
 
 @app.delete("/incidents/{iid}")

@@ -55,6 +55,7 @@ famous in post-mortems.
 | id | detects | action | tier | rationale |
 |---|---|---|---|---|
 | `pod-crashloop` | `PaymentsPodCrashLooping` (our rule: `CrashLoopBackOff` seen in 5 min **or** 3+ restarts in 10 min, the pod must still exist, `for: 1m`, service label from the pod name) | delete **that** pod, after confirming it is crash-looping right now | 1 | the Deployment replaces it; strictly reversible; if it crash-loops again the note says so |
+| `bot-down` (Day 18) | `IncidentBotDown` — the alert that used to be delivered only to the thing that was down | `rollout restart deployment/incident-bot` after confirming `/healthz` really does not answer; wait for ready | 1 | one replica, reversible, the human's first move; a bad image restarts into the same crash and the note says so |
 | `settlement-crash` | `SettlementJobFailed` | create a Job from the CronJob, wait for it, report; retry once after 3 min | 1 | settlement is idempotent on this platform (`pushadd`, `last_success` only on real success — Day 9) |
 | `post-deploy-errors` | `ActivationHighErrorRate` **and** a deploy of activation within the last 30 min (Grafana annotations, via the bot's collector) | `rollout undo deployment/activation` | 2 | rollback is the known fix but reverses someone's release — a human confirms with the token |
 | — | `ActivationHighErrorRate` with **no** recent deploy (the fraud outage) | none | 3 | the fix is outside the platform; page a human, fast |

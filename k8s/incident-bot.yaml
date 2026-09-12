@@ -95,6 +95,14 @@ spec:
             - name: kb
               mountPath: /kb
               readOnly: true
+          # Day 18 (INC-0019's build 34, CORRECTIONS-DAY17 B10): under VM load the Python
+          # imports alone outran the liveness window and the kubelet killed a pod that was
+          # merely slow to start — a startup probe gates liveness until the app has bound
+          # once (up to 2 min), the way Day 13's Fluent Bit fix did.
+          startupProbe:
+            httpGet: {path: /healthz, port: 8020}
+            periodSeconds: 5
+            failureThreshold: 24
           readinessProbe:
             httpGet: {path: /readyz, port: 8020}
             initialDelaySeconds: 2

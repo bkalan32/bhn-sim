@@ -391,6 +391,29 @@ database and runs more than one replica); `DELETE /incidents/{id}` exists for th
 via the API server's proxy, which *is* authenticated); `SPLUNK_VERIFY=false` accepts Splunk's
 self-signed certificate for the REST lookups.
 
+## Alerts, KPIs and the daily report (Day 18) — the platform briefs you
+
+**Every page must be actionable and urgent; everything else is a ticket or a graph.** That
+sentence is most of the alert-fatigue literature and the whole of `docs/alert-audit.md`:
+every rule Prometheus holds — ours and the chart's — interrogated with data (hours firing
+in 10 days, tickets it produced) and given a verdict with a reason, because alert changes
+without recorded rationale are how the next person re-adds the noise.
+
+| Thing | Where | How |
+|---|---|---|
+| the audit | `docs/alert-audit.md` | `./scripts/180-alert-audit.sh` fills the table from Prometheus + the bot's records; the verdicts live in the script's map |
+| the changes | `k8s/alerts.yaml` (rules, kubectl) · `k8s/kps-values.yaml` (routing + scrape switches, Terraform) | `./scripts/181-alert-routing.sh` applies both and **proves the routing with amtool** (12 dry route tests, 2 live synthetics) |
+| the seven KPIs | `docs/ops-kpis.md` → *The KPI set*; the queryable four on **Platform Overview**'s bottom row | `./scripts/182-kpis.sh` (`tools/kpis.py --summary`) |
+| the daily report | `reports/daily/YYYY-MM-DD.md` + `/reports/<day>` on the bot | `python3 tools/daily_report.py` now; Jenkins **daily-ops-report** at 07:00 (`./scripts/183-daily-report-job.sh`) |
+| grading it | `docs/ai-eval.md` Eval 9 | every number traceable (the script checks), risks proportionate, 250 words, **a boring day reads boring** |
+
+What changed in the alerts on Day 18, in one line each: kind's four unscrapeable components
+are no longer scraped (their permanent "Down" is gone); the static latency alert became a
+latency-SLO burn rate; the fast burn lost its `for:` (it fired after the fix, twice);
+`IncidentBotDown` gets a tier-1 restart from the remediator; `PlatformPodRestarting` is the
+alert Day 14 asked for; chart noise (`info`/`none`, throttling, overcommit) is routed to
+null explicitly, above the ticket route.
+
 ## The knowledge base (Day 17) — the team's memory, retrievable
 
 `kb/` holds one file per failure pattern in a strict shape (`kb/README.md`): symptoms in
@@ -480,6 +503,7 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 - **[DAY14.md](DAY14.md)** · **[CORRECTIONS-DAY14.md](CORRECTIONS-DAY14.md)** · **[gameday/](gameday/)** · **[docs/morning.md](docs/morning.md)**
 - **[DAY15.md](DAY15.md)** · **[CORRECTIONS-DAY15.md](CORRECTIONS-DAY15.md)** · **[infra/aws/](infra/aws/)** · **[docs/aws-costs.md](docs/aws-costs.md)**
 - **[DAY16.md](DAY16.md)** · **[CORRECTIONS-DAY16.md](CORRECTIONS-DAY16.md)** · **[docs/eks-notes.md](docs/eks-notes.md)**
+- **[DAY18.md](DAY18.md)** · **[CORRECTIONS-DAY18.md](CORRECTIONS-DAY18.md)** · **[docs/alert-audit.md](docs/alert-audit.md)** · **[tools/daily_report.py](tools/daily_report.py)** · **[reports/daily/](reports/daily/)**
 - **[DAY17.md](DAY17.md)** · **[CORRECTIONS-DAY17.md](CORRECTIONS-DAY17.md)** · **[kb/](kb/)** · **[services/incident-bot/kb.py](services/incident-bot/kb.py)** · **[docs/newrelic-notes.md](docs/newrelic-notes.md)**
 - **[splunk/searches.md](splunk/searches.md)** — incident search library
 - **[incidents/INC-0001.md](incidents/INC-0001.md)** — first write-up

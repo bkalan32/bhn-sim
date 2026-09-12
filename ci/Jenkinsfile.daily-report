@@ -1,0 +1,56 @@
+// bhn-sim daily-ops-report — Day 18, Part C.
+//
+// Every morning at ~07:00 (H 7 * * *) the platform briefs the on-call engineer: gather
+// (read-only, the Day 10/11 collectors), one model call, a 250-word report stored on the
+// incident bot (/reports/<day>) and archived here. Jenkins is the lab's scheduler for
+// operational chores, exactly like the nightly drift check (Day 13) — not just deploys.
+//
+// The drift line: this job PLANS FIRST (same env as Jenkinsfile.drift) and hands the
+// verdict to the script as DRIFT_STATUS. The PDF says "read the drift job's status from
+// Jenkins"; that needs an API credential the lab has never stored, and a 4-hour-old
+// verdict. A fresh plan is 90 s and honest.
+//
+// What the job reads and never prints: the API key (secret/ai-keys, via the same internal
+// kubeconfig the deploy pipeline uses). It is passed to the script's process, not to a
+// shell line, and the archived report carries the model's name only.
+pipeline {
+  agent any
+  options { timestamps(); disableConcurrentBuilds() }
+  triggers { cron('H 7 * * *') }          // registered after the first run, like parameters (Day 8)
+  environment {
+    TF_STATE_PATH       = '/repo/infra/local/terraform.tfstate'
+    TF_PLUGIN_CACHE_DIR = '/var/jenkins_home/.terraform.d/plugin-cache'
+    TF_IN_AUTOMATION    = '1'
+    LAB_ROOT            = "${WORKSPACE}/src"
+    KUBE_CONTEXT        = 'kind-bhn-sim'
+  }
+  stages {
+    stage('Checkout') {
+      steps { sh 'rm -rf src && git clone -q /repo src && cd src && git log -1 --format="reporting on %h  %s"' }
+    }
+    stage('Drift') {
+      steps {
+        dir('src/infra/local') {
+          script {
+            def rc = sh(returnStatus: true, script: 'mkdir -p "$TF_PLUGIN_CACHE_DIR"; test -f "$TF_STATE_PATH" && ./tf.sh plan -input=false -no-color -lock=false -detailed-exitcode > plan.txt 2>&1')
+            env.DRIFT_STATUS = (rc == 0) ? 'clean (terraform plan at report time: no changes)' :
+                               (rc == 2) ? 'DRIFT — terraform plan exit 2 at report time (infra-drift-check job has the diff)' :
+                                           "no data (terraform plan failed, exit ${rc})"
+            echo "drift: ${env.DRIFT_STATUS}"
+          }
+        }
+      }
+    }
+    stage('Report') {
+      steps {
+        dir('src') {
+          sh 'mkdir -p reports/daily && python3 tools/daily_report.py --days 7'
+        }
+      }
+    }
+  }
+  post {
+    always  { archiveArtifacts artifacts: 'src/reports/daily/*.md, src/infra/local/plan.txt', allowEmptyArchive: true }
+    failure { echo "No report today — the on-call engineer starts without a brief. That is a ticket: python3 tools/daily_report.py --dry shows which collector failed." }
+  }
+}

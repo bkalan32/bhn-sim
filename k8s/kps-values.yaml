@@ -36,9 +36,21 @@ alertmanager:
         # must never become a ticket.
         - matchers: ['alertname = "Watchdog"']
           receiver: "null"
+        # Day 18 (docs/alert-audit.md): explicit null routes ABOVE the ticket route, so the
+        # audit's demotions are visible in the config and testable with `amtool config routes
+        # test`. severity=info/none is informational by the chart's own convention
+        # (InfoInhibitor, Watchdog-adjacent). The named ones are cause-level and not
+        # actionable on a laptop: CPU throttling on requests we set deliberately low,
+        # overcommit on a one-node cluster. Route, don't delete: an upstream rule removed by
+        # hand is drift against the chart (Day 13).
+        - matchers: ['severity =~ "info|none"']
+          receiver: "null"
+        - matchers: ['alertname =~ "CPUThrottlingHigh|KubeMemoryOvercommit|KubeCPUOvercommit|KubeQuotaAlmostFull|NodeClockNotSynchronising"']
+          receiver: "null"
         # Everything with one of our service labels becomes an incident.
         # Day 12: + remediator (its own RemediatorDown) and crashtest (the tier-1 drill fixture)
-        - matchers: ['service =~ "activation|egift|settlement|incident-bot|remediator|crashtest|smoke-test"']
+        # Day 18: + platform (PlatformPodRestarting — the restart alert Day 14 asked for)
+        - matchers: ['service =~ "activation|egift|settlement|incident-bot|remediator|crashtest|smoke-test|platform"']
           receiver: incident-bot
           continue: false
     receivers:
@@ -69,3 +81,22 @@ grafana:
     existingSecret: grafana-admin
     userKey: admin-user
     passwordKey: admin-password
+
+
+# Day 18 (docs/alert-audit.md A1): kind runs kube-scheduler, kube-controller-manager, etcd and
+# kube-proxy bound to 127.0.0.1 — the chart's scrapes of them cannot succeed, so
+# KubeSchedulerDown / KubeControllerManagerDown / TargetDown / etcd* have fired since Day 1
+# for components that were fine. An alert that has fired for 18 days is an alert nobody
+# reads: Day 14 found the scheduler's 70 real restarts hidden behind its permanent false
+# "Down". These are the chart's own switches (the EKS overlay uses the same ones, because
+# AWS runs those components): no rule is deleted by hand, the plan stays clean, and the
+# components' real health now comes from PlatformPodRestarting (kube-state-metrics, which
+# CAN see them).
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
