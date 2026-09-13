@@ -56,8 +56,26 @@ hours it ran, yesterday's cost from the console. The Day 20 write-up quotes this
 | 15 (9 Sep) | VPC + 1 NAT + 5 ECR repos, no images; destroyed at night | ~1.5 h NAT | (`154 --row 15`) | the VPC's first round trip: apply, 90 min, destroy, verified empty |
 | 15 (10 Sep) | VPC + 1 NAT + 5 ECR repos with the five kind images | from ~15:00 CT | (`154 --row 15` on the 11th) | DNS relay fixed, images pushed as the bytes kind runs |
 | 16 | EKS (control plane $0.10/h) + 2 × t3.medium SPOT (~$0.013/h each) + NAT + 1 EBS GiB + CloudWatch ingest; NLB for ~5 min; destroyed the same day | ~3 h (22:09Z–01:xxZ) | (`154 --row 16` on the 12th) | estimate ≈ $3–4; anything above $5 means something outlived the teardown — `155` |
-| 19 | the final game day: EKS (control plane + 2 × t3.medium SPOT) + NAT + EBS + CloudWatch ingest/Insights queries; warm start in the morning, torn down by dinner (`167 --all`) | ≈3.5 h (18:24Z → ≈21:50Z) | (`154 --row 19` on the 13th) | estimate ≈ $3–4 (Day 16's shape); Insights queries are $0.005/GB scanned — megabytes; **the week's total** goes here too |
-| 17 | | | | |
-| 18 | | | | |
-| 19 | | | | |
-| 20 | destroy, final bill | | | |
+| 19 | the final game day: EKS (control plane + 2 × t3.medium SPOT) + NAT + EBS + CloudWatch ingest/Insights queries; warm start in the morning, torn down by dinner (`167 --all`) | ≈3.5 h (18:24Z → ≈21:50Z) | **$3.50 (estimate; see the dated rows)** | estimate ≈ $3–4 (Day 16's shape); Insights queries are $0.005/GB scanned — megabytes; **the week's total** goes here too |
+| 17 (11 Sep) | EKS kept up overnight from Day 16 for Day 17/18's work on it ("kept everything up so we can start day 18"), torn down on Day 18 | ≈4 h EKS + NAT | **$1.49** (11 Sep, Cost Explorer: EC2-Other $0.86, EKS $0.38, KMS $0.10) | the NAT and EBS billed while nothing ran — the leftover shape 155 exists for |
+| 18 (12 Sep, kind only) | nothing in AWS until the evening's warm start | 0 | (in the 12 Sep figure below) | |
+| 19 (12 Sep) | see the row above | ≈3.5 h | **$3.50 (estimate — Cost Explorer showed $0.05 for 12 Sep at 23:30Z, KMS only; the real figure lands on the 13th: `154 --row 19`)** | replace this cell when the number is in; anything above $5 means something outlived `167 --all` |
+| 20 | destroy, final bill | 0 | — | the week's total below |
+
+**By date, as Cost Explorer reported it on the evening of 12 Sep** (`./scripts/154-aws-cost.sh`; the
+lab's days do not line up with UTC dates, which is why the per-day rows above carry the dates):
+
+| date | total | top lines |
+|---|---|---|
+| 9 Sep | $0.52 | VPC (NAT) $0.36 — the last day of the pre-Day-15 leftovers plus Day 15's first NAT hours |
+| 10 Sep | $1.99 | EKS $1.00, EC2-Other $0.46, VPC $0.34 — Day 16's cluster |
+| 11 Sep | $1.49 | EC2-Other $0.86, EKS $0.38 — the cluster kept overnight into Day 17/18 |
+| 12 Sep | $0.05 (partial) | KMS only so far; Day 19's ≈$3.50 arrives on the 13th |
+
+**The week's total: ≈ $7.6** ($4.07 reported for 9–12 Sep + $3.50 estimated for the game day) —
+call it **about eight dollars** for a cloud week with two full EKS days, three teardowns and
+one night of leftovers. The sentence for the write-up: *the whole cloud week cost less than
+ten dollars, and the two things that cost money while nothing ran were a NAT gateway and an
+EBS volume nobody destroyed — which is why the teardown ends with a sweep of every region.*
+Final figure: re-run `154 --row 19` on the 13th and correct the two cells above.
+

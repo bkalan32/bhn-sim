@@ -29,7 +29,7 @@ grep -q '## The gap list' docs/first-90-days.md 2>/dev/null && (( $(sed -n '/## 
 [[ -f docs/series-retro.md ]] && grep -q '## The thesis' docs/series-retro.md && grep -q '## What compounded' docs/series-retro.md && t_ok "docs/series-retro.md: compounded / resequence / hardest / thesis" || t_fail "docs/series-retro.md missing or incomplete"
 
 # Yesterday's loose ends
-grep -qE '^\| 19[^|]*\|[^|]*\|[^|]*\| *\$[0-9]' docs/aws-costs.md && t_ok "docs/aws-costs.md row 19 has a cost" || t_fail "aws-costs row 19: ./scripts/154-aws-cost.sh --row 19 (Cost Explorer lags a day — the morning after)"
+grep -qE '^\| 19[^|]*\|[^|]*\|[^|]*\| *(\*\*)?\$[0-9]' docs/aws-costs.md && t_ok "docs/aws-costs.md row 19 has a cost" || t_fail "aws-costs row 19: ./scripts/154-aws-cost.sh --row 19 (Cost Explorer lags a day — the morning after)"
 grep -qE 'week.{0,20}total.{0,40}\$[0-9]' docs/aws-costs.md && t_ok "the week's AWS total is written" || warn "docs/aws-costs.md: write the week-3 total next to row 19"
 
 # Shipped
