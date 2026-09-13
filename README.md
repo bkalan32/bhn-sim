@@ -1,15 +1,141 @@
-# bhn-sim — local incident response lab
+# bhn-sim — a payments platform built to be broken on purpose
 
-A fake production payments platform built to be broken on purpose.
-Card activation API, eGift issuance, a nightly settlement job, flaky third-party mocks —
-wrapped in metrics, logs, traces, dashboards, alerts, ticketing and an AI incident assistant.
+**What this is.** A simulated payments platform — card activation, eGift issuance, a nightly
+settlement job, flaky third-party mocks — built over twenty days to practise modern production
+operations end to end: observability, SLOs, CI/CD, incident response, auto-remediation with a
+tiered safety policy, infrastructure as code, and AI-assisted operations with a graded
+evaluation record. It runs on Kubernetes on a laptop (kind, Windows + WSL2) and, from the same
+code, on AWS (EKS), where it is created in the morning and destroyed by dinner. Every day of the
+series was corrected against the running lab, and the corrections are in the repo next to the
+work (`CORRECTIONS-DAY*.md`).
 
-**Host:** Windows + WSL2 Ubuntu · **Cluster:** kind · **Context:** `kind-bhn-sim`
+## Architecture
 
-> The test for this runbook: *if my laptop died tonight, could I rebuild from this file?*
-> Since Day 13: `03-cluster-up.sh`, `./infra/local/tf.sh apply` (the platform layer), the
-> secret scripts, one Jenkins build per service — see "Who owns what". Audited against the
-> running lab on Day 14 (`./scripts/141-readme-audit.sh`); re-audit after every intense week.
+```mermaid
+flowchart LR
+  subgraph traffic["Load"]
+    LG1["12-loadgen (activation)"]
+    LG2["33-loadgen (egift orders)"]
+  end
+  subgraph biz["Business services (namespace payments)"]
+    ACT["activation API<br/>fraud + issuer mocks"]
+    EG["egift API<br/>activate → send_email"]
+    SET["settlement CronJob<br/>*/5, self-checking"]
+    EG -->|"HTTP"| ACT
+  end
+  subgraph obs["Observability plane"]
+    PROM["Prometheus + Pushgateway<br/>recording rules, SLO burn rates"]
+    GRAF["Grafana<br/>Platform Overview, health score,<br/>deploy annotations"]
+    TEMPO["Tempo (traces, OTLP)"]
+    LOGS["Splunk (kind) / CloudWatch (EKS)<br/>Fluent Bit"]
+    NR["New Relic (kind, remote-write)"]
+  end
+  subgraph inc["Incident plane"]
+    AM["Alertmanager<br/>severity → page / ticket / null"]
+    BOT["incident-bot<br/>tickets · 3 collectors · AI drafts"]
+    KB["kb/ (ConfigMap)<br/>7 patterns, tiers"]
+    REM["remediator<br/>tier 1 auto · tier 2 approve · tier 3 human"]
+    COP["copilot (CLI)<br/>read-only hands"]
+    REP["daily report<br/>07:00, 250 words"]
+  end
+  subgraph deliv["Delivery plane"]
+    JEN["Jenkins<br/>deploy-service · drift check · daily report"]
+    TF["Terraform<br/>infra/local · infra/aws/{env,eks,platform}"]
+    ECR["ECR → EKS (us-east-2)<br/>Pod Identity, SPOT"]
+  end
+  LG1 --> ACT
+  LG2 --> EG
+  biz -->|"metrics"| PROM
+  biz -->|"spans"| TEMPO
+  biz -->|"JSON logs"| LOGS
+  PROM --> GRAF
+  PROM -->|"keep-list"| NR
+  PROM -->|"alerts"| AM
+  AM -->|"webhook"| BOT
+  AM -->|"webhook"| REM
+  BOT --> KB
+  BOT -.->|"reads"| PROM
+  BOT -.->|"reads"| GRAF
+  BOT -.->|"reads"| LOGS
+  REM -->|"notes, actions"| BOT
+  COP -.->|"reads"| BOT
+  COP -.->|"reads"| PROM
+  COP -.->|"reads"| LOGS
+  REP -.->|"reads"| BOT
+  JEN -->|"build · verify · rollback"| biz
+  JEN -->|"annotates"| GRAF
+  TF -->|"platform layer"| obs
+  TF --> ECR
+  JEN -->|"plan nightly"| TF
+```
+
+Solid arrows carry data or control; dotted arrows are read-only hands. Nothing on the incident
+plane holds a credential it can act with beyond its tier: the bot reads, the copilot reads, the
+remediator has exactly the verbs its signatures name (`docs/remediation-policy.md`).
+
+## The numbers
+
+Twenty-two incidents, two game days, two clusters, ten graded AI evaluations, seven KB entries,
+one KPI table with a trend (`docs/ops-kpis.md`). What moved, week over week:
+
+- **Detection.** Week 1: two of six incidents were found by a person watching a dashboard, and
+  one silent failure only because a "good thing stopped happening" rule existed. From Day 8 on:
+  **every incident alerted** — 2–4 minutes on kind, **3 m 35 s / 3 m 40 s / 2 m 49 s** on EKS at
+  game day 2 — and became a ticket **15 seconds** later, every time. The one class that cannot
+  alert (a change made outside the pipeline) is caught nightly by the drift check.
+- **Diagnosis.** Day 3: ten minutes of hand-written Splunk searches. Day 10: the right cause on
+  the ticket **43 seconds** after the alert, from three sources. Day 11: the copilot found it
+  **31 seconds before the alert fired**. Day 17: the same fault with the knowledge base in the
+  prompt — cited by id, confidence *high*, every suggested check real. Day 19: kb-003 cited at
+  high confidence on a cloud ticket, decided by CloudWatch rows.
+- **Recovery.** Day 6: a manual rollback, minutes at a keyboard. Day 12: one human decision —
+  **35 s** to read a proposal and type `approve` — **389 s** end to end; the tier-1 re-runs
+  needed no human at all. Day 19: the settlement crash handled with **zero operator actions**
+  (two automated re-runs, a vendor reset, a clean run, the ticket closed by its rule).
+- **The honest lines.** Time-to-resolve is bounded by alert windows, not by fixes (fix → healthy
+  is seconds; fix → resolved is 2–15 min). The AI got things wrong on the record — an invented
+  procedure, a rollback blamed for the outage it fixed, a wrong lead from baseline noise, a KB
+  entry with a wrong sentence in it — and each is in `docs/ai-eval.md` with the change made in
+  response. The platform still cannot see a `kubectl set env`; three incidents say so.
+- **Infrastructure.** Laptop rebuild: ~30 min of command replay. Cloud rebuild from code:
+  **121 min** wall clock, of which 55 were machines and the rest one failed phase and a person.
+  The AWS week cost about ten dollars (`docs/aws-costs.md`).
+
+## Where to look
+
+| If you want to see… | go to |
+|---|---|
+| **judgment** — what happened, what was decided, what was wrong | [`incidents/`](incidents/) (INC-0001 … INC-0022, with diagnosis transcripts) and [`gameday/`](gameday/) (two exercises: scenario, timeline, retro) |
+| **the honest record of the AI** — ten evals, the failures kept, the prompt changes each caused | [`docs/ai-eval.md`](docs/ai-eval.md) · [`docs/copilot-transcripts/`](docs/copilot-transcripts/) |
+| **the distilled patterns** the platform reasons from | [`kb/`](kb/) — seven entries with symptoms, discriminating checks, fix, tier, provenance |
+| **the numbers** and how each is measured | [`docs/ops-kpis.md`](docs/ops-kpis.md) · [`docs/slos.md`](docs/slos.md) · [`docs/alert-audit.md`](docs/alert-audit.md) |
+| **the safety design** for automation | [`docs/remediation-policy.md`](docs/remediation-policy.md) · [`services/remediator/signatures.py`](services/remediator/signatures.py) |
+| **infrastructure as code**, local and AWS | [`infra/`](infra/) · [`docs/eks-notes.md`](docs/eks-notes.md) (differences with evidence, papercuts) · [`docs/aws-costs.md`](docs/aws-costs.md) |
+| **a 15-minute demo** from a cold laptop | [`docs/demo.md`](docs/demo.md) (`./scripts/201-demo.sh` drives it, timed) |
+| **the series**, day by day, with what the guide got wrong | [`docs/series/README.md`](docs/series/README.md) · [`docs/series-retro.md`](docs/series-retro.md) |
+| **what comes next** | [`docs/first-90-days.md`](docs/first-90-days.md) — the plan, two humility rules, the gap list |
+
+## Standing habits
+
+Written here because this is the file that gets opened. **Friday drill** — one fault, twenty
+minutes (`./scripts/173-kb-drill.sh`, or one of the `1x2`/`1x3` drills), keeps every loop warm
+and the KB honest. **Feed the KB** — every incident write-up ends with the entry it changed
+(Day 17's rule; INC-0021 fixed two). **Read the daily report** — `reports/daily/`, the 07:00
+job; if it says something you did not know, that is the point. **Warm-start AWS monthly** —
+`./scripts/190-eks-warm-start.sh` → one drill → `167 --all`; the muscle and the credentials
+both expire, and it costs about four dollars.
+
+---
+
+# Runbook
+
+*Everything below is the operator's manual, written as the lab was built. The test for it: if
+my laptop died tonight, could I rebuild from this file?* Since Day 13: `03-cluster-up.sh`,
+`./infra/local/tf.sh apply` (the platform layer), the secret scripts, one Jenkins build per
+service — see "Who owns what". Audited against the running lab on Day 14
+(`./scripts/141-readme-audit.sh`); re-audit after every intense week.
+
+**Host:** Windows + WSL2 Ubuntu · **Cluster:** kind · **Context:** `kind-bhn-sim` (EKS: `aws-lab`)
 
 ---
 
@@ -303,18 +429,7 @@ Run `./scripts/02-verify.sh` to regenerate `checkpoints/day1-versions.txt`.
 
 ## Log
 
-| Day | Topic | Done |
-|---|---|---|
-| 1 | Incident response lab | ☐ |
-| 2 | First service + dashboard | ☐ |
-| 3 | Logs, Splunk, first alert | ☐ |
-| 4 | Second service + tracing | ☐ |
-| 5 | SLOs and silent failure | ☐ |
-| 6 | CI/CD, bad deploy, rollback | ☐ |
-| 7 | Health score and first fix | ☐ |
-| 8 | Alert routing + incident bot | ☐ |
-| 9 | AI summaries and comms | ☐ |
-| 10 | Context-enriched alerts, first AI diagnosis | ☐ |
+The day-by-day record moved to [`docs/series/README.md`](docs/series/README.md) on Day 20 — twenty rows, one line each, with the corrections file for every day.
 
 ---
 
@@ -493,6 +608,7 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 
 ## Docs
 
+- **[DAY20.md](DAY20.md)** · **[CORRECTIONS-DAY20.md](CORRECTIONS-DAY20.md)** · **[docs/series/README.md](docs/series/README.md)** · **[docs/demo.md](docs/demo.md)** · **[docs/first-90-days.md](docs/first-90-days.md)** · **[docs/series-retro.md](docs/series-retro.md)**
 - **[DAY1.md](DAY1.md)** · **[CORRECTIONS-DAY1.md](CORRECTIONS-DAY1.md)**
 - **[DAY2.md](DAY2.md)** · **[CORRECTIONS-DAY2.md](CORRECTIONS-DAY2.md)**
 - **[DAY3.md](DAY3.md)** · **[CORRECTIONS-DAY3.md](CORRECTIONS-DAY3.md)**
