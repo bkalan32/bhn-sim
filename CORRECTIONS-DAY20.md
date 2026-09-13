@@ -55,6 +55,14 @@ file at the end — fine for a drill, wrong for a demo driver running it in the 
 now injects and reverts the fault itself, posts "fault injected at" on the ticket so the
 MTTD KPI counts the rehearsal, and reverts on exit if interrupted mid-demo.
 
+## [BUG] B7 — The daily report crashed on the rehearsal's own ticket (found at beat 9)
+
+`daily_report.py` pulled the hypothesis' cause line by splitting on `"\n## 2."`; the
+rehearsal's hypothesis *began* with `## 2.` (no newline before it), the split found nothing,
+`IndexError`, and beat 9 died. Fixed with a regex that finds the section wherever it starts.
+Four days of scheduled briefs never hit it because every earlier hypothesis started with
+`## 1.`; a demo is a test with an audience, and this is what rehearsing it is for.
+
 ## [DESIGN] D1 — The demo is a driven, timed script, not prose
 
 `docs/demo.md` is what you say; `scripts/201-demo.sh` runs the same ten beats with the clock

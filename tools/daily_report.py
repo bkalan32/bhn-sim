@@ -229,6 +229,17 @@ def deploys():
         return {"error": f"no data (deploys: {e})"}
 
 
+def _cause_line(h: str):
+    """First non-empty line under the hypothesis' MOST LIKELY section, or None.
+    Day 20 (found on the demo rehearsal): the header is not always preceded by a newline
+    (the model sometimes starts the draft with it), so a split on "\n## 2." raised IndexError."""
+    m = re.search(r"##\s*2\.?[^\n]*\n(.*?)(?:\n##|\Z)", h, re.S)
+    if not m:
+        return None
+    lines = [l.strip() for l in m.group(1).split("\n") if l.strip()]
+    return lines[0] if lines else None
+
+
 def gather(run_plan=False, days=7):
     now = time.time(); since = now - 86400
     err, recent, open_now = incidents(since)
@@ -238,7 +249,7 @@ def gather(run_plan=False, days=7):
         inc_rows.append({"id": inc["id"], "service": inc.get("service"), "status": inc.get("status"),
                          "opened": inc.get("opened_at_iso"), "duration_min": inc.get("duration_min"),
                          "alerts": inc.get("alerts", []), "remediation": rem_by_inc.get(inc["id"], ["tier 3 / none recorded"]),
-                         "hypothesis_cause": ([l.strip() for l in (inc.get("ai_hypothesis") or "").split("\n## 2.")[1].split("\n")[1:6] if l.strip()][:1] if "## 2." in (inc.get("ai_hypothesis") or "") else None)})
+                         "hypothesis_cause": _cause_line(inc.get("ai_hypothesis") or "")})
     try:
         k = kpis.summary(days)
     except Exception as e:  # noqa: BLE001
