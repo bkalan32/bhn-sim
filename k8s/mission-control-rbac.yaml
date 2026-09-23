@@ -1,0 +1,91 @@
+# mission-control — READ-ONLY access to the platform namespaces (Day 21, Step 3).
+# "Read everything in payments/monitoring/tracing/logging" (the PDF), and write nothing here.
+# Applied by scripts/210-mc-config.sh (kubectl apply, no -n): the pipeline deploys with
+# `-n payments` and cannot carry objects for other namespaces.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mission-control-read
+  namespace: monitoring
+  labels: {app: mission-control}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mission-control-read
+  namespace: monitoring
+  labels: {app: mission-control}
+subjects:
+  - kind: ServiceAccount
+    name: mission-control
+    namespace: payments
+roleRef:
+  kind: Role
+  name: mission-control-read
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mission-control-read
+  namespace: tracing
+  labels: {app: mission-control}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mission-control-read
+  namespace: tracing
+  labels: {app: mission-control}
+subjects:
+  - kind: ServiceAccount
+    name: mission-control
+    namespace: payments
+roleRef:
+  kind: Role
+  name: mission-control-read
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mission-control-read
+  namespace: logging
+  labels: {app: mission-control}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mission-control-read
+  namespace: logging
+  labels: {app: mission-control}
+subjects:
+  - kind: ServiceAccount
+    name: mission-control
+    namespace: payments
+roleRef:
+  kind: Role
+  name: mission-control-read
+  apiGroup: rbac.authorization.k8s.io

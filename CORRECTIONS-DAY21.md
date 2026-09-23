@@ -24,7 +24,9 @@ The PDF's stack lists SQLModel + aiosqlite for Mission Control. The bot and the 
 threaded (drafts, enrichment and actions run in background threads by design, Day 9 B1), have two
 tables each, and already shipped without an ORM. `store.py` / `state.py` use `sqlite3` with one
 connection per thread, WAL (readers never block the webhook) and a 5 s busy timeout. Mission
-Control, which is async end to end, is where the PDF's stack fits; it gets it in Step 2.
+Control is async end to end, so it uses **aiosqlite** — but not SQLModel: two tables (audit,
+approvals) and one of them append-only do not need an ORM, and the single-use token is one
+`DELETE … RETURNING` that an ORM would only hide.
 
 ### [DESIGN] D2 — The load generators are ONE Deployment with TWO containers
 
@@ -119,4 +121,60 @@ days from now does not silently change your Kubernetes version mid-series."* The
 `image:` line; both clusters today got v1.37.0 only because the installed kind defaults to it.
 Now pinned by digest (the image the rebuild ran on). A comment describing code that is not there
 is worse than no comment: it is a claim nobody re-checks.
+
+---
+
+## Steps 2–5 — the API
+
+### [BUG] B5 — The PDF's port map assumes one DNS; the lab has two
+
+The PDF lists Jenkins at `:8080` and Splunk at `:8089` next to in-cluster Services as if all were
+reachable by name. Jenkins and Splunk are Docker containers on the `kind` network, not pods:
+kind's CoreDNS cannot resolve their container names (the reason the bot has carried Splunk's IP
+in `enrich-config` since Day 10). `scripts/210-mc-config.sh` renders Jenkins's container IP into
+`secret/mission-control-config` and repairs it when a Docker restart moves it. From the laptop,
+Jenkins stays `localhost:8081`.
+
+### [DESIGN] D4 — Mission Control's read access outside `payments` ships separately
+
+The PDF gives it "read everything in payments/monitoring/tracing/logging". The pipeline applies a
+service's manifest with `kubectl -n payments`, and kubectl refuses objects whose namespace
+differs. So `k8s/mission-control.yaml` holds everything in `payments` (ServiceAccount, the write
+Role, PVC, Deployment, Service, ServiceMonitor — the pipeline's door) and
+`k8s/mission-control-rbac.yaml` the three read-only Roles elsewhere, applied once by `210`.
+Permissions outside a service's namespace are a platform decision, not a deploy-time one.
+
+### [DESIGN] D5 — The "third receiver" is a third webhook on the existing receiver
+
+Same reason as Day 12's fan-out to the remediator: a second route could drift from the first
+(one of them gets a new matcher, the other does not, and the feed silently shows less than the
+tickets). One route, one receiver, three webhooks: bot, remediator, mission control. Applied
+through Terraform (`k8s/kps-values.yaml`) — after mission control is deployed, or Alertmanager
+retries a URL that does not exist yet.
+
+### [DESIGN] D6 — Who may approve: people, by entrance; the same person may request and approve
+
+`HUMAN_ENTRANCES = button | command | api`. A request with `X-Entrance: copilot` or `mcp` can
+create a tier-2 approval and is refused (403, and an audit row saying so) if it tries to approve
+or decline one. With one operator, the requester and the approver are the same person; the audit
+row records both names and the entrance each came through, so a two-person rule is one `if`
+away when there are two people.
+
+### [DESIGN] D7 — The event stream accepts its token in the URL; nothing else does
+
+The browser's `EventSource` cannot send an `Authorization` header. `GET /api/events` alone also
+accepts `?access_token=`. Tokens in URLs end up in access logs and browser history: uvicorn runs
+with `--no-access-log`, the feed is read-only, and it is the only route with the exception.
+
+### [DESIGN] D8 — `/hooks/alertmanager` has no bearer token and can never act
+
+Alertmanager can send credentials, but the hook is display-only: it publishes to the feed and
+nothing on that code path reaches the catalog. It is reachable only inside the cluster
+(ClusterIP, no NodePort). The worst a forged notification can do is draw a false alert on the
+screen — which is also what a real one looks like until you open the incident.
+
+### [NOTE] N6 — `/api/chat`, `/api/eval`, `/api/kpis` answer 501 until Days 23–24
+
+They exist in the route table because the UI will call them; they say "not built yet — Day N"
+instead of returning an empty 200 that a screen could mistake for "no data".
 

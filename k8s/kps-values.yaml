@@ -69,6 +69,14 @@ alertmanager:
           - url: "http://remediator.payments:8030/alertmanager"
             send_resolved: true
             max_alerts: 0
+          # Day 21: the same notification, a third time, to Mission Control's live feed
+          # (/hooks/alertmanager -> the SSE stream). Display only: nothing on that path can act.
+          # Same receiver, same route — the PDF's "third receiver" as a third webhook, for the
+          # Day 12 reason: a second route could drift from the first. Deploy mission-control
+          # BEFORE applying this, or Alertmanager retries a URL that does not exist yet.
+          - url: "http://mission-control.payments:8040/hooks/alertmanager"
+            send_resolved: true
+            max_alerts: 0
 
 # Day 13 (CORRECTIONS-DAY13 B10): with no adminPassword, the Grafana subchart renders a
 # RANDOM one and relies on Helm's `lookup` to keep the existing one on upgrade — but

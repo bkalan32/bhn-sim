@@ -1,0 +1,167 @@
+# mission-control — the control plane API (Day 21) and, from Day 22, the UI it serves.
+# Shipped by the pipeline like every service: Jenkins deploy-service SERVICE=mission-control.
+#
+# Its read-only Roles in monitoring / tracing / logging live in k8s/mission-control-rbac.yaml,
+# applied once by scripts/210-mc-config.sh — the pipeline applies with `-n payments`, and a
+# manifest carrying objects for other namespaces cannot go through that door (CORRECTIONS-DAY21).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mission-control
+  namespace: payments
+  labels: {app: mission-control}
+---
+# What the catalog's executors need in payments, and nothing else (Step 3). Read everything the
+# screens show; write exactly: patch deployments (rollback, set_fault, scale), create jobs
+# (rerun_settlement), delete pods (crash loops only — the executor checks first), patch the
+# settlement cronjob (its fault knob). NOT: secrets, delete deployments, create pods, anything
+# cluster-wide. scripts/210-mc-config.sh --check asks the API server to prove each line.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mission-control
+  namespace: payments
+  labels: {app: mission-control}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "endpoints", "events", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["kb"]                 # the knowledge base, and no other ConfigMap
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch"]                      # rollout undo, set env, annotate
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch", "update"]     # kubectl scale
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    resourceNames: ["settlement"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mission-control
+  namespace: payments
+  labels: {app: mission-control}
+subjects:
+  - kind: ServiceAccount
+    name: mission-control
+    namespace: payments
+roleRef:
+  kind: Role
+  name: mission-control
+  apiGroup: rbac.authorization.k8s.io
+---
+# The audit log and the approval queue. One replica, Recreate: one writer (db.py).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mission-control-data
+  namespace: payments
+  labels: {app: mission-control}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mission-control
+  namespace: payments
+  labels: {app: mission-control}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: mission-control}
+  template:
+    metadata:
+      labels: {app: mission-control}
+    spec:
+      serviceAccountName: mission-control
+      automountServiceAccountToken: true   # kubectl in the pod authenticates as THIS account
+      securityContext:
+        fsGroup: 10004
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: mission-control-data}
+      containers:
+        - name: mission-control
+          image: mission-control:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {containerPort: 8040, name: http}
+          envFrom:
+            # MC_TOKEN — the bearer token. Missing = every /api/* request is refused (fails closed).
+            - secretRef: {name: mission-control-auth, optional: true}
+            # JENKINS_URL / JENKINS_USER / JENKINS_TOKEN — scripts/210-mc-config.sh
+            - secretRef: {name: mission-control-config, optional: true}
+          env:
+            - {name: NAMESPACE, value: payments}
+            - {name: DATA_DIR, value: /data}
+            - {name: DRY_RUN, value: "false"}
+            # the Day 10 Viewer token, for "deploys today" (Grafana deploy annotations)
+            - name: GRAFANA_TOKEN
+              valueFrom:
+                secretKeyRef: {name: enrich-config, key: GRAFANA_TOKEN, optional: true}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8040}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:                     # generous from the start (CORRECTIONS-REBUILD B7)
+            httpGet: {path: /healthz, port: 8040}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mission-control
+  namespace: payments
+  labels: {app: mission-control}
+spec:
+  selector: {app: mission-control}
+  ports:
+    - {port: 8040, targetPort: 8040, name: http}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mission-control
+  namespace: payments
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels: {app: mission-control}
+  namespaceSelector:
+    matchNames: [payments]
+  endpoints:
+    - {port: http, path: /metrics, interval: 15s}

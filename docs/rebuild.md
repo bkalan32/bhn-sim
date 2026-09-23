@@ -81,6 +81,15 @@ Deployment exists (they would double the traffic).
                                     # that was never up, and the bot's first ticket is about itself
 ```
 
+## 4b. Mission Control (Day 21+)
+
+```bash
+./scripts/210-mc-config.sh            # RBAC outside payments, bearer token, Jenkins API token
+# Jenkins deploy-service SERVICE=mission-control
+./scripts/210-mc-config.sh --check    # 9 yes / 9 no, from the API server
+./infra/local/tf.sh apply             # kps: Alertmanager's third webhook (only after mission-control exists)
+```
+
 ## 5. Proof
 
 ```bash

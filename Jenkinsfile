@@ -19,7 +19,7 @@ pipeline {
   options { timestamps(); disableConcurrentBuilds() }
 
   parameters {
-    choice(name: 'SERVICE', choices: ['activation', 'egift', 'incident-bot', 'settlement', 'remediator', 'loadgen'], description: 'Service to deploy (Day 8: incident-bot is a Deployment with no traffic metric; settlement is a CronJob; Day 12: remediator; Day 21: loadgen — one Deployment, two containers, verified like the bot)')
+    choice(name: 'SERVICE', choices: ['activation', 'egift', 'incident-bot', 'settlement', 'remediator', 'loadgen', 'mission-control'], description: 'Service to deploy (Day 8: incident-bot is a Deployment with no traffic metric; settlement is a CronJob; Day 12: remediator; Day 21: loadgen — one Deployment, two containers, verified like the bot; mission-control — the control plane)')
     string(name: 'CHANGE_CAUSE', defaultValue: 'routine release', description: 'Why this deploy is happening (goes into rollout history and the Grafana annotation)')
     string(name: 'ERROR_THRESHOLD', defaultValue: '10', description: 'Fail Verify if post-deploy error rate (%) exceeds this OR 3x the pre-deploy baseline')
     // Day 12, tier-2 drill ONLY: ship a bad release WITHOUT the pipeline's safety net, so the

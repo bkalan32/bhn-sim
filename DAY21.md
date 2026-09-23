@@ -34,10 +34,40 @@ SQLite *and* after a restart; a proposal survives a remediator restart and canno
 traffic runs from `deployment/loadgen`, the laptop generators are stopped, and
 `loadgen_rate_multiplier` is in Prometheus.
 
-## Steps 2–5 — the API (after Step 1 is green)
+## Steps 2–5 — the API
 
-Step 2 the routes (`/api/overview`, `/api/events` SSE, incidents, approvals, actions, chat, KB,
-reports, KPIs, audit, eval) · Step 3 `actions.py`, the catalog, and mission control's own
-ServiceAccount and Role · Step 4 auth (bearer token from a Secret, `X-Operator`) and the audit
-table · Step 5 the event stream (Alertmanager's third receiver, through Terraform) and health
-scores every 15 s. Written up here as they are built.
+`services/mission-control/`: `app.py` (routes, auth, the one `run_action` path every entrance
+takes), `actions.py` (the catalog — tier, parameters, validator, executor), `db.py` (audit log,
+approval queue), `events.py` (the SSE broker), `config.py`. 21 tests cover what the graduation
+bar checks: 401 without a token, tier 1 runs and is audited, tier 2 does nothing until a human
+approves, a token works once, the copilot/MCP entrances can propose but never approve, bad
+parameters never reach the queue, a slow browser never blocks the feed.
+
+**Ship it (the pipeline, like everything since Day 6):**
+
+1. `./scripts/210-mc-config.sh` — read-only RBAC outside `payments`, the bearer token (into a
+   Secret and `~/.bhn-sim/mc-token`, never printed), your Jenkins API token (Jenkins → your name
+   → Security → API Token → Add). It proves RBAC once the ServiceAccount exists.
+2. Jenkins `deploy-service` → `SERVICE=mission-control`. Verify is the bot's: up 30 s, no restarts.
+3. `./scripts/210-mc-config.sh --check` — the API server's answer: 9 yes, 9 no.
+4. `./infra/local/tf.sh plan` → one change (kps: the third webhook) → `apply`.
+5. `kubectl -n payments port-forward svc/mission-control 8040:8040` (own terminal), then
+   `python3 tools/mc.py overview`.
+
+**The drill that proves Steps 2–5 — the fraud outage, driven through Mission Control:**
+
+| Terminal | Command | What it proves |
+|---|---|---|
+| A | `python3 tools/mc.py events` | the live feed (Step 5) |
+| B | `python3 tools/mc.py run rerun_settlement` | tier 1: runs, audit row, `audit` event in A |
+| B | `python3 tools/mc.py run set_fault target=activation knob=FRAUD_SVC_DOWN value=true --reason "Day 21 drill"` | tier 2: queued, nothing changes |
+| B | `kubectl -n payments get deploy activation -o jsonpath='{.spec.template.spec.containers[0].env}'` | still `FRAUD_SVC_DOWN=false` |
+| B | `python3 tools/mc.py approvals` then `approve <token>` | the second click; audit row with the token |
+| A | watch | `ActivationHighErrorRate` arrives as an `alert` event (~2–3 min) |
+| B | `python3 tools/mc.py run set_fault target=activation knob=FRAUD_SVC_DOWN value=false --reason revert` + approve | the fix has the same ceremony |
+| B | `python3 tools/mc.py audit` | the whole drill, in order, with names and tokens |
+
+**Done when:** `./scripts/218-checkpoint-day21.sh` passes — chores shipped, one JSON overview under
+2 s, 401 without a token, a tier-1 and an approved tier-2 row in the audit log, a tier-2 request
+that changes nothing until approved, a declined token dead, RBAC forbidding `kubectl delete
+deployment` from inside the pod, the third webhook live, the feed fed, the plan clean.
