@@ -141,6 +141,12 @@ service — see "Who owns what". Audited against the running lab on Day 14
 
 ## Rebuild from zero
 
+> **To rebuild today's lab, use [`docs/rebuild.md`](docs/rebuild.md)** — tested for real on
+> 23 Sep 2026 after a Docker wipe; about an hour, with `scripts/135-platform-from-zero.sh`
+> doing the platform layer in the order an empty cluster needs. The day-by-day replay below
+> is how the lab was *built*; since Day 13 (Terraform) and Day 6 (Jenkins) it no longer
+> rebuilds it on its own. What broke on the real rebuild: `CORRECTIONS-REBUILD.md`.
+
 ```powershell
 # PowerShell (admin), once
 wsl --install -d Ubuntu-24.04          # then reboot
@@ -293,9 +299,10 @@ Two owners for one object is how fights start: the `payments` Namespace moved ou
 `k8s/activation.yaml` on Day 13 for that reason. "Who do I call about this layer?" is an
 incident-response question; this table is the answer.
 
-**Rebuild estimate.** Day 1 said 30 minutes of command replay. Now: `03-cluster-up.sh`,
-`./infra/local/tf.sh apply` (the whole platform layer, ~5 min), the secrets scripts, then one
-Jenkins build per service. State is local (`infra/local/terraform.tfstate`, gitignored — state
+**Rebuild estimate.** Day 1 said 30 minutes of command replay. Measured on 23 Sep 2026 after a
+real Docker wipe: one afternoon the first time, about an hour now that `135` knows the order
+(`docs/rebuild.md`) — cluster + containers, `135` (namespaces, secrets, CRDs, the six releases),
+the secrets scripts, then one Jenkins build per service (two for the services that need traffic). State is local (`infra/local/terraform.tfstate`, gitignored — state
 is not code, and after `134` it holds no secret); in a company it lives in a remote backend with locking, same shape.
 
 **The infrastructure story in two numbers (Day 19).** Laptop stack, Day 1: **~30 minutes**

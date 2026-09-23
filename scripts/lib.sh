@@ -46,7 +46,7 @@ require_wsl() {
 require_docker() {
   have docker || die "docker CLI not found. Install Docker Desktop on Windows, then enable
        Settings > Resources > WSL Integration for this distro. See DAY1.md Step 2."
-  if ! docker info >/dev/null 2>&1; then
+  if ! timeout 15 docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
     die "Docker CLI is installed but the daemon is unreachable.
        Start Docker Desktop on Windows and make sure WSL Integration is ON for this distro."
   fi

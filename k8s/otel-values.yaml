@@ -9,7 +9,7 @@ image:
   repository: otel/opentelemetry-collector-k8s
 resources:
   requests: {cpu: 50m, memory: 96Mi}
-  limits:   {cpu: 500m, memory: 256Mi}
+  limits:   {cpu: "1", memory: 256Mi}   # rebuild: 500m throttled startup under load
 # The chart's default config carries jaeger/zipkin receivers and a debug exporter.
 # `config:` MERGES with those defaults; the traces pipeline below replaces the default
 # one. The leftover logs/metrics pipelines are harmless.
@@ -35,3 +35,21 @@ config:
         receivers: [otlp]
         processors: [memory_limiter, batch]
         exporters: [otlp/tempo]
+
+# Rebuild (23 Sep 2026): the chart's default probes give the collector ONE second to answer
+# on :13133, from the moment the container starts. On a busy node (load 66 on 8 CPUs, the
+# control plane losing its leader leases) it started in ~2 s and answered late; the kubelet
+# read "slow" as "dead" — 7 restarts in 70 min, each restart more CPU on a starved node.
+# Day 13's Fluent Bit lesson, second service: a probe is a claim about how fast a healthy
+# process answers under the WORST load it will see, not on an idle laptop.
+# The 500m CPU limit also throttled its start (Go runtime + config load on a CFS quota).
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 6
+readinessProbe:
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3

@@ -9,7 +9,7 @@ source "$(dirname "$0")/lib.sh"
 CHECK_ONLY=0; [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
 
 step "Docker"
-if ! docker info >/dev/null 2>&1; then
+if ! timeout 15 docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
   die "Docker daemon unreachable. Start Docker Desktop on Windows, wait for the whale to settle, re-run."
 fi
 ok "daemon up"
@@ -134,7 +134,7 @@ if [[ -f "$LAB_ROOT/infra/local/terraform.tfstate" ]]; then
       99)  dim "  skipped (UP_SKIP_TF=1) — ./infra/local/tf.sh plan when the VM is quiet" ;;
       124) warn "terraform plan took over 2 min and was stopped — the VM is busy (docker stats); ./infra/local/tf.sh plan later, or UP_SKIP_TF=1 $0" ;;
       0) ok "plan clean — the cluster matches infra/local" ;;
-      2) warn "DRIFT: $(grep -cE 'will be updated' "$LAB_ROOT/infra/local/plan.txt" || true) release(s) differ — $(grep -E 'will be' "$LAB_ROOT/infra/local/plan.txt" | sed -E 's/.*# (helm_release|kubernetes_namespace)\.([a-z_]+).*/\2/' | tr '\n' ' ')"
+      2) warn "DRIFT: $(grep -cE 'will be (updated|created|destroyed|replaced)|must be replaced' "$LAB_ROOT/infra/local/plan.txt" || true) resource(s) differ — $(grep -E 'will be' "$LAB_ROOT/infra/local/plan.txt" | sed -E 's/.*# (helm_release|kubernetes_namespace)\.([a-z_]+).*/\2/' | tr '\n' ' ')"
          say "    after a restart this is usually Fluent Bit's Host line (Splunk moved): ./infra/local/tf.sh plan, read, ./infra/local/tf.sh apply" ;;
       *) warn "terraform plan failed (exit $RC): $(tail -3 "$LAB_ROOT/infra/local/plan.txt" | tr '\n' ' ')" ;;
     esac

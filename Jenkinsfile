@@ -184,6 +184,15 @@ pipeline {
       script {
         if (env.VERIFY_FAILED == 'true') {
           echo "Verify failed — rolling back ${params.SERVICE}"
+          if (env.KIND == 'deployment' && !env.PREV_IMAGE) {
+            // Rebuild (CORRECTIONS-REBUILD B6): a FIRST deploy has no revision to undo to —
+            // `rollout undo` died with "no rollout history found" and a stack trace. Say so,
+            // leave the new pods in place (they are the only copy), and fail the build.
+            echo "FIRST DEPLOY of ${params.SERVICE}: there is no previous revision to roll back to. Build ${env.BUILD_NUMBER} is LEFT RUNNING."
+            echo "  Usual cause on a first deploy: no traffic yet (start the load generator, then deploy again)."
+            echo "  To remove it instead: kubectl -n ${NS} delete deployment/${params.SERVICE}"
+            return
+          }
           if (env.KIND == 'deployment') {
             sh "kubectl -n ${NS} rollout undo deployment/${params.SERVICE}"
             sh "kubectl -n ${NS} rollout status deployment/${params.SERVICE} --timeout=180s"
@@ -197,6 +206,9 @@ pipeline {
           sh "kubectl -n ${NS} annotate ${KIND}/${params.SERVICE} kubernetes.io/change-cause=\"AUTO-ROLLBACK of build ${BUILD_NUMBER}: ${params.CHANGE_CAUSE}\" --overwrite"
           grafanaAnnotate("rollback", "AUTO-ROLLBACK build ${env.BUILD_NUMBER}: ${params.CHANGE_CAUSE}")
           echo "ROLLED BACK ${params.SERVICE} to ${env.PREV_IMAGE ?: 'previous revision'}"
+        } else if (env.APPLIED == 'true' && env.KIND == 'deployment' && !env.PREV_IMAGE) {
+          echo "FIRST DEPLOY of ${params.SERVICE} never became ready, and there is no previous revision to roll back to."
+          echo "  Read the failing pod: kubectl -n ${NS} describe pod -l app=${params.SERVICE}; kubectl -n ${NS} logs -l app=${params.SERVICE} --previous"
         } else if (env.APPLIED == 'true' && env.KIND == 'deployment') {
           // Day 17 B10: applied, but the rollout never became ready. The service is DOWN
           // (Recreate). Roll back to the previous revision and prove it is serving.

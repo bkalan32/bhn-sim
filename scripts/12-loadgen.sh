@@ -28,6 +28,17 @@ step "Ensuring the NodePort service exists"
 k apply -f "$LAB_ROOT/k8s/activation-nodeport.yaml" >/dev/null
 ok "svc/activation-nodeport -> nodePort 30080"
 
+step "Is anything behind it?"
+# Rebuild (CORRECTIONS-REBUILD B5): with no activation pods the NodePort refuses connections
+# exactly like a cluster with no 30080 host mapping, and this script used to blame the
+# mapping and fall back to :8000 (which Splunk's web UI holds). Ask for endpoints first.
+EP=$(k get endpoints activation-nodeport -n "$PAYMENTS_NS" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
+[[ -n "$EP" ]] || die "no activation pods behind the NodePort yet — nothing to send traffic to.
+       Deploy activation first (Jenkins deploy-service SERVICE=activation; on a first deploy
+       tick SKIP_VERIFY), then re-run this. A first deploy's Verify needs traffic; traffic
+       needs a first deploy — SKIP_VERIFY once breaks the loop."
+ok "endpoints: $EP"
+
 step "Testing the NodePort path"
 URL=""
 for _ in $(seq 1 10); do

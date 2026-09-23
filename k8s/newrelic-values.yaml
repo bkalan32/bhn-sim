@@ -15,12 +15,20 @@ global:
   # for a lab it is free money, in a company it is the knob you noticed (PDF, Step 1).
   lowDataMode: true
 
+# REBUILD (23 Sep 2026) — the three agent charts are OFF. On the rebuilt kind node the
+# lab hit load 66 on 8 CPUs twice in one afternoon; the control plane lost its leader leases,
+# the Docker socket queued behind it, and nri-kubelet was the heaviest single process on the
+# node (73 % of a CPU) for a cluster view Grafana and Splunk already give us. What Day 17
+# actually earned stays ON: the business metrics reach New Relic by REMOTE WRITE from our
+# Prometheus (k8s/kps-values-newrelic.yaml) — no agent involved. The release, the namespace
+# and secret/newrelic-license stay, so bringing the agents back is flipping these to true.
+
 # Cluster metrics: nodes, pods, containers, the control plane. The bundle's own
 # kube-state-metrics stays OFF (the chart default) — kube-prometheus-stack already runs one,
 # and nri-kubernetes discovers it by its app.kubernetes.io/name label (CORRECTIONS-DAY17 B3:
 # the guided install turns it on and you get two KSMs scraping the same API server).
 newrelic-infrastructure:
-  enabled: true
+  enabled: false   # rebuild: off — see the header note
   privileged: true            # kind nodes are containers; the unprivileged mode cannot read them
   common:
     config:
@@ -30,13 +38,13 @@ kube-state-metrics:
 
 # Kubernetes events -> New Relic (the "what changed" feed; cheap and useful)
 nri-kube-events:
-  enabled: true
+  enabled: false   # rebuild: off — see the header note
 
 # Container logs -> New Relic. The guided install ships EVERY container log on the
 # cluster: Prometheus, Grafana, CoreDNS, its own agents. Day 3 B4, again: tail the payments
 # namespace only. (100 GB/month free; the lab's payments logs are ~50 MB/day.)
 newrelic-logging:
-  enabled: true
+  enabled: false   # rebuild: off — see the header note
   lowDataMode: true
   fluentBit:
     path: /var/log/containers/*_payments_*.log

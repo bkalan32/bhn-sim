@@ -26,8 +26,8 @@ if [[ -z "${TF_VAR_splunk_hec_tls:-}" && -f "$VALUES" ]]; then
 fi
 export TF_VAR_splunk_hec_tls="${TF_VAR_splunk_hec_tls:-On}"
 if [[ -z "${TF_VAR_splunk_ip:-}" ]]; then
-  TF_VAR_splunk_ip="$(docker inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' splunk 2>/dev/null || true)"
-  [[ -n "$TF_VAR_splunk_ip" ]] || { echo "tf.sh: splunk container not running (docker start splunk) and no TF_VAR_splunk_ip" >&2; exit 1; }
+  TF_VAR_splunk_ip="$(timeout 15 docker inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' splunk 2>/dev/null || true)"
+  [[ -n "$TF_VAR_splunk_ip" ]] || { echo "tf.sh: no Splunk IP after 15 s — splunk not running (docker start splunk), or the Docker CLI is not answering (timeout 10 docker version); or set TF_VAR_splunk_ip" >&2; exit 1; }
   export TF_VAR_splunk_ip
 fi
 
