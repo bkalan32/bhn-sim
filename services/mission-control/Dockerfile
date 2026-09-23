@@ -1,4 +1,15 @@
-# mission-control — Day 21. FastAPI + kubectl (pinned to the cluster's minor, argv lists only).
+# mission-control — Day 21 API + Day 22 UI. One image ships both (PDF stack section).
+
+# ---- stage 1: the UI. React + Vite + TypeScript -> static files. `npm run build` type-checks
+# first, so a type error fails the pipeline's Build stage, not the browser.
+FROM node:24-slim AS ui
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY ui/ ./
+RUN npm run build
+
+# ---- stage 2: the API. FastAPI + kubectl (pinned to the cluster's minor, argv lists only).
 FROM python:3.12-slim
 
 # kubectl: the executors' hands. The ServiceAccount's Role (k8s/mission-control.yaml) is the
@@ -15,11 +26,14 @@ WORKDIR /app
 COPY requirements.lock.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py actions.py config.py db.py events.py ./
+# The built UI only — no node, no node_modules in the running image.
+COPY --from=ui /ui/dist /app/ui/dist
 
 ARG APP_VERSION=0.1
 ENV APP_VERSION=${APP_VERSION} \
     PYTHONUNBUFFERED=1 \
-    DATA_DIR=/data
+    DATA_DIR=/data \
+    UI_DIR=/app/ui/dist
 RUN mkdir -p /data && chown appuser:appuser /data
 USER appuser
 EXPOSE 8040

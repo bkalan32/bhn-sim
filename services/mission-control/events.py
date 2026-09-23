@@ -11,8 +11,11 @@ Event kinds (the `event:` field of the SSE message):
   alert     from Alertmanager's webhook (/hooks/alertmanager): status, alertname, service,
             severity, startsAt — one event per alert in the notification
   audit     every audit row as it is written (so a button press in one tab shows in another)
-  approval  created / approved / declined / expired
+  approval  created / approved / declined / expired — and (Day 22) `proposed`, when the
+            remediator queues one of its own (seen by the poller)
   health    the four health scores, every 15 s (the poller in app.py)
+  incident  (Day 22) opened / resolved — the poller diffs the bot's open list every 15 s
+  deploy    (Day 22) a new deploy/rollback annotation the pipeline wrote to Grafana
 
 The heartbeat is sse-starlette's `ping` (a comment line every 15 s): `kubectl port-forward`
 and most proxies close a stream that has been silent for a while (PDF troubleshooting note).
@@ -22,7 +25,7 @@ import asyncio
 import itertools
 import time
 
-KINDS = ("hello", "alert", "audit", "approval", "health")
+KINDS = ("hello", "alert", "audit", "approval", "health", "incident", "deploy")
 
 
 class Broker:

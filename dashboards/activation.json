@@ -76,7 +76,8 @@
         "y": 0
       },
       "collapsed": false,
-      "panels": []
+      "panels": [],
+      "id": 1
     },
     {
       "type": "stat",
@@ -140,7 +141,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "id": 2
     },
     {
       "type": "stat",
@@ -208,7 +210,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "id": 3
     },
     {
       "type": "stat",
@@ -276,7 +279,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "id": 4
     },
     {
       "type": "timeseries",
@@ -342,7 +346,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 5
     },
     {
       "type": "timeseries",
@@ -408,7 +413,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 6
     },
     {
       "type": "timeseries",
@@ -496,7 +502,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 7
     },
     {
       "type": "timeseries",
@@ -562,7 +569,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 8
     },
     {
       "type": "timeseries",
@@ -628,7 +636,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 9
     }
   ],
   "refresh": "10s",

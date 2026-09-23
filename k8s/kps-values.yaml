@@ -89,6 +89,20 @@ grafana:
     existingSecret: grafana-admin
     userKey: admin-user
     passwordKey: admin-password
+  # Day 22 (CORRECTIONS-DAY22 D1): Mission Control's Overview embeds golden-signal panels as
+  # iframes (dashboards stay dashboards-as-code). allow_embedding drops X-Frame-Options: deny.
+  # An iframe cannot carry a service-account token, so the panels are read as an ANONYMOUS
+  # VIEWER — acceptable because this Grafana is a ClusterIP reached only through a port-forward
+  # on your own machine; in a company it is SSO (auth.proxy / OIDC) and this block is the swap.
+  # Viewer: can look, cannot edit, cannot see the admin pages. The Viewer SERVICE ACCOUNT from
+  # Day 10 (secret/enrich-config) stays what Mission Control's server side uses.
+  grafana.ini:
+    security:
+      allow_embedding: true
+    auth.anonymous:
+      enabled: true
+      org_name: Main Org.
+      org_role: Viewer
 
 
 # Day 18 (docs/alert-audit.md A1): kind runs kube-scheduler, kube-controller-manager, etcd and

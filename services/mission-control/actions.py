@@ -160,7 +160,10 @@ def _v_fault(p):
 
 
 # --------------------------------------------------------------------- executors --
-async def kubectl(*args, input_json=None) -> tuple[bool, str]:
+async def kubectl(*args, input_json=None, keep: int | None = 1500) -> tuple[bool, str]:
+    """Run an allow-listed verb. Output is trimmed to its last `keep` chars for audit rows;
+    a READ that parses the output (the KB ConfigMap, ~20 KB) passes keep=None — trimming JSON
+    from the front makes it unparseable (CORRECTIONS-DAY22 B1)."""
     argv = [a for a in args if a is not None]
     verb = (argv[0], argv[1].split("/")[0]) if len(argv) > 1 else (argv[0], "")
     if verb not in KUBECTL_VERBS:
@@ -174,7 +177,8 @@ async def kubectl(*args, input_json=None) -> tuple[bool, str]:
     except asyncio.TimeoutError:
         proc.kill()
         return False, "kubectl timed out after 90 s"
-    return proc.returncode == 0, out.decode(errors="replace").strip()[-1500:]
+    text = out.decode(errors="replace").strip()
+    return proc.returncode == 0, text if keep is None else text[-keep:]
 
 
 async def _jenkins(http, job, params=None) -> tuple[bool, str]:

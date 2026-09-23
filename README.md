@@ -429,6 +429,7 @@ Run `./scripts/02-verify.sh` to regenerate `checkpoints/day1-versions.txt`.
 | 30080 | activation NodePort |
 | 30443 | egift NodePort (not HTTPS — the second mapped slot) |
 | 8020 | incident-bot (in-cluster; reach it via `tools/inc.py` / API proxy) |
+| 8040 | **Mission Control** — the UI and its API (port-forward: `./scripts/220-mc-open.sh`) |
 | 3200 | Tempo HTTP (in-cluster; port-forward if needed) |
 | 4317 / 4318 | OTLP gRPC / HTTP |
 
@@ -613,8 +614,21 @@ Since `settlement:0.3` (Day 9) a failed run can no longer overwrite `settlement_
 
 ---
 
+## Mission Control (Days 21–25) — the console
+
+`./scripts/220-mc-open.sh`, then sign in with your name and the token it put on your clipboard.
+One FastAPI service in the cluster serves the API and the React UI; one action catalog, three
+entrances (button, command, copilot), one audit log — `docs/mission-control.md`.
+
+**Auth is deliberately minimal:** one bearer token (`secret/mission-control-auth`) and a name you
+type, for the audit row. In a company this is OIDC through the corporate identity provider, and
+the swap is two places: the `caller()` dependency in `services/mission-control/app.py` and the
+login in `services/mission-control/ui/src/lib/session.ts`. Grafana's embedded panels likewise use
+an anonymous Viewer here and SSO there (`k8s/kps-values.yaml`).
+
 ## Docs
 
+- **[DAY21.md](DAY21.md)** · **[CORRECTIONS-DAY21.md](CORRECTIONS-DAY21.md)** · **[DAY22.md](DAY22.md)** · **[CORRECTIONS-DAY22.md](CORRECTIONS-DAY22.md)** · **[docs/mission-control.md](docs/mission-control.md)** · **[docs/rebuild.md](docs/rebuild.md)**
 - **[DAY20.md](DAY20.md)** · **[CORRECTIONS-DAY20.md](CORRECTIONS-DAY20.md)** · **[docs/series/README.md](docs/series/README.md)** · **[docs/demo.md](docs/demo.md)** · **[docs/first-90-days.md](docs/first-90-days.md)** · **[docs/series-retro.md](docs/series-retro.md)**
 - **[DAY1.md](DAY1.md)** · **[CORRECTIONS-DAY1.md](CORRECTIONS-DAY1.md)**
 - **[DAY2.md](DAY2.md)** · **[CORRECTIONS-DAY2.md](CORRECTIONS-DAY2.md)**

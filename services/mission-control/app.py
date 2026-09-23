@@ -25,7 +25,10 @@ Routes (Step 2)             tier   notes
   GET  /api/kb, /api/kb/search?q=   0
   GET  /api/reports[/{day}]   0;  POST /api/reports/generate  1 = action "generate_report"
   GET  /api/audit             0
-  POST /api/chat, GET/POST /api/eval, GET /api/kpis    501 until Days 23-24 — said, not faked
+  GET  /api/config            0    (Day 22) what the browser needs: public Grafana/Splunk URLs, panels to embed
+  GET  /api/eval, POST /api/eval   0 / 1 (Day 22) thumbs up/down on an AI draft; audited as "rate_draft"
+  POST /api/chat, GET /api/kpis    501 until Days 23-24 — said, not faked
+  GET  /                      the UI (Day 22): the built React app from UI_DIR, with a CSP
 """
 
 import asyncio
@@ -33,6 +36,7 @@ import contextlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import sys
@@ -40,7 +44,8 @@ import time
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 from sse_starlette.sse import EventSourceResponse
 
@@ -74,8 +79,82 @@ http: httpx.AsyncClient | None = None
 
 
 # ---------------------------------------------------------------- lifecycle --
+class _Seen:
+    """What the poller saw last time, so the feed carries only what CHANGED. None = not primed
+    yet: the first pass records the present without announcing it (a restart must not replay
+    every open incident into every tab as 'opened')."""
+    open_incidents: dict | None = None
+    rem_tokens: set | None = None
+    deploy_ms: int | None = None
+
+
+seen = _Seen()
+
+
+async def _watch_incidents():
+    try:
+        cur = {i["id"]: i for i in await _open_incidents()}
+    except Exception:  # noqa: BLE001 — the bot being down is a tile's problem, not the poller's
+        return
+    if seen.open_incidents is not None:
+        for iid, i in cur.items():
+            if iid not in seen.open_incidents:
+                broker.publish("incident", {"event": "opened", **i})
+        for iid, i in seen.open_incidents.items():
+            if iid not in cur:
+                try:
+                    i = {k: v for k, v in (await _get("incident-bot", f"{config.BOT_URL}/incidents/{iid}")).items()
+                         if k in ("id", "status", "service", "severity", "alerts", "resolved_at_iso", "duration_min")}
+                except HTTPException:
+                    pass
+                broker.publish("incident", {"event": "resolved" if i.get("status") == "resolved" else "closed", **i})
+    seen.open_incidents = cur
+
+
+async def _watch_remediator():
+    try:
+        rem = await _get("remediator", f"{config.REM_URL}/pending")
+    except HTTPException:
+        return
+    toks = {p.get("token"): p for p in rem if p.get("token")}
+    if seen.rem_tokens is not None:
+        for t, p in toks.items():
+            if t not in seen.rem_tokens:
+                broker.publish("approval", {"event": "proposed", "source": "remediator", "token": t,
+                                            "action": p.get("action"), "params": {"service": p.get("service")},
+                                            "incident": p.get("incident"), "reason": p.get("rationale")})
+    seen.rem_tokens = set(toks)
+
+
+async def _watch_deploys():
+    if not config.GRAFANA_TOKEN:
+        return
+    now_ms = int(time.time() * 1000)
+    if seen.deploy_ms is None:
+        seen.deploy_ms = now_ms
+        return
+    try:
+        r = await http.get(f"{config.GRAFANA_URL}/api/annotations", params={"from": seen.deploy_ms + 1, "limit": 50,
+                           "type": "annotation"}, headers={"Authorization": f"Bearer {config.GRAFANA_TOKEN}"})
+        r.raise_for_status()
+    except Exception:  # noqa: BLE001
+        UPSTREAM.labels("grafana").inc()
+        return
+    for a in sorted(r.json(), key=lambda a: a.get("time") or 0):
+        tags = a.get("tags") or []
+        if "deploy" in tags or "rollback" in tags:
+            broker.publish("deploy", {"kind": "rollback" if "rollback" in tags else "deploy", "time_ms": a.get("time"),
+                                      "service": next((t for t in tags if t not in ("deploy", "rollback")), None),
+                                      "text": a.get("text")})
+        seen.deploy_ms = max(seen.deploy_ms, int(a.get("time") or 0))
+
+
 async def _health_poller():
     while True:
+        try:
+            await asyncio.gather(_watch_incidents(), _watch_remediator(), _watch_deploys())
+        except Exception as e:  # noqa: BLE001
+            jlog("watch failed", error=str(e))
         try:
             scores = await _health_scores()
             broker.publish("health", scores)
@@ -220,7 +299,7 @@ async def _sparklines():
     end = time.time()
     d = await _get("prometheus", f"{config.PROM_URL}/api/v1/query_range",
                    query='{__name__=~"(activation|egift|settlement|platform):health_score"}',
-                   start=end - 1800, end=end, step=60)
+                   start=end - 3600, end=end, step=60)   # 1 h, one point a minute (Day 22)
     return {r["metric"]["__name__"].split(":")[0]: [round(float(v), 1) for _, v in r["values"]]
             for r in d.get("data", {}).get("result", [])}
 
@@ -300,7 +379,7 @@ async def events(request: Request, c: Caller = Depends(caller)):
 
     async def stream():
         try:
-            yield {"event": "hello", "data": json.dumps({"server_time": time.time(), "kinds": ["alert", "audit", "approval", "health"]})}
+            yield {"event": "hello", "data": json.dumps({"server_time": time.time(), "kinds": ["alert", "audit", "approval", "health", "incident", "deploy"]})}
             while True:
                 if await request.is_disconnected():
                     break
@@ -395,7 +474,7 @@ async def decline(token: str, c: Caller = Depends(writer)):
 
 @app.get("/api/kb")
 async def kb(c: Caller = Depends(caller)):
-    ok, out = await actions.kubectl("get", "configmap", "kb", "-o", "json")
+    ok, out = await actions.kubectl("get", "configmap", "kb", "-o", "json", keep=None)
     if not ok:
         raise HTTPException(502, f"kb: {out[:200]}")
     if config.DRY_RUN:
@@ -406,7 +485,9 @@ async def kb(c: Caller = Depends(caller)):
         if name == "README.md":
             continue
         fm = dict(re.findall(r"^(\w+):\s*(.+)$", text.split("---")[1], re.M)) if text.startswith("---") else {}
-        entries.append({"file": name, "id": fm.get("id"), "title": fm.get("title"), "tier": fm.get("tier"), "markdown": text})
+        entries.append({"file": name, "id": fm.get("id"), "title": fm.get("title"), "tier": fm.get("tier"),
+                        "fix": fm.get("fix"), "services": [x.strip() for x in fm.get("services", "").strip("[]").split(",") if x.strip()],
+                        "markdown": text})
     return entries
 
 
@@ -437,11 +518,46 @@ async def audit(limit: int = 100, action: str | None = None, c: Caller = Depends
     return await db.audit_rows(limit=min(max(limit, 1), 1000), action=action)
 
 
+DRAFTS = ("open", "hypothesis", "resolved")
+
+
+@app.get("/api/eval")
+async def evals(incident: str | None = None, c: Caller = Depends(caller)):
+    return await db.evals(incident=incident)
+
+
+@app.post("/api/eval")
+async def rate_draft(request: Request, c: Caller = Depends(writer)):
+    """A thumbs up/down on an AI draft (Day 22's incident page). Tier 1: it writes MC's own table,
+    not the platform, so it is not a catalog action — but it is audited like one."""
+    body = await request.json()
+    incident, draft, verdict = (body or {}).get("incident", ""), (body or {}).get("draft"), (body or {}).get("verdict")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", incident or ""):
+        raise HTTPException(422, "incident: an incident id")
+    if draft not in DRAFTS:
+        raise HTTPException(422, f"draft: one of {', '.join(DRAFTS)}")
+    if verdict not in ("up", "down"):
+        raise HTTPException(422, "verdict: up or down")
+    row = await db.add_eval(operator=c.operator, incident=incident, draft=draft, verdict=verdict,
+                            comment=str((body or {}).get("comment") or ""), model=(body or {}).get("model"))
+    await _audit(operator=c.operator, action="rate_draft", params={"incident": incident, "draft": draft, "verdict": verdict},
+                 tier=1, entrance=c.entrance, result="ok", detail=row["comment"])
+    return row
+
+
+@app.get("/api/config")
+async def ui_config(c: Caller = Depends(caller)):
+    """Everything the browser needs to build links and iframes. Public addresses only — no secrets."""
+    return {"version": config.VERSION, "grafana_url": config.GRAFANA_PUBLIC_URL, "splunk_url": config.SPLUNK_PUBLIC_URL,
+            "prom_datasource_uid": config.PROM_DATASOURCE_UID, "embed_panels": config.EMBED_PANELS,
+            "metric_queries": config.METRIC_QUERIES, "log_reasons_spl": config.LOG_REASONS_SPL,
+            "dry_run": config.DRY_RUN}
+
+
 @app.api_route("/api/chat", methods=["POST"])
-@app.api_route("/api/eval", methods=["GET", "POST"])
 @app.api_route("/api/kpis", methods=["GET"])
 async def later(request: Request, c: Caller = Depends(caller)):
-    day = {"/api/chat": 23, "/api/eval": 23, "/api/kpis": 24}[request.url.path]
+    day = {"/api/chat": 23, "/api/kpis": 24}[request.url.path]
     return JSONResponse({"detail": f"not built yet — Day {day}"}, status_code=501)
 
 
@@ -476,6 +592,29 @@ async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
+# ---------------------------------------------------------------------- UI --
+# The page itself is public (it is a login form until you give it the token); every byte of
+# DATA behind it is under /api/ and needs the bearer token. The CSP says what the page may load:
+# its own scripts, iframes from Grafana only, fetch/SSE to itself only.
+def _csp() -> str:
+    return ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            f"connect-src 'self'; frame-src {config.GRAFANA_PUBLIC_URL}; frame-ancestors 'none'; base-uri 'none'; "
+            "form-action 'self'")
+
+
+def _ui_ready() -> bool:
+    return os.path.isfile(os.path.join(config.UI_DIR, "index.html"))
+
+
+if _ui_ready() and os.path.isdir(os.path.join(config.UI_DIR, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(config.UI_DIR, "assets")), name="assets")
+
+
 @app.get("/")
 async def root():
-    return {"service": "mission-control", "version": config.VERSION, "ui": "Day 22", "api": "/docs (bearer token required for /api/*)"}
+    if not _ui_ready():
+        return {"service": "mission-control", "version": config.VERSION, "ui": "not built into this image",
+                "api": "/docs (bearer token required for /api/*)"}
+    return FileResponse(os.path.join(config.UI_DIR, "index.html"), headers={
+        "Content-Security-Policy": _csp(), "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer"})

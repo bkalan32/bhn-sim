@@ -51,3 +51,34 @@ with `entrance: copilot` — and may never approve or execute one. That is enfor
 | every parameter validated before it can be queued; knobs allow-listed with ranges | `actions.py validate()` |
 | `/hooks/alertmanager` is display-only and ClusterIP-only | `app.py am_hook()` |
 | tokens never printed; Jenkins credentials on stdin | `210`; `~/.bhn-sim/mc-token` (600) |
+
+## The UI (Day 22)
+
+Served by the same container from `/` (`services/mission-control/ui/`, built in the image's
+first stage). The page is public — it is a login form until you give it a name and the token —
+and every byte of data behind it is under `/api/`.
+
+| Screen | Day | What it is for |
+|---|---|---|
+| Overview | 22 | the ten-second screen: scores + 1 h sparklines, critical alerts, open incidents, deploys, settlement age, the live feed, embedded Grafana panels, the last ten audit rows |
+| Incidents | 22 | the list (open first) and the incident page: context with deep links, hypothesis + KB chips, timeline + note box, actions rail, AI drafts with copy and 👍/👎 |
+| Knowledge Base | 22 | where the KB chips land; read-only (the KB is git + `172-kb.sh`) |
+| Audit | 22 | every tier 1 / tier 2 attempt, any entrance |
+| Copilot | 23 | |
+| Game Day, KPIs & Reports | 24 | |
+
+**On every page:** the pending-approvals banner. Approve there is the human's second click for
+anything waiting — requested by you, by the remediator, or (Day 23) by the copilot.
+
+**Opening it:** `./scripts/220-mc-open.sh` — port-forwards for Mission Control (:8040) and
+Grafana (:3000, the browser loads the embedded panels itself), each reconnecting after a pod
+restart; the token onto the Windows clipboard, never printed; the browser.
+
+**In the browser, the security table continues:**
+
+| Control | Where |
+|---|---|
+| token kept in sessionStorage — this tab only; never localStorage, never a cookie | `ui/src/lib/session.ts` |
+| Content-Security-Policy: scripts and fetch/SSE to itself only, iframes from Grafana only, not frameable | `app.py _csp()` |
+| Grafana panels as an anonymous **Viewer** (an iframe cannot carry a token); admin pages refused | `k8s/kps-values.yaml`, proven by `228` |
+| every write sends `X-Entrance: button` — the audit says which door | `ui/src/lib/api.ts` |

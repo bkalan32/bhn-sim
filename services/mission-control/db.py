@@ -12,6 +12,9 @@ is atomic without extra locking.
   approvals  tier-2 requests waiting for a human: token, action, params, reason, who asked,
              from which entrance, created/expires (30 min). Single-use: approve and decline
              both remove the row in the statement that reads it (take()).
+  evals      (Day 22) a human's verdict on an AI draft — thumbs up/down from the incident page:
+             incident, which draft, verdict, optional comment, who, when. The structured
+             version of docs/ai-eval.md; Day 23 adds the eval screen on top of it.
 
 Deliberately NOT here: incidents (the bot owns them), remediator proposals (the remediator owns
 them). Mission Control shows them; it does not keep a second copy that can disagree.
@@ -49,6 +52,18 @@ CREATE TABLE IF NOT EXISTS approvals (
     created_at REAL NOT NULL,
     expires_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS evals (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         REAL NOT NULL,
+    ts_iso     TEXT NOT NULL,
+    operator   TEXT NOT NULL,
+    incident   TEXT NOT NULL,
+    draft      TEXT NOT NULL,
+    verdict    TEXT NOT NULL,
+    comment    TEXT,
+    model      TEXT
+);
+CREATE INDEX IF NOT EXISTS evals_incident ON evals (incident);
 """
 
 TTL_S = int(os.getenv("APPROVAL_TTL_S", "1800"))
@@ -137,3 +152,21 @@ class DB:
             rows = await cur.fetchall()
         await self.conn.commit()
         return [self._approval(r) for r in rows]
+
+    # ------------------------------------------------------------------ evals --
+    async def add_eval(self, *, operator, incident, draft, verdict, comment="", model=None) -> dict:
+        ts = time.time()
+        cur = await self.conn.execute(
+            "INSERT INTO evals (ts, ts_iso, operator, incident, draft, verdict, comment, model) VALUES (?,?,?,?,?,?,?,?)",
+            (ts, _iso(ts), operator, incident, draft, verdict, (comment or "")[:1000], model))
+        await self.conn.commit()
+        return {"id": cur.lastrowid, "ts_iso": _iso(ts), "operator": operator, "incident": incident, "draft": draft,
+                "verdict": verdict, "comment": (comment or "")[:1000], "model": model}
+
+    async def evals(self, incident=None, limit=200) -> list:
+        q, args = "SELECT * FROM evals", []
+        if incident:
+            q += " WHERE incident = ?"; args.append(incident)
+        q += " ORDER BY id DESC LIMIT ?"; args.append(int(limit))
+        async with self.conn.execute(q, args) as cur:
+            return [dict(r) for r in await cur.fetchall()]

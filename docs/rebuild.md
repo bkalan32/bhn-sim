@@ -88,6 +88,7 @@ Deployment exists (they would double the traffic).
 # Jenkins deploy-service SERVICE=mission-control
 ./scripts/210-mc-config.sh --check    # 9 yes / 9 no, from the API server
 ./infra/local/tf.sh apply             # kps: Alertmanager's third webhook (only after mission-control exists)
+./scripts/220-mc-open.sh              # Day 22: the UI — port-forwards, token to the clipboard, browser
 ```
 
 ## 5. Proof

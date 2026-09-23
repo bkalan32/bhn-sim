@@ -1,0 +1,7 @@
+# The Test stage leaves a venv here; the UI stage runs `npm ci` itself.
+.venv
+__pycache__
+.pytest_cache
+tests
+ui/node_modules
+ui/dist

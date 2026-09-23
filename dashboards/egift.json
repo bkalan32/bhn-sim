@@ -127,7 +127,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "id": 1
     },
     {
       "type": "stat",
@@ -195,7 +196,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "id": 2
     },
     {
       "type": "stat",
@@ -263,7 +265,8 @@
           "fields": "",
           "values": false
         }
-      }
+      },
+      "id": 3
     },
     {
       "type": "timeseries",
@@ -319,7 +322,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 4
     },
     {
       "type": "timeseries",
@@ -375,7 +379,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 5
     },
     {
       "type": "timeseries",
@@ -453,7 +458,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 6
     },
     {
       "type": "timeseries",
@@ -509,7 +515,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 7
     }
   ],
   "refresh": "10s",

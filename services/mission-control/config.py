@@ -36,3 +36,52 @@ KUBECTL = os.getenv("KUBECTL", "kubectl")
 DRY_RUN = _b("DRY_RUN")                    # every action reports what it WOULD do (tests; a safe first deploy)
 HEALTH_POLL_S = float(os.getenv("HEALTH_POLL_S", "15"))
 UPSTREAM_TIMEOUT_S = float(os.getenv("UPSTREAM_TIMEOUT_S", "1.5"))   # the Overview promise: < 2 s
+
+# Day 22 — the UI. Mission Control serves the built React app from UI_DIR (the image's
+# /app/ui; absent in tests and on a Day-21 image, where `/` answers JSON as before).
+UI_DIR = os.getenv("UI_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "dist"))
+
+# Addresses the BROWSER uses — not the pod. Grafana panels are iframes and Splunk/Grafana
+# Explore are deep links: the browser loads them itself, through the port-forwards that
+# scripts/220-mc-open.sh starts (Grafana :3000) and Splunk's published port (:8000).
+GRAFANA_PUBLIC_URL = os.getenv("GRAFANA_PUBLIC_URL", "http://localhost:3000").rstrip("/")
+SPLUNK_PUBLIC_URL = os.getenv("SPLUNK_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+PROM_DATASOURCE_UID = os.getenv("PROM_DATASOURCE_UID", "prometheus")
+
+# The golden-signal panels the Overview embeds (dashboards/*.json; panel ids are pinned in the
+# JSON since Day 22 so these URLs cannot drift when someone reorders a dashboard).
+EMBED_PANELS = [
+    {"dashboard": "bhn-activation", "panel": 5, "title": "Activation — requests by status"},
+    {"dashboard": "bhn-activation", "panel": 6, "title": "Activation — error rate %"},
+    {"dashboard": "bhn-activation", "panel": 7, "title": "Activation — latency percentiles"},
+    {"dashboard": "bhn-egift", "panel": 4, "title": "eGift — orders by status"},
+    {"dashboard": "bhn-egift", "panel": 6, "title": "eGift — p95 by step"},
+]
+
+# The PromQL behind each number in an incident's metrics snapshot — so the incident page can
+# deep-link every number to Grafana Explore. A MIRROR of services/incident-bot/enrich.py QUERIES:
+# tests/test_api.py::test_metric_queries_mirror_the_bot reads the bot's source and fails on drift.
+METRIC_QUERIES = {
+    "activation": {
+        "error_rate_pct": '100 * sum(rate(activation_requests_total{status="error"}[5m])) / clamp_min(sum(rate(activation_requests_total[5m])), 0.001)',
+        "p95_latency_s": 'histogram_quantile(0.95, sum(rate(activation_latency_seconds_bucket[5m])) by (le))',
+        "req_per_s": 'sum(rate(activation_requests_total[5m]))',
+        "health_score": 'activation:health_score',
+        "error_budget_burn_1h": 'activation:error_budget_burn_rate:1h',
+    },
+    "egift": {
+        "error_rate_pct": '100 * sum(rate(egift_orders_total{status="error"}[5m])) / clamp_min(sum(rate(egift_orders_total[5m])), 0.001)',
+        "p95_order_latency_s": 'histogram_quantile(0.95, sum(rate(egift_order_latency_seconds_bucket[5m])) by (le))',
+        "p95_activate_step_s": 'histogram_quantile(0.95, sum(rate(egift_step_latency_seconds_bucket{step="activate"}[5m])) by (le))',
+        "orders_per_s": 'sum(rate(egift_orders_total[5m]))',
+        "health_score": 'egift:health_score',
+    },
+    "settlement": {
+        "minutes_since_success": '(time() - max(settlement_last_success_timestamp)) / 60',
+        "last_records": 'max(settlement_records_processed)',
+        "last_run_status": 'max(settlement_last_run_status)',
+        "health_score": 'settlement:health_score',
+    },
+}
+# The SPL the bot's log collector runs (enrich.top_log_reasons), for the Splunk deep link.
+LOG_REASONS_SPL = "index=main app.service={service} app.status=error | stats count by app.reason | sort -count"

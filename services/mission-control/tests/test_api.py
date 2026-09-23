@@ -166,3 +166,94 @@ def test_overview_degrades_per_tile(client):
 def test_later_days_say_so(client):
     assert client.post("/api/chat", headers=AUTH, json={}).status_code == 501
     assert "Day 24" in client.get("/api/kpis", headers=AUTH).text
+
+
+# ------------------------------------------------------------------ Day 22 --
+def test_eval_rows_are_written_and_audited(client):
+    r = client.post("/api/eval", headers=K, json={"incident": "INC-1-abcd", "draft": "resolved", "verdict": "up"})
+    assert r.status_code == 200 and r.json()["verdict"] == "up"
+    rows = client.get("/api/eval?incident=INC-1-abcd", headers=AUTH).json()
+    assert rows[0]["operator"] == "K" and rows[0]["draft"] == "resolved"
+    audit = client.get("/api/audit?action=rate_draft", headers=AUTH).json()
+    assert audit[0]["params"] == {"draft": "resolved", "incident": "INC-1-abcd", "verdict": "up"}
+
+
+@pytest.mark.parametrize("body", [{"incident": "INC-1", "draft": "poem", "verdict": "up"},
+                                  {"incident": "INC-1", "draft": "open", "verdict": "meh"},
+                                  {"incident": "../etc", "draft": "open", "verdict": "up"}])
+def test_eval_rejects_bad_input(client, body):
+    assert client.post("/api/eval", headers=K, json=body).status_code == 422
+
+
+def test_eval_needs_an_operator(client):
+    assert client.post("/api/eval", headers=AUTH, json={"incident": "INC-1", "draft": "open", "verdict": "up"}).status_code == 400
+
+
+def test_ui_config_is_behind_the_token_and_has_no_secrets(client):
+    assert client.get("/api/config").status_code == 401
+    d = client.get("/api/config", headers=AUTH).json()
+    assert d["grafana_url"].startswith("http") and len(d["embed_panels"]) >= 4
+    assert "token" not in json.dumps(d).lower()
+
+
+def test_root_without_a_built_ui_says_so(client, monkeypatch):
+    monkeypatch.setattr(mc.config, "UI_DIR", "/nonexistent")
+    assert client.get("/").json()["ui"] == "not built into this image"
+
+
+def test_root_serves_the_ui_with_a_csp(client, monkeypatch, tmp_path):
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    monkeypatch.setattr(mc.config, "UI_DIR", str(tmp_path))
+    r = client.get("/")
+    assert r.status_code == 200 and "id=root" in r.text
+    csp = r.headers["content-security-policy"]
+    assert "frame-src http://localhost:3000" in csp and "connect-src 'self'" in csp and "script-src 'self'" in csp
+
+
+def test_poller_announces_changes_not_the_present(monkeypatch):
+    """First pass primes; only a NEW incident is 'opened', a vanished one 'resolved'."""
+    from events import Broker
+    b = Broker(); q = b.subscribe()
+    monkeypatch.setattr(mc, "broker", b)
+    monkeypatch.setattr(mc, "seen", mc._Seen())
+    state = {"open": [{"id": "INC-1", "service": "activation"}]}
+
+    async def fake_open():
+        return state["open"]
+
+    async def fake_get(name, url, **kw):
+        return {"id": url.rsplit("/", 1)[1], "status": "resolved", "duration_min": 4.0, "service": "activation"}
+    monkeypatch.setattr(mc, "_open_incidents", fake_open)
+    monkeypatch.setattr(mc, "_get", fake_get)
+    asyncio.run(mc._watch_incidents())
+    assert q.empty()                                                       # primed, nothing announced
+    state["open"] = [{"id": "INC-2", "service": "egift"}]
+    asyncio.run(mc._watch_incidents())
+    got = [q.get_nowait()["data"] for _ in range(q.qsize())]
+    assert {(e["event"], e["id"]) for e in got} == {("opened", "INC-2"), ("resolved", "INC-1")}
+
+
+def test_metric_queries_mirror_the_bot():
+    """config.METRIC_QUERIES is a copy of the bot's enrich.QUERIES (the deep links must open the
+    query that produced the number). The bot's source is in the same checkout; drift fails here."""
+    import ast
+    src = open(os.path.join(HERE, "..", "..", "incident-bot", "enrich.py")).read()
+    node = next(n for n in ast.parse(src).body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "QUERIES")
+    assert ast.literal_eval(node.value) == mc.config.METRIC_QUERIES
+
+
+def test_kb_route_parses_a_real_sized_configmap(client, monkeypatch, tmp_path):
+    """CORRECTIONS-DAY22 B1: kubectl() trimmed every output to its last 1500 chars (right for audit
+    rows), which cut the ~20 KB KB ConfigMap's JSON from the front — /api/kb was a 500 since Day 21."""
+    kb_dir = os.path.join(HERE, "..", "..", "..", "kb")
+    data = {os.path.basename(f): open(os.path.join(kb_dir, f)).read() for f in os.listdir(kb_dir) if f.endswith(".md")}
+    assert len(json.dumps(data)) > 1500
+    fake = tmp_path / "kubectl"
+    (tmp_path / "cm.json").write_text(json.dumps({"data": data}))
+    fake.write_text(f"#!/bin/sh\ncat {tmp_path / 'cm.json'}\n"); fake.chmod(0o755)
+    monkeypatch.setattr(mc.config, "KUBECTL", str(fake))
+    monkeypatch.setattr(mc.config, "DRY_RUN", False)
+    r = client.get("/api/kb", headers=AUTH)
+    assert r.status_code == 200
+    ids = {e["id"] for e in r.json()}
+    assert "kb-001" in ids and all(e["fix"] for e in r.json())
