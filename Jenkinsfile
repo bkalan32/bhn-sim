@@ -74,7 +74,10 @@ pipeline {
     stage('Build') {
       steps {
         dir("src/services/${params.SERVICE}") {
-          sh "docker build --build-arg APP_VERSION=${env.BUILD_NUMBER} -t ${IMAGE} ."
+          // Day 21 (CORRECTIONS-DAY21 B4): a build shares the 8 CPUs with the cluster it deploys
+          // to; uncapped, pip + layer export starved the control plane into losing its leader
+          // leases. Two CPUs: the build takes a little longer, the platform stays up.
+          sh "docker build --cpu-period=100000 --cpu-quota=200000 --build-arg APP_VERSION=${env.BUILD_NUMBER} -t ${IMAGE} ."
           sh "kind load docker-image ${IMAGE} --name bhn-sim"
         }
       }

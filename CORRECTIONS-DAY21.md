@@ -68,6 +68,21 @@ testing calls this *coordinated omission*, and real customers do not queue behin
 pool (`MAX_INFLIGHT` 32); a full pool is counted as `dropped_client_busy`, never silently delayed.
 Test: answers that take 0.4 s at 10 req/s configured → ≥ 12 sent in 2 s (closed loop: ~4).
 
+### [BUG] B4 — Every build made the control plane restart itself
+
+After Step 1's builds: `kube-controller-manager` **8 restarts**, `kube-scheduler` **5** — the
+latest pair within one second of each other, ~6 min after the old-image cleanup; the Prometheus
+operator, kube-state-metrics and Tempo restarted together ~20 min earlier, at the loadgen build.
+`PlatformPodRestarting` opened INC-1790188371-f098 at 18:32:51Z. Load average at the time of
+reading: 1 now, 8 over 5 min, 12 over 15 — storms that come and go with every Docker-heavy
+operation (`docker build`, `kind load`, `docker rmi`), because the build and the cluster share the
+same 8 CPUs. The two control-plane components hold leader **leases** (15 s, renew deadline 10 s);
+a starved node misses a renewal, the component gives up leadership and exits. Leader election is
+for failing over between replicas — a one-node lab has nothing to fail over *to*. **Fixes:**
+(1) `scripts/136-control-plane-leases.sh` — lease 60 s / renew 40 s / retry 10 s in the static pod
+manifests (and in `docs/rebuild.md` step 1); (2) the Jenkinsfile caps `docker build` at 2 CPUs.
+The platform's own alert found this, which is what Day 14 put it there for.
+
 ### [NOTE] N1 — The load generator now says when it was turned down on purpose
 
 `loadgen_requests_total{target,outcome}`, `loadgen_target_rps`, `loadgen_rate_multiplier`
@@ -96,4 +111,12 @@ listed it; the first decline succeeded, the second got a 404. The run also crash
 fields a real proposal carries. The drill's fault, but the lesson is the CLI's: a listing that
 dies on one incomplete record hides every *other* pending approval from the person who has to
 act on them. `rem.py` now reads every field with a default.
+
+### [NOTE] N5 — The kind config said the node image was pinned; it never was
+
+`kind/bhn-sim-cluster.yaml`'s header, since Day 1: *"A pinned node image — so a kind upgrade six
+days from now does not silently change your Kubernetes version mid-series."* The file had no
+`image:` line; both clusters today got v1.37.0 only because the installed kind defaults to it.
+Now pinned by digest (the image the rebuild ran on). A comment describing code that is not there
+is worse than no comment: it is a claim nobody re-checks.
 

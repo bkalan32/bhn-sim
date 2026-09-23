@@ -26,7 +26,8 @@ df -h /mnt/c                                               # C: holds both VMs' 
 ## 1. Cluster and the two containers outside it
 
 ```bash
-./scripts/03-cluster-up.sh          # kind cluster bhn-sim, context kind-bhn-sim
+./scripts/03-cluster-up.sh          # kind cluster bhn-sim, context kind-bhn-sim (node image pinned by digest)
+./scripts/136-control-plane-leases.sh   # longer leader leases: a busy node must not restart its own control plane
 ./scripts/21-splunk-up.sh           # NEW container = new 60-day trial; then, in the UI:
                                     #   HEC Global Settings: All Tokens Enabled, SSL off; New Token "k8s"
 ./scripts/50-jenkins-rebuild.sh     # image jenkins-lab (survives), volume jenkins_home (jobs survive);

@@ -16,6 +16,10 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: bhn-sim
 nodes:
   - role: control-plane
+    # Pinned for real (CORRECTIONS-DAY21 N5): the comment above promised it since Day 1 and the
+    # file never did it — every rebuild took whatever the installed kind defaulted to. This is
+    # the image the 23 Sep rebuild ran on (v1.37.0), by digest.
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
     extraPortMappings:
       - containerPort: 30080
         hostPort: 30080
