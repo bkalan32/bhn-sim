@@ -1,0 +1,2 @@
+# stdlib only — nothing to install. (The pipeline's Test stage installs this file and
+# requirements-dev.txt into a venv; an empty requirements file is valid.)

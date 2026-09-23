@@ -72,6 +72,22 @@ roleRef:
   name: remediator
   apiGroup: rbac.authorization.k8s.io
 ---
+# Day 21: tier-2 proposals and cooldowns persist here (services/remediator/state.py). Before
+# this, a deploy of the remediator forgot a pending approval and a cooldown — both on the
+# safety path. On kind the volume lives inside the node (CORRECTIONS-REBUILD N1).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: remediator-data
+  namespace: payments
+  labels:
+    app: remediator
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 256Mi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -80,7 +96,7 @@ metadata:
   labels:
     app: remediator
 spec:
-  replicas: 1                # PENDING and cooldowns are in memory: one replica, on purpose
+  replicas: 1                # one writer to remediator.db, and one actor: two remediators would both act
   strategy:
     type: Recreate
   selector:
@@ -93,6 +109,12 @@ spec:
     spec:
       serviceAccountName: remediator
       automountServiceAccountToken: true     # kubectl in the pod authenticates with THIS token
+      securityContext:
+        fsGroup: 10002                       # the image's appuser; makes the PVC writable
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: remediator-data
       containers:
         - name: remediator
           image: remediator:0.1
@@ -119,6 +141,11 @@ spec:
               value: "false"
             - name: TOKEN_TTL_S
               value: "1800"
+            - name: DATA_DIR
+              value: /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
           readinessProbe:
             httpGet: {path: /readyz, port: 8030}
             initialDelaySeconds: 2

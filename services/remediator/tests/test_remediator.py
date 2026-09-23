@@ -78,7 +78,8 @@ def bot():
 @pytest.fixture(scope="session")
 def rem(bot):
     port = _free_port()
-    env = {**os.environ, "DRY_RUN": "true", "BOT_URL": bot, "INCIDENT_WAIT_S": "3", "TOKEN_TTL_S": "1800"}
+    env = {**os.environ, "DRY_RUN": "true", "BOT_URL": bot, "INCIDENT_WAIT_S": "3", "TOKEN_TTL_S": "1800",
+           "DATA_DIR": tempfile.mkdtemp(prefix="rem-state-")}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
                             cwd=APP_DIR, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     url = f"http://127.0.0.1:{port}"

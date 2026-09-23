@@ -20,12 +20,16 @@ Differences from the PDF's version (details in CORRECTIONS-DAY8.md):
   * TIMES. Alert startsAt is recorded (that is when Prometheus saw it), not only the
     time the webhook arrived. Day 10's time-to-detect needs it. ISO strings sit next to
     every epoch so a human — or a model — can read the timeline.
-  * SAFETY. Atomic file writes, a lock, and a startup pass that recomputes the gauges
-    from disk. Records live on a PersistentVolume, not an emptyDir (see the manifest).
+  * SAFETY. A lock, and a startup pass that recomputes the gauges from the store.
+    Records live on a PersistentVolume, not an emptyDir (see the manifest).
+
+Day 21 — the store is SQLite (store.py): incidents + an append-only timeline table, in
+DATA_DIR/incidents.db. The Day 8-20 JSON files are imported on first start and renamed
+*.json.imported. GET /incidents gains ?since=<epoch|ISO> for Mission Control.
 
 Endpoints
   POST   /alertmanager           Alertmanager webhook receiver
-  GET    /incidents              summary list  (?status=open|resolved)
+  GET    /incidents              summary list  (?status=open|resolved  &since=<epoch|ISO>)
   GET    /incidents/{id}         full record with timeline
   POST   /incidents/{id}/note    {"text": "..."} — the bridge scribe (Day 9)
   POST   /incidents/{id}/draft   ?kind=open|resolved|hypothesis — (re)generate an AI draft (Day 9/10)
@@ -76,8 +80,9 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, ge
 import ai
 import kb
 import enrich
+import store
 
-VERSION = os.getenv("APP_VERSION", "0.4")
+VERSION = os.getenv("APP_VERSION", "0.5")
 ENRICH_ENABLED = os.getenv("ENRICH_ENABLED", "true").strip().lower() != "false"
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 INCIDENT_JOIN = os.getenv("INCIDENT_JOIN", "service").strip().lower()   # service | group
@@ -140,58 +145,43 @@ def _iso(ts: float) -> str:
     return _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _path(iid: str) -> str:
-    if "/" in iid or ".." in iid:
+def _check_id(iid: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", iid or ""):
         raise HTTPException(400, "bad incident id")
-    return os.path.join(DATA_DIR, f"{iid}.json")
+    return iid
 
 
 def _load(iid: str) -> dict:
-    p = _path(iid)
-    if not os.path.exists(p):
+    inc = store.load(_check_id(iid))
+    if inc is None:
         raise HTTPException(404, f"no incident {iid}")
-    with open(p) as f:
-        return json.load(f)
+    return inc
 
 
 def _save(inc: dict) -> None:
-    # Atomic: a crash mid-write must not leave a half-written record for the next
-    # webhook to choke on.
-    p = _path(inc["id"])
-    tmp = f"{p}.tmp"
-    with open(tmp, "w") as f:
-        json.dump(inc, f, indent=2)
-    os.replace(tmp, p)
+    # One transaction: the incident row and the new timeline events land together or not
+    # at all (store.save). The timeline is append-only — a shorter one is refused.
+    store.save(inc)
 
 
 def _all() -> list:
-    out = []
-    for name in os.listdir(DATA_DIR):
-        if not name.endswith(".json"):
-            continue
-        try:
-            with open(os.path.join(DATA_DIR, name)) as f:
-                out.append(json.load(f))
-        except Exception as e:  # noqa: BLE001 — one bad file must not hide the rest
-            log.error("unreadable incident file", extra={"extra": {"file": name, "error": str(e)}})
-    return sorted(out, key=lambda i: i.get("opened_at", 0), reverse=True)
+    return store.summaries()
 
 
 def _open_incidents() -> list:
-    return [i for i in _all() if i.get("status") == "open"]
+    return store.summaries(status="open")
 
 
 def _find_open(join_key: str):
-    for inc in _open_incidents():
-        if inc.get("join_key") == join_key:
-            return inc
-    return None
+    return store.find_open(join_key)
 
 
 def _refresh_open_gauge():
-    OPEN.set(len(_open_incidents()))
+    OPEN.set(store.count("open"))
 
 
+STORE_INFO = store.init(DATA_DIR)
+log.info("store ready", extra={"extra": STORE_INFO})
 _refresh_open_gauge()
 
 
@@ -401,11 +391,22 @@ SUMMARY_KEYS = ("id", "status", "service", "severity", "alerts", "opened_at_iso"
                 "resolved_at_iso", "duration_min")
 
 
+def _since(v):
+    """?since= accepts an epoch (1790182530) or an ISO time (2026-09-23T16:00:00Z)."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        ts = _parse_ts(v)
+        if ts is None:
+            raise HTTPException(400, "since: an epoch or an ISO-8601 time")
+        return ts
+
+
 @app.get("/incidents")
-def list_incidents(status: str | None = None):
-    incs = _all()
-    if status:
-        incs = [i for i in incs if i.get("status") == status]
+def list_incidents(status: str | None = None, since: str | None = None):
+    incs = store.summaries(status=status or None, since=_since(since))
     return [{k: i.get(k) for k in SUMMARY_KEYS} for i in incs]
 
 
@@ -577,11 +578,9 @@ def get_report(day: str):
 @app.delete("/incidents/{iid}")
 def delete_incident(iid: str):
     # Lab only. A real ticketing system never deletes; it closes with a reason.
-    p = _path(iid)
-    if not os.path.exists(p):
-        raise HTTPException(404, f"no incident {iid}")
     with _lock:
-        os.remove(p)
+        if not store.delete(_check_id(iid)):
+            raise HTTPException(404, f"no incident {iid}")
         _refresh_open_gauge()
     return {"ok": True, "deleted": iid}
 
@@ -596,9 +595,11 @@ def healthz():
 def readyz():
     # Ready means "can persist": if the volume is gone, refuse traffic so Alertmanager
     # retries later instead of dropping the webhook into a black hole.
-    if not os.access(DATA_DIR, os.W_OK):
-        raise HTTPException(503, f"{DATA_DIR} not writable")
-    return {"status": "ready", "join": INCIDENT_JOIN, "open": len(_open_incidents())}
+    try:
+        store.ping()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(503, f"store not writable: {e}")
+    return {"status": "ready", "join": INCIDENT_JOIN, "open": store.count("open"), "store": "sqlite"}
 
 
 @app.get("/metrics")

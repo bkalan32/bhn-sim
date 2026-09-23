@@ -16,6 +16,14 @@
 source "$(dirname "$0")/lib.sh"
 require_cluster
 
+# Day 21: traffic runs in the cluster now (deployment/loadgen, k8s/loadgen.yaml). A laptop
+# generator on top of it doubles the rate — a fake incident. Opt in explicitly.
+if k get deployment loadgen -n "$PAYMENTS_NS" >/dev/null 2>&1 && [[ "${FORCE:-}" != 1 ]]; then
+  die "deployment/loadgen is already sending traffic in the cluster — this would double it.
+       Turn it up instead:  kubectl -n $PAYMENTS_NS set env deployment/loadgen -c activation RATE_MULTIPLIER=2
+       Or, deliberately both:  FORCE=1 $0"
+fi
+
 RPS="${1:-8}"
 PF_PID=""; SUP_PID=""
 cleanup() {

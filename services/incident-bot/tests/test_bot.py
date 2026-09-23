@@ -271,3 +271,20 @@ def test_search_logs_tool_is_read_only(base_url_noai):
     assert st == 200 and "earliest must" in r["meta"]["error"]
     with urllib.request.urlopen(f"{url}/metrics", timeout=5) as resp:
         assert 'bot_tool_calls_total{outcome="error",tool="search_logs"}' in resp.read().decode()
+
+
+def test_list_since_filter_and_bad_since(base_url_noai):
+    # Day 21: Mission Control asks "open incidents since <t>"; epoch or ISO, both accepted.
+    st, r = call(base_url_noai, "POST", "/alertmanager",
+                 am_payload("firing", G_WARN, [("ActivationLatencyBurn", "warning")]))
+    assert st == 200
+    iid = r["incident"]
+    st, all_open = call(base_url_noai, "GET", "/incidents?status=open&since=0")
+    assert st == 200 and iid in [i["id"] for i in all_open]
+    st, none = call(base_url_noai, "GET", "/incidents?since=2099-01-01T00:00:00Z")
+    assert st == 200 and none == []
+    st, _ = call(base_url_noai, "GET", "/incidents?since=yesterday")
+    assert st == 400
+    st, ready = call(base_url_noai, "GET", "/readyz")
+    assert st == 200 and ready["store"] == "sqlite"
+    call(base_url_noai, "DELETE", f"/incidents/{iid}")

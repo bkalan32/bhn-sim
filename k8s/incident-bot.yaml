@@ -6,8 +6,11 @@
 # the local-path provisioner as the default StorageClass, so a PersistentVolumeClaim
 # costs one stanza and the records survive restarts and rollouts. (CORRECTIONS-DAY8.md B3)
 #
-# One replica, strategy Recreate: the store is a directory, not a database. Two pods
-# writing the same files would corrupt them. The README says so in "lab shortcuts".
+# One replica, strategy Recreate. Day 21: the store is SQLite (incidents.db on this PVC,
+# services/incident-bot/store.py) — one writer process by design; WAL lets readers in, but
+# two pods on one ReadWriteOnce volume would still be two writers. The README says so in
+# "lab shortcuts". On kind this PVC lives INSIDE the node container: it survives pod
+# restarts and rollouts, not the node (CORRECTIONS-REBUILD N1).
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

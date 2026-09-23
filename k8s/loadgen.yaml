@@ -1,0 +1,93 @@
+# loadgen — the store network and the corporate customers, as a Deployment. Day 21, chore 3.
+#
+# DESIGN (CORRECTIONS-DAY21 D2): the PDF says "two Deployments with RATE_MULTIPLIER". This is
+# ONE Deployment with TWO containers, one per target. The pipeline's unit is a Deployment
+# named after its SERVICE (deploy-service SERVICE=loadgen: rollout status, restart check,
+# rollback, change-cause, annotation all key on `deployment/loadgen`), so one Deployment ships
+# through the same door as everything else without a special case in the Jenkinsfile. Each
+# target is still its own knob — the env is per CONTAINER:
+#
+#   kubectl -n payments set env deployment/loadgen -c activation RATE_MULTIPLIER=0
+#
+# (Mission Control's set_fault action, Day 21 Step 3, does exactly that, tier 2.) The cost:
+# turning one knob restarts the pod, so both targets blip for a few seconds. Written down,
+# accepted.
+#
+# NOTE for Day 25's "traffic loss" fault: egift orders call activation, so activation keeps
+# ~BASE_RPS(egift) req/s even at activation RATE_MULTIPLIER=0. Zero activation traffic means
+# both knobs at 0.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: payments
+  labels:
+    app: loadgen
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # two generators during a rollout = double traffic = a fake incident
+  selector:
+    matchLabels:
+      app: loadgen
+  template:
+    metadata:
+      labels:
+        app: loadgen
+    spec:
+      automountServiceAccountToken: false     # it calls two Services and nothing else
+      containers:
+        - name: activation
+          image: loadgen:0.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: TARGET_URL, value: "http://activation.payments:8000/activate"}
+            - {name: PAYLOAD, value: activation}
+            - {name: BASE_RPS, value: "5"}
+            - {name: RATE_MULTIPLIER, value: "1"}
+            - {name: METRICS_PORT, value: "9101"}
+          ports:
+            - {containerPort: 9101, name: m-activation}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 9101}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 64Mi}
+        - name: egift
+          image: loadgen:0.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: TARGET_URL, value: "http://egift.payments:8010/orders"}
+            - {name: PAYLOAD, value: egift}
+            - {name: BASE_RPS, value: "3"}
+            - {name: RATE_MULTIPLIER, value: "1"}
+            - {name: METRICS_PORT, value: "9102"}
+          ports:
+            - {containerPort: 9102, name: m-egift}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 9102}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 64Mi}
+---
+# Scraped like everything else: "is traffic flowing, and was it turned down on purpose?"
+# is loadgen_requests_total and loadgen_rate_multiplier. PodMonitor, not ServiceMonitor —
+# nothing calls the load generator, so it needs no Service.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: loadgen
+  namespace: payments
+  labels:
+    release: kps
+spec:
+  selector:
+    matchLabels:
+      app: loadgen
+  podMetricsEndpoints:
+    - port: m-activation
+      interval: 15s
+    - port: m-egift
+      interval: 15s

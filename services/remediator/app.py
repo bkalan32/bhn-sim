@@ -24,12 +24,16 @@ Differences from the PDF's remediator (CORRECTIONS-DAY12.md):
   * DRY_RUN=true makes every action a no-op that reports what it would have run — the
     unit tests use it; so can you
 
+Day 21 — proposals and cooldowns survive a restart (state.py, SQLite on a PVC). A token is
+single-use by construction: approve and decline both go through one DELETE … RETURNING.
+
 Endpoints
   POST /alertmanager        webhook (firing and resolved)
   GET  /pending             tier-2 proposals waiting for a human
   POST /approve/{token}     execute a proposal (body optional: {"by": "name"})
   POST /decline/{token}     drop a proposal
-  GET  /actions             everything this process has done, newest first (in memory)
+  GET  /actions             everything this process has done, newest first (in memory — the
+                            durable record is the incident timeline; every action is a note)
   GET  /signatures          the policy, as loaded
   GET  /healthz  /readyz  /metrics
 """
@@ -52,9 +56,11 @@ from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 from starlette.concurrency import run_in_threadpool
 
+import state
 from signatures import SIGNATURES, validate
 
-VERSION = os.getenv("APP_VERSION", "0.1")
+VERSION = os.getenv("APP_VERSION", "0.2")
+DATA_DIR = os.getenv("DATA_DIR", "/data")
 NS = os.getenv("NAMESPACE", "payments")
 BOT = os.getenv("BOT_URL", "http://incident-bot.payments:8020").rstrip("/")
 KUBECTL = os.getenv("KUBECTL", "kubectl")
@@ -67,8 +73,8 @@ validate()
 
 app = FastAPI(title="remediator", version=VERSION)
 _lock = threading.Lock()
-PENDING = {}        # token -> proposal   (in memory: a restart forgets proposals; noted lab limitation)
-LAST_ACTION = {}    # signature id -> epoch of the last executed/attempted action (cooldown)
+# Day 21: proposals and cooldowns live in state.py (SQLite, DATA_DIR/remediator.db) — a
+# restart is a deploy, and a deploy must not forget a pending approval or a cooldown.
 NOTED_T3 = set()    # incident ids that already carry the "human required" note
 PROPOSED = set()    # (signature, incident) already proposed
 HISTORY = []        # newest first, capped
@@ -107,6 +113,17 @@ def _now():
 
 def _iso(ts=None):
     return _dt.datetime.fromtimestamp(ts or _now(), tz=_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _st():
+    """The state store, opened on first use (tests import this module without a volume)."""
+    if not state.ready():
+        state.init(DATA_DIR)
+    return state
+
+
+def _pending_gauge():
+    PENDING_G.set(_st().count_pending(_now()))
 
 
 def _record(entry):
@@ -391,7 +408,7 @@ def _handle_firing(payload):
             continue
         matched = True
         ctx["incident"] = iid
-        last = LAST_ACTION.get(sig["id"], 0)
+        last = _st().last_action(sig["id"])
         if _now() - last < sig.get("cooldown_s", 600):
             ACTIONS.labels(sig["id"], "auto" if sig["tier"] == 1 else "proposed", "skipped").inc()
             _record({"signature": sig["id"], "mode": "cooldown", "result": "skipped", "incident": iid})
@@ -411,7 +428,7 @@ def _handle_firing(payload):
 
 def _tier1(sig, ctx, attempt=1):
     iid = ctx.get("incident")
-    LAST_ACTION[sig["id"]] = _now()
+    _st().mark_action(sig["id"], _now())
     ok, detail = execute(sig, ctx)
     ACTIONS.labels(sig["id"], "auto", "ok" if ok else "fail").inc()
     _record({"signature": sig["id"], "mode": "auto", "result": "ok" if ok else "fail", "incident": iid, "attempt": attempt, "detail": detail[:300]})
@@ -440,16 +457,20 @@ def _tier2_propose(sig, ctx):
     iid = ctx.get("incident")
     key = (sig["id"], iid)
     with _lock:
-        if key in PROPOSED or any(p["signature"] == sig["id"] and p["incident"] == iid for p in PENDING.values()):
+        if key in PROPOSED or _st().has_pending(sig["id"], iid):
+            return
+        token = f"{sig['id']}-{secrets.token_urlsafe(6)}"
+        now = _now()
+        created = _st().add_pending({
+            "token": token, "signature": sig["id"], "action": sig["action"], "incident": iid,
+            "service": ctx.get("service"), "created_at": now, "created_at_iso": _iso(now),
+            "expires_at": now + TOKEN_TTL_S, "expires_at_iso": _iso(now + TOKEN_TTL_S), "rationale": sig["rationale"],
+            "evidence": {k: v for k, v in ctx.items() if k in ("deploy_minutes_ago", "alert", "starts_at")},
+            "alert_started": ctx.get("starts_at")})
+        if not created:
             return
         PROPOSED.add(key)
-        token = f"{sig['id']}-{secrets.token_urlsafe(6)}"
-        PENDING[token] = {"token": token, "signature": sig["id"], "action": sig["action"], "incident": iid,
-                          "service": ctx.get("service"), "created_at": _now(), "created_at_iso": _iso(),
-                          "expires_at_iso": _iso(_now() + TOKEN_TTL_S), "rationale": sig["rationale"],
-                          "evidence": {k: v for k, v in ctx.items() if k in ("deploy_minutes_ago", "alert", "starts_at")},
-                          "alert_started": ctx.get("starts_at")}
-        PENDING_G.set(len(PENDING))
+        _pending_gauge()
     ACTIONS.labels(sig["id"], "proposed", "pending").inc()
     _record({"signature": sig["id"], "mode": "proposed", "result": "pending", "incident": iid, "token": token})
     ev = f"deploy of {ctx.get('service')} {ctx.get('deploy_minutes_ago')} min before this alert" if "deploy_minutes_ago" in ctx else ""
@@ -458,9 +479,8 @@ def _tier2_propose(sig, ctx):
 
 
 def _expire_tokens():
-    with _lock:
-        dead = [PENDING.pop(t) for t, p in list(PENDING.items()) if _now() - p["created_at"] > TOKEN_TTL_S]
-        PENDING_G.set(len(PENDING))
+    dead = _st().expire(_now())
+    _pending_gauge()
     for p in dead:
         ACTIONS.labels(p["signature"], "proposed", "expired").inc()
         _record({"signature": p["signature"], "mode": "proposed", "result": "expired", "incident": p["incident"], "token": p["token"]})
@@ -473,9 +493,9 @@ def _handle_resolved(payload):
     _, service, _ = _labels(payload)
     if not service:
         return
+    stale = _st().withdraw(service)
+    _pending_gauge()
     with _lock:
-        stale = [PENDING.pop(t) for t, p in list(PENDING.items()) if p.get("service") == service]
-        PENDING_G.set(len(PENDING))
         approved = next((h for h in HISTORY if h.get("mode") == "approved" and h.get("service") == service and not h.get("recovered_at_iso")), None)
     for p in stale:
         ACTIONS.labels(p["signature"], "proposed", "withdrawn").inc()
@@ -503,17 +523,16 @@ async def receive(request: Request):
 @app.get("/pending")
 def pending():
     _expire_tokens()
-    return sorted(PENDING.values(), key=lambda p: p["created_at"], reverse=True)
+    return _st().list_pending(_now())
 
 
 def _approve(token, by):
-    with _lock:
-        p = PENDING.pop(token, None)
-        PENDING_G.set(len(PENDING))
+    p = _st().take(token, _now())          # single-use: one DELETE … RETURNING, one winner
+    _pending_gauge()
     if not p:
         raise HTTPException(404, "unknown, expired or already-used token")
     sig = next(s for s in SIGNATURES if s["id"] == p["signature"])
-    LAST_ACTION[sig["id"]] = _now()
+    _st().mark_action(sig["id"], _now())
     t0 = _now()
     _note(p["incident"], f"APPROVED {sig['id']} by {by} (token {token}) — executing {sig['action']} now.")
     ok, detail = execute(sig, {**p.get("evidence", {}), "service": p["service"], "incident": p["incident"], "by": by, "token": token})
@@ -542,9 +561,8 @@ async def approve(token: str, request: Request):
 
 @app.post("/decline/{token}")
 def decline(token: str):
-    with _lock:
-        p = PENDING.pop(token, None)
-        PENDING_G.set(len(PENDING))
+    p = _st().take(token, _now())
+    _pending_gauge()
     if not p:
         raise HTTPException(404, "unknown, expired or already-used token")
     ACTIONS.labels(p["signature"], "proposed", "declined").inc()
@@ -561,7 +579,7 @@ def actions():
 @app.get("/signatures")
 def signatures():
     return {"signatures": SIGNATURES, "dry_run": DRY_RUN, "namespace": NS, "bot": BOT,
-            "grafana_annotations": bool(GRAFANA_TOKEN), "token_ttl_s": TOKEN_TTL_S}
+            "grafana_annotations": bool(GRAFANA_TOKEN), "token_ttl_s": TOKEN_TTL_S, "state": "sqlite"}
 
 
 @app.get("/healthz")
@@ -571,7 +589,11 @@ def healthz():
 
 @app.get("/readyz")
 def readyz():
-    return {"status": "ready", "pending": len(PENDING)}
+    try:
+        _st().ping()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(503, f"state store not writable: {e}")
+    return {"status": "ready", "pending": _st().count_pending(_now())}
 
 
 @app.get("/metrics")

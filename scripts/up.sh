@@ -64,10 +64,19 @@ chk() { local v; v=$(k get deploy "$1" -n "$PAYMENTS_NS" -o jsonpath="{.spec.tem
         [[ "$v" == "$3" ]] && ok "$1 $2=$v" || { warn "$1 $2=$v (baseline $3) — an experiment did not roll back"; drift=1; }; }
 chk activation ERROR_RATE 0.02; chk activation BASE_LATENCY_MS 80; chk activation FRAUD_SVC_DOWN false
 chk egift DELIVERY_DELAY_MS 40; chk egift EMAIL_FAIL_RATE 0.01
+# Day 21: traffic is a knob too — per container of deployment/loadgen.
+for c in activation egift; do
+  v=$(k get deploy loadgen -n "$PAYMENTS_NS" -o jsonpath="{.spec.template.spec.containers[?(@.name==\"$c\")].env[?(@.name==\"RATE_MULTIPLIER\")].value}" 2>/dev/null || true)
+  [[ -z "$v" ]] && continue
+  [[ "$v" == 1 ]] && ok "loadgen/$c RATE_MULTIPLIER=1" || { warn "loadgen/$c RATE_MULTIPLIER=$v (baseline 1)"; drift=1; }
+done
 if (( drift )) && (( ! CHECK_ONLY )); then
   dim "Resetting to baseline (kubectl set env)..."
   k set env deployment/activation -n "$PAYMENTS_NS" ERROR_RATE=0.02 BASE_LATENCY_MS=80 FRAUD_SVC_DOWN=false >/dev/null
   k get deploy egift -n "$PAYMENTS_NS" >/dev/null 2>&1 && k set env deployment/egift -n "$PAYMENTS_NS" DELIVERY_DELAY_MS=40 EMAIL_FAIL_RATE=0.01 >/dev/null
+  if k get deploy loadgen -n "$PAYMENTS_NS" >/dev/null 2>&1; then
+    for c in activation egift; do k set env deployment/loadgen -n "$PAYMENTS_NS" -c "$c" RATE_MULTIPLIER=1 >/dev/null; done
+  fi
   ok "reset"
 fi
 
@@ -170,8 +179,12 @@ else
 fi
 
 step "Not automated — start these in their own terminals"
-say "  #2  ./scripts/12-loadgen.sh          activation traffic"
-say "  #6  ./scripts/33-loadgen-egift.sh    egift orders           (Day 4+)"
+if k get deployment loadgen -n "$PAYMENTS_NS" >/dev/null 2>&1; then
+  say "      traffic: in the cluster (deployment/loadgen, Day 21) — knob: kubectl -n $PAYMENTS_NS set env deployment/loadgen -c activation|egift RATE_MULTIPLIER=0..10"
+else
+  say "  #2  ./scripts/12-loadgen.sh          activation traffic"
+  say "  #6  ./scripts/33-loadgen-egift.sh    egift orders           (Day 4+)"
+fi
 say "      python3 tools/inc.py list        incidents, any time     (Day 8+)"
 say "  #3  ./scripts/06-grafana.sh          Grafana on :3000"
 dim "Port-forwards and load generators do not survive a Docker restart; everything else now does."
