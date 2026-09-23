@@ -85,7 +85,7 @@ export function toItem(kind: string, d: any, id: string): FeedItem | null {
     }
     case "deploy":
       return {
-        key: `deploy-${id}`,
+        key: `deploy-${d.time_ms}-${d.service}`, // the annotation's identity, not the event's: shown once
         kind: "deploy",
         ts: d.time_ms ? d.time_ms / 1000 : now,
         tone: d.kind === "rollback" ? "warning" : "info",

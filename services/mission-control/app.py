@@ -127,6 +127,10 @@ async def _watch_remediator():
 
 
 async def _watch_deploys():
+    """New deploy/rollback annotations since the last pass. CORRECTIONS-DAY22 B2: Grafana applies
+    its time filter only when BOTH `from` and `to` are given — with `from` alone every pass got the
+    whole list back and the feed showed each deploy again every 15 s. Both bounds are sent, and
+    the time is also checked here, so a Grafana that ignores the filter still cannot repeat one."""
     if not config.GRAFANA_TOKEN:
         return
     now_ms = int(time.time() * 1000)
@@ -134,19 +138,25 @@ async def _watch_deploys():
         seen.deploy_ms = now_ms
         return
     try:
-        r = await http.get(f"{config.GRAFANA_URL}/api/annotations", params={"from": seen.deploy_ms + 1, "limit": 50,
-                           "type": "annotation"}, headers={"Authorization": f"Bearer {config.GRAFANA_TOKEN}"})
+        r = await http.get(f"{config.GRAFANA_URL}/api/annotations",
+                           params={"from": seen.deploy_ms + 1, "to": now_ms + 60_000, "limit": 50, "type": "annotation"},
+                           headers={"Authorization": f"Bearer {config.GRAFANA_TOKEN}"})
         r.raise_for_status()
     except Exception:  # noqa: BLE001
         UPSTREAM.labels("grafana").inc()
         return
+    newest = seen.deploy_ms
     for a in sorted(r.json(), key=lambda a: a.get("time") or 0):
+        t = int(a.get("time") or 0)
+        if t <= seen.deploy_ms:
+            continue
         tags = a.get("tags") or []
         if "deploy" in tags or "rollback" in tags:
-            broker.publish("deploy", {"kind": "rollback" if "rollback" in tags else "deploy", "time_ms": a.get("time"),
-                                      "service": next((t for t in tags if t not in ("deploy", "rollback")), None),
+            broker.publish("deploy", {"kind": "rollback" if "rollback" in tags else "deploy", "time_ms": t,
+                                      "service": next((x for x in tags if x not in ("deploy", "rollback")), None),
                                       "text": a.get("text")})
-        seen.deploy_ms = max(seen.deploy_ms, int(a.get("time") or 0))
+        newest = max(newest, t)
+    seen.deploy_ms = newest
 
 
 async def _health_poller():
@@ -320,7 +330,7 @@ async def _deploys_today():
     midnight = _dt.datetime.now(_dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     try:
         r = await http.get(f"{config.GRAFANA_URL}/api/annotations",
-                           params={"tags": "deploy", "from": int(midnight * 1000), "limit": 100},
+                           params={"tags": "deploy", "from": int(midnight * 1000), "to": int(time.time() * 1000) + 60_000, "limit": 100},   # both bounds: B2
                            headers={"Authorization": f"Bearer {config.GRAFANA_TOKEN}"})
         r.raise_for_status()
     except Exception as e:  # noqa: BLE001

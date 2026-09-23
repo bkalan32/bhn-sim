@@ -257,3 +257,28 @@ def test_kb_route_parses_a_real_sized_configmap(client, monkeypatch, tmp_path):
     assert r.status_code == 200
     ids = {e["id"] for e in r.json()}
     assert "kb-001" in ids and all(e["fix"] for e in r.json())
+
+
+def test_a_deploy_is_announced_once_even_if_grafana_ignores_the_time_filter(monkeypatch):
+    """CORRECTIONS-DAY22 B2: with `from` alone Grafana returned every annotation on every pass."""
+    from events import Broker
+    b = Broker(); q = b.subscribe()
+    monkeypatch.setattr(mc, "broker", b)
+    monkeypatch.setattr(mc, "seen", mc._Seen())
+    monkeypatch.setattr(mc.config, "GRAFANA_TOKEN", "x")
+    ann = []
+
+    class R:
+        def raise_for_status(self): pass
+        def json(self): return list(ann)            # ignores from/to, like the real one did
+
+    class H:
+        async def get(self, *a, **kw): return R()
+    monkeypatch.setattr(mc, "http", H())
+    asyncio.run(mc._watch_deploys())                # primes
+    import time as _t
+    ann.append({"time": int(_t.time() * 1000) + 5, "tags": ["deploy", "egift"], "text": "build 58"})
+    for _ in range(4):
+        asyncio.run(mc._watch_deploys())
+    got = [q.get_nowait()["data"] for _ in range(q.qsize())]
+    assert [g["text"] for g in got] == ["build 58"]

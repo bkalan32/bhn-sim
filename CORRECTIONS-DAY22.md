@@ -19,6 +19,19 @@ kubectl, and no Day 21 drill opened the KB — so the route was listed, document
 through a fake kubectl binary (`test_kb_route_parses_a_real_sized_configmap`). The lesson is
 the one from Day 21 N7 again: a check that never exercises the real path proves nothing.
 
+### [BUG] B2 — The live feed announced every deploy again every 15 seconds
+
+First look at mission-control:54 in the browser: the feed's top four items were the same
+"deploy · mission-control · build 54", fifteen seconds apart. The poller asked Grafana for
+annotations `from` the last one it had seen — and Grafana applies its time filter only when
+**both** `from` and `to` are given; with `from` alone it returned the whole list, every pass.
+The fake Grafana used for the render test honoured `from` on its own, so the test could not
+see it: a fake that is more obliging than the real thing hides exactly this kind of bug.
+**Fix:** both bounds on every annotation query (the "deploys today" tile had the same flaw), the
+time also checked in the poller, and the feed keys a deploy by the annotation's time and
+service, so even a repeated event is shown once. Test: a Grafana that ignores the filter,
+four passes, one event.
+
 ### [NOTE] N1 — The draft splitter cut "INTERNAL SUMMARY" after four letters
 
 The incident page splits each AI draft at its numbered headings so every part gets its own
