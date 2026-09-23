@@ -32,3 +32,4 @@ infra/aws/**/apply.txt
 infra/aws/**/*.tfplan
 infra/aws/platform/charts/
 checkpoints/day16-evidence.txt
+infra/local/*.txt
