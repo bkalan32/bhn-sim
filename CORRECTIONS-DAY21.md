@@ -178,3 +178,38 @@ screen — which is also what a real one looks like until you open the incident.
 They exist in the route table because the UI will call them; they say "not built yet — Day N"
 instead of returning an empty 200 that a screen could mistake for "no data".
 
+### [BUG] B6 — The webhook apply "failed" on an etcd timeout — the change itself had landed
+
+First `tf.sh apply` for the third webhook (14:45 local): `Error upgrading chart`. Helm's history
+had the reason Terraform's one-line error did not: *post-upgrade hook … admission-webhooks/job-patch/
+clusterrolebinding.yaml failed: etcdserver: request timed out.* A Helm upgrade applies the chart's
+objects **first** and runs its hooks **after**, so the Alertmanager config was already updated; what
+failed was the chart's certificate-patch hook, because etcd could not commit one write. The node was
+in a storm at the time — load **69** (5 min), etcd **2,482** "took too long" warnings in the hour,
+the controller-manager and scheduler on their third restart since B4's longer leases, the Prometheus
+operator on its twelfth. Twelve minutes later, load under 4: the same apply, **45 s**, revision 4
+`deployed`, plan clean. **Lessons:** read `helm history` (the full `description`) before touching a
+failed release; a hook failure is not a failed change; and retry on a calm node, never during the
+storm. What starts the storms is not yet pinned (`vmstat` twelve minutes later: 95 % idle, no I/O
+wait — they come and go); the etcd warning count per minute is now part of the diagnosis kit:
+`kubectl -n kube-system logs etcd-bhn-sim-control-plane --since=1h | grep 'took too long' | grep -o '"ts":"[^"]*' | cut -c18-22 | sort | uniq -c`.
+
+### [NOTE] N7 — Alertmanager hides webhook URLs; three checks have been grepping the wrong line since Day 8
+
+`/api/v2/status` showed no `mission-control` after a successful apply. Since Alertmanager 0.25 a
+webhook `url` is a secret type and the status API prints it as `url: <secret>`. The Day 8 and Day
+12 checks (`grep -q incident-bot`, `grep -q remediator`) kept passing only because those words are
+also in the route's *matcher* (`service =~ "…|incident-bot|remediator|…"`) — they proved a regex, not
+a webhook. `218` now reads the URL from the operator-generated config Secret (what `81`/`121` already
+did when they set routes up), and proves delivery separately with `mc_alertmanager_webhooks_total`.
+A check that passes for the wrong reason is how a missing webhook would have gone unnoticed.
+
+
+### [NOTE] N8 — The first drill run reverted before the alert could exist, and the audit hid true from false
+
+Fault approved 20:19:11Z, revert requested 20:21:27Z — 2 m 16 s. `ActivationHighErrorRate` needs the
+pod restart (~20 s), its 2 m `rate()` window to cross 10 %, `for: 2m`, then Alertmanager's 15 s
+`group_wait`: about four minutes before the feed can show anything. My "~2–3 min" in `DAY21.md` was
+the rule's `for:` alone. Same run: `tools/mc.py audit` cut the params at 60 characters, which removed
+`"value": "true"` / `"value": "false"` — the one field that says whether a row broke production or
+fixed it. The audit list now prints `k=v`, uncut.

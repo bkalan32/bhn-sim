@@ -88,7 +88,9 @@ def main(a):
         n = int(rest[0]) if rest else 15
         for r in reversed(call("GET", f"/api/audit?limit={n}")):
             print(f"  {r['ts_iso']}  {r['operator']:<10} {r['entrance']:<8} t{r['tier']}  {r['action']:<24} "
-                  f"{r['result']:<9} {json.dumps(r['params'])[:60]}{'  token ' + r['approval_token'] if r.get('approval_token') else ''}")
+                  # k=v, never truncated: a cut at 60 chars hid the one field that mattered (value=true|false)
+                  f"{r['result']:<9} {' '.join(f'{k}={v}' for k, v in sorted((r.get('params') or {}).items())) or '-'}"
+                  f"{'  token ' + r['approval_token'] if r.get('approval_token') else ''}")
     elif c == "events":
         r = call("GET", "/api/events", stream=True)
         try:

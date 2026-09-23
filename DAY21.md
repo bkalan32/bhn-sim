@@ -63,7 +63,7 @@ parameters never reach the queue, a slow browser never blocks the feed.
 | B | `python3 tools/mc.py run set_fault target=activation knob=FRAUD_SVC_DOWN value=true --reason "Day 21 drill"` | tier 2: queued, nothing changes |
 | B | `kubectl -n payments get deploy activation -o jsonpath='{.spec.template.spec.containers[0].env}'` | still `FRAUD_SVC_DOWN=false` |
 | B | `python3 tools/mc.py approvals` then `approve <token>` | the second click; audit row with the token |
-| A | watch | `ActivationHighErrorRate` arrives as an `alert` event (~2–3 min) |
+| A | watch | `ActivationHighErrorRate` arrives as an `alert` event — **wait for it, ~4 min**: pod restart ~20 s + the 2 m rate window crossing 10 % + `for: 2m` + `group_wait` 15 s. Revert before it arrives and the alert never fires |
 | B | `python3 tools/mc.py run set_fault target=activation knob=FRAUD_SVC_DOWN value=false --reason revert` + approve | the fix has the same ceremony |
 | B | `python3 tools/mc.py audit` | the whole drill, in order, with names and tokens |
 

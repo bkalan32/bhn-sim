@@ -65,7 +65,11 @@ AFTER=$(k get deploy egift -n "$PAYMENTS_NS" -o jsonpath='{.spec.replicas}')
 
 step "Step 5 — the event stream"
 curl -s -m 5 -H "X-Entrance: api" "http://localhost:$PORT/api/events" -o /dev/null -w '%{http_code}' | grep -q 401 && t_ok "/api/events refuses without a token" || t_fail "/api/events open without a token"
-alertmanager_get /api/v2/status | grep -q 'mission-control.payments:8040/hooks/alertmanager' && t_ok "Alertmanager's third webhook -> mission control (Terraform)" || t_fail "Alertmanager does not route to mission control — k8s/kps-values.yaml + ./infra/local/tf.sh apply"
+# Alertmanager >= 0.25 prints every webhook url as "<secret>" in /api/v2/status (CORRECTIONS-DAY21 N7),
+# so the URL is read from the config the operator generated, and delivery is proved by the metric below.
+SEC=$(k get secret -n "$MONITORING_NS" -o name | sed 's|secret/||' | grep -E '^alertmanager-.*-generated$' | head -1 || true)
+k get secret "$SEC" -n "$MONITORING_NS" -o jsonpath='{.data.alertmanager\.yaml\.gz}' 2>/dev/null | base64 -d | gunzip 2>/dev/null \
+  | grep -q 'mission-control.payments:8040/hooks/alertmanager' && t_ok "Alertmanager's third webhook -> mission control (Terraform, operator-generated config)" || t_fail "Alertmanager does not route to mission control — k8s/kps-values.yaml + ./infra/local/tf.sh apply"
 H=$(promql 'sum(mc_alertmanager_webhooks_total)' | jq_py 'print(int(float(d["data"]["result"][0]["value"][1])))' || echo 0)
 (( H > 0 )) && t_ok "the feed has received $H Alertmanager notification(s)" || t_fail "no notification has reached the feed yet — the fraud drill (DAY21 Step 5)"
 
