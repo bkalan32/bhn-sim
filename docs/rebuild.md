@@ -48,7 +48,6 @@ the New Relic INGEST – LICENSE key (40 chars, ends `NRAL`), and the HEC token 
 ```bash
 kubectl apply -f k8s/grafana-datasource-tempo.yaml
 ./scripts/09-grafana-dashboards.sh
-kubectl apply -f k8s/alerts.yaml
 ./scripts/100-enrich-config.sh      # Grafana Viewer token + Splunk REST address for the bot's collectors
 ./scripts/90-ai-secret.sh           # Anthropic key -> secret/ai-keys (prompted, verified)
 ```
@@ -68,8 +67,17 @@ without it — that second build is the verified one.
 | 4 | incident-bot | Ready for 30 s, no restarts |
 | 5 | remediator | then `./scripts/120-remediator-config.sh` (Editor token + the RBAC proof) |
 
+**Since Day 21** traffic is `deployment/loadgen`, not two terminals: build `activation` and `egift`
+with SKIP_VERIFY, then `loadgen` (it verifies like the bot — up 30 s, no restarts), then
+`activation` and `egift` again without SKIP_VERIFY. The laptop scripts refuse to run while the
+Deployment exists (they would double the traffic).
+
 ```bash
 ./scripts/172-kb.sh                 # kb/*.md -> ConfigMap, bot restarted, /ai lists all entries
+./scripts/135-platform-from-zero.sh --check >/dev/null && kubectl apply -f k8s/alerts.yaml
+                                    # the rules LAST (CORRECTIONS-REBUILD B9): applied before the
+                                    # services exist, every "X is down" rule fires at a service
+                                    # that was never up, and the bot's first ticket is about itself
 ```
 
 ## 5. Proof

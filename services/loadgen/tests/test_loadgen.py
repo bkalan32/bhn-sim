@@ -47,3 +47,43 @@ def test_metrics_say_paused_on_purpose():
     txt = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3).read().decode()
     assert 'loadgen_requests_total{target="activation",outcome="200"} 2' in txt
     srv.shutdown()
+
+
+
+def test_open_loop_throughput_does_not_depend_on_latency(monkeypatch):
+    """CORRECTIONS-DAY21 B3: each answer takes 0.4 s; 10 req/s configured for 2 s.
+    Closed loop (Days 2-20) would send ~4. Open loop sends ~20."""
+    import threading
+    import time as _t
+    sent, stop = [], threading.Event()
+
+    def slow_outcome(url, body, timeout):
+        sent.append(1)
+        _t.sleep(0.4)
+        return "200"
+    monkeypatch.setattr(loadgen, "outcome", slow_outcome)
+    th = threading.Thread(target=loadgen.main, args=(["--rps", "10"], stop))
+    th.start()
+    _t.sleep(2.0)
+    stop.set()
+    th.join(timeout=5)
+    assert len(sent) >= 12, f"only {len(sent)} sent in 2 s at 10 req/s configured"
+
+
+def test_full_pool_is_counted_not_hidden(monkeypatch):
+    import threading
+    import time as _t
+    stop = threading.Event()
+    monkeypatch.setattr(loadgen, "outcome", lambda u, b, t: (_t.sleep(1.0), "200")[1])
+    seen = {}
+    real_metrics = loadgen.Metrics
+
+    def capture(*a):
+        m = real_metrics(*a); seen["m"] = m; return m
+    monkeypatch.setattr(loadgen, "Metrics", capture)
+    th = threading.Thread(target=loadgen.main, args=(["--rps", "50", "--max-inflight", "2"], stop))
+    th.start()
+    _t.sleep(1.0)
+    stop.set()
+    th.join(timeout=5)
+    assert seen["m"].counts["dropped_client_busy"] > 0

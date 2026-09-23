@@ -26,6 +26,16 @@ days you want traffic from outside the cluster through the NodePort.
 
 Kept from Day 2 (the PDF's bug): no `except: pass`. Every 5 s a summary line with counts by
 outcome, and a loud line when nothing is getting through.
+
+OPEN LOOP (Day 21, found on the first in-cluster run — CORRECTIONS-DAY21 B3): Days 2-20 sent a
+request, WAITED for the answer, then slept. At 5 req/s configured, activation got 3.5-4; egift
+(which calls activation) got 2 of 3. Worse, a slow service slows the generator: under the Day 25
+latency fault (+400 ms) activation traffic would fall by half, the error-rate denominators
+with it — the generator hiding the very thing it exists to expose ("coordinated omission").
+Real customers do not wait for each other. Now each request's send time is scheduled from
+the previous SEND time, not the previous answer, and requests run on a bounded pool
+(MAX_INFLIGHT, default 32) so a slow answer delays nobody else. If the pool is full, the
+request is counted as `dropped_client_busy` rather than silently delayed.
 """
 
 import argparse
@@ -39,6 +49,7 @@ import time
 import urllib.error
 import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 
 
 def parse_multiplier(raw) -> float:
@@ -119,13 +130,16 @@ def serve_metrics(metrics: Metrics, port: int):
     return srv
 
 
-def main(argv=None):
+def main(argv=None, stop=None):
+    """`stop` (a threading.Event) ends the loop — tests use it; the container runs until killed."""
     p = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     p.add_argument("--url", default=os.getenv("TARGET_URL", "http://localhost:8000/activate"))
     p.add_argument("--payload", choices=["activation", "egift"], default=os.getenv("PAYLOAD", "activation"))
     p.add_argument("--rps", type=float, default=float(os.getenv("BASE_RPS", "8")), help="base requests per second")
     p.add_argument("--multiplier", default=os.getenv("RATE_MULTIPLIER", "1"), help="0-10; 0 pauses")
     p.add_argument("--timeout", type=float, default=5.0)
+    p.add_argument("--max-inflight", type=int, default=int(os.getenv("MAX_INFLIGHT", "32")),
+                   help="requests allowed in flight at once (open loop needs a bound)")
     p.add_argument("--metrics-port", type=int, default=int(os.getenv("METRICS_PORT", "0")), help="0 = no /metrics")
     a = p.parse_args(argv)
     try:
@@ -139,30 +153,60 @@ def main(argv=None):
         serve_metrics(m, a.metrics_port)
     print(f"load generator [{a.payload}] -> {a.url}   base {a.rps} req/s x {mult} = {rps} req/s", flush=True)
 
-    window, last = Counter(), time.time()
+    window, wlock = Counter(), threading.Lock()
+    inflight = threading.BoundedSemaphore(a.max_inflight)
+    pool = ThreadPoolExecutor(max_workers=a.max_inflight, thread_name_prefix="req")
+
+    def fire():
+        try:
+            code = outcome(a.url, make_body(a.payload), a.timeout)
+        finally:
+            inflight.release()
+        m.inc(code)
+        with wlock:
+            window[code] += 1
+
+    last = time.time()
+    next_at = time.monotonic()
     try:
-        while True:
+        while not (stop and stop.is_set()):
             if rps <= 0:
                 # Paused on purpose. Still alive, still scraped: loadgen_rate_multiplier=0 is
                 # how a responder tells "someone turned traffic off" from "the generator died".
                 print(f"[{time.strftime('%H:%M:%S')}] paused (RATE_MULTIPLIER={mult}) — sending nothing", flush=True)
                 time.sleep(30)
                 continue
-            code = outcome(a.url, make_body(a.payload), a.timeout)
-            m.inc(code)
-            window[code] += 1
+            # Open loop: the next send is scheduled from the last SEND, never from an answer.
+            next_at += random.expovariate(rps)
+            delay = next_at - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            elif delay < -5:
+                next_at = time.monotonic()        # fell far behind (laptop asleep): do not burst
+            if inflight.acquire(blocking=False):
+                try:
+                    pool.submit(fire)
+                except RuntimeError:              # interpreter shutting down
+                    inflight.release()
+                    break
+            else:
+                m.inc("dropped_client_busy")
+                with wlock:
+                    window["dropped_client_busy"] += 1
             now = time.time()
             if now - last >= 5:
-                rate = sum(window.values()) / (now - last)
+                with wlock:
+                    snap, _ = dict(window), window.clear()
+                rate = sum(snap.values()) / (now - last)
                 print(f"[{time.strftime('%H:%M:%S')}] {rate:5.1f} req/s   "
-                      + "  ".join(f"{k}={v}" for k, v in sorted(window.items())), flush=True)
-                if all(k.startswith("unreachable") for k in window):
+                      + "  ".join(f"{k}={v}" for k, v in sorted(snap.items())), flush=True)
+                if snap and all(k.startswith("unreachable") for k in snap):
                     print("  ^ nothing is reaching the service", file=sys.stderr, flush=True)
-                window.clear()
                 last = now
-            time.sleep(max(0.0, random.expovariate(rps)))
     except KeyboardInterrupt:
         print(f"\nstopped — totals: {dict(sorted(m.counts.items()))}")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     return 0
 
 

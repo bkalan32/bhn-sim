@@ -56,11 +56,14 @@ def cmd_pending():
     p = request("GET", "/pending")
     if not p:
         print("  (nothing pending)"); return
+    # Day 21: .get() throughout. A listing that crashes on one incomplete proposal hides every
+    # other proposal from the human who has to approve them (found with a hand-planted drill row).
     for x in p:
-        print(f"  {x['token']}")
-        print(f"    {x['signature']} -> {x['action']}   incident {x['incident']}   proposed {x['created_at_iso']}   expires {x['expires_at_iso']}")
+        print(f"  {x.get('token', '?')}")
+        print(f"    {x.get('signature', '?')} -> {x.get('action', '?')}   incident {x.get('incident')}   "
+              f"proposed {x.get('created_at_iso', '?')}   expires {x.get('expires_at_iso', '?')}")
         print(f"    evidence: {json.dumps(x.get('evidence'))}")
-        print(f"    rationale: {x['rationale']}")
+        print(f"    rationale: {x.get('rationale', '(none recorded)')}")
         print(f"    approve:  python3 tools/rem.py approve {x['token']}")
 
 

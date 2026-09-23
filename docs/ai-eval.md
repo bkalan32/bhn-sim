@@ -598,3 +598,9 @@ hallucination with its cause is what "evaluating AI systems" looks like in pract
 | 2026-09-09 | copilot game day 1 (6c) | "not isolated to send_email … errors elsewhere" — inferred from a *normal latency* on the failing step; never looked at error reasons | queued: SYSTEM rule "latency is not an error signal"; re-ask as 6c-bis |
 | 2026-09-09 | copilot game day 1 (6c) | not invented — *omitted*: `SettlementZeroRecords` was in its own `firing_alerts` result and went unmentioned | queued: "always mention any other critical alert the tools return" |
 | 2026-09-09 | `INC-1788965584-fca7` (game day, hypothesis) | not invented — *inherited*: "Kubernetes says Succeeded, logs say settlement complete" is the Day 5 alert description, false since Day 8's strict self-check; and "no error events" because the collector searches `app.status=error` while the job logs `level=ERROR` | queued: fix the rule's description; collector `app.status=error OR app.level=ERROR` |
+
+## Eval 11 — resolution draft, INC-1790182530-dbcf (rebuild, OTel probe), 23 Sep 2026
+
+| Draft | Model | Verdict | Note |
+|---|---|---|---|
+| resolved | claude-sonnet-4-5 (24.5 s) | **pass, one factual error** | Every claim traces to the record; "Follow-up actions: Not yet known" instead of inventing. **Error:** "fix within 35 minutes" — the fix was ~16:58Z (3 min after open); the model read the NOTE's timestamp (17:30Z) as the fix time. Also 8 restarts (alert) vs 7 (note) left unreconciled. **Cause is the record, not the model:** the note said what was fixed, not when. Habit: notes carry the event time ("fixed at 16:58Z"). Day 22: the note box gets an optional "happened at" field. |

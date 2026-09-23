@@ -54,6 +54,20 @@ detail found while writing it: a `RETURNING` statement in Python's `sqlite3` is 
 — and in autocommit mode only committed — when its rows are exhausted; `fetchone()` would leave
 the write lock held. `fetchall()`, and a test that takes the lock from another connection after.
 
+### [BUG] B3 — The load generator waited for each answer: "coordinated omission" since Day 2
+
+First in-cluster run (loadgen:50): configured 5 req/s → **3.5–4.0**; configured 3 → **1.9–2.1**
+(egift is slower, because each order calls activation). The generator sent a request, *waited
+for the answer*, then slept — so every millisecond of service latency came out of the send rate.
+The laptop version did the same for nineteen days (8 configured, ~4.5 seen). The part that
+matters: under Day 25's latency fault (`BASE_LATENCY_MS=400`) activation traffic would have
+**halved** — the error-rate and burn-rate denominators with it, and the health score computed
+over half the customers. The generator was hiding the very degradation it exists to expose; load
+testing calls this *coordinated omission*, and real customers do not queue behind each other.
+**Fix:** open loop — each send is scheduled from the previous *send*, requests run on a bounded
+pool (`MAX_INFLIGHT` 32); a full pool is counted as `dropped_client_busy`, never silently delayed.
+Test: answers that take 0.4 s at 10 req/s configured → ≥ 12 sent in 2 s (closed loop: ~4).
+
 ### [NOTE] N1 — The load generator now says when it was turned down on purpose
 
 `loadgen_requests_total{target,outcome}`, `loadgen_target_rps`, `loadgen_rate_multiplier`
@@ -73,3 +87,13 @@ knobs at 0, or the `ActivationNoTraffic` rule it motivates must be written knowi
 minor version either side of the cluster is supported". The cluster is five minors ahead. The
 three verbs it uses work; it was outside the support window all the same. Fixed in the same
 build as the state change: `v1.37.0`. Mission Control's image (Step 3) pins the same.
+
+### [NOTE] N4 — Proven in the cluster, not only in the tests (remediator:49)
+
+A proposal planted straight into `/data/remediator.db`, a `rollout restart`, and the new pod
+listed it; the first decline succeeded, the second got a 404. The run also crashed
+`tools/rem.py pending` with `KeyError: 'created_at_iso'` — the planted row lacked the display
+fields a real proposal carries. The drill's fault, but the lesson is the CLI's: a listing that
+dies on one incomplete record hides every *other* pending approval from the person who has to
+act on them. `rem.py` now reads every field with a default.
+

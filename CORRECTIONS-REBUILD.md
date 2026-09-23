@@ -3,7 +3,7 @@
 Not a day of the series: the lab rebuilt from git on **23 Sep 2026**, after Docker Desktop was
 wiped (containers, networks and the kind cluster gone; images and the `jenkins_home` volume
 survived). The README's runbook said the lab could be rebuilt from this repository. It could —
-after eight fixes, found in the order below. The tested sequence is now `docs/rebuild.md`.
+after nine fixes, found in the order below. The tested sequence is now `docs/rebuild.md`.
 
 ---
 
@@ -103,6 +103,21 @@ the 1-minute load fell from 66 to 0.93.
 
 It counted only `will be updated`; on the rebuild every release was `will be created`. It now
 counts created / updated / destroyed / replaced and says *resource(s)*.
+
+## [BUG] B9 — The rebuilt platform paged about services that did not exist yet
+
+Two tickets nobody looked at until the Day 21 import listed them: `IncidentBotDown` (critical,
+opened 16:38:20Z, 2.5 min) and `RemediatorDown` (warning, 16:38:25Z, 4.6 min). The first reading —
+the config scripts' restarts, stretched by the CPU storm — was **wrong**, and the ReplicaSets'
+creation times said so: the bot's *first* ReplicaSet is 16:37:45Z (its first Jenkins deploy), the
+remediator's first is 16:39:47Z — *after* its ticket opened. `k8s/alerts.yaml` had been applied
+(step 3) before any service existed, so every "X is down" rule was firing against services that
+were never up, and Alertmanager was retrying the webhook into a bot that did not exist. The bot's
+first act, 35 s into its life, was to open a ticket about its own absence; the remediator's
+ticket closed when its first deploy (plus `120`'s restart at 16:42:11Z) was Ready. **Fix:**
+`docs/rebuild.md` applies the rules *after* the five services. The general rule: on a bring-up,
+alerts go live last — or behind a silence — or the first page of a new platform is about
+itself. (Mission Control's `silence_alert` action, Day 21 Step 3, is the other half.)
 
 ---
 
