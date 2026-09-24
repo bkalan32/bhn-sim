@@ -17,6 +17,7 @@ import { Login } from "./pages/Login";
 import { Copilot } from "./pages/Copilot";
 import { Evals } from "./pages/Evals";
 import { PaletteProvider, usePalette } from "./components/palette";
+import { ErrorBoundary } from "./components/boundary";
 
 const NAV: { key: string; label: string; day?: number }[] = [
   { key: "", label: "Overview" },
@@ -90,7 +91,9 @@ function Shell({ onSignOut }: { onSignOut: () => void }) {
       </header>
       <ApprovalBanner />
       <main className="p-4 sm:p-6">
-        <Page route={route} />
+        <ErrorBoundary key={route.join("/")} where={`#/${route.join("/")}`}>
+          <Page route={route} />
+        </ErrorBoundary>
       </main>
     </div>
   );

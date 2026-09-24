@@ -137,7 +137,9 @@ function Palette({ onClose }: { onClose: () => void }) {
     return [...screens, ...acts, ...kbs, ...help];
   }, [q, catalog, kb, incident]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => setSel(0), [q]);
+  useEffect(() => {
+    setSel(0);
+  }, [q]);
   const choose = (i: number) => items[i]?.run();
 
   return (

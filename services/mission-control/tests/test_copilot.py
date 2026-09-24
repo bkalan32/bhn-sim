@@ -273,3 +273,16 @@ def test_a_feature_the_account_rejects_is_dropped_not_fatal(monkeypatch):
             return await copilot.run_turn(h, conv, "q", None, _noop, {"operator": "K", "entrance": "copilot"})
     rec = asyncio.run(go())
     assert rec["answer"] == "fine" and copilot.FEATURES["fallbacks"] is False and len(calls) == 2
+
+
+# ------------------------------------------------------------------- UI guard --
+def test_no_effect_returns_a_value():
+    """CORRECTIONS-DAY23 B1: `useEffect(() => expr)` returns expr, and React calls a returned value as the
+    cleanup. Newer Chrome returns a Promise from scrollIntoView() — the Copilot page went blank. Effects
+    here always use a block body."""
+    import pathlib
+    import re
+    src = pathlib.Path(__file__).resolve().parent.parent / "ui" / "src"
+    bad = [f"{p.relative_to(src)}:{i}" for p in src.rglob("*.tsx") for i, line in enumerate(p.read_text().splitlines(), 1)
+           if re.search(r"use(Layout)?Effect\(\(\)\s*=>\s*[^{\s]", line)]
+    assert not bad, f"effects with an expression body (use braces): {bad}"

@@ -99,6 +99,27 @@ it (`evals.turn_id`, added to the existing table by an in-place migration).
 
 ---
 
+### [BUG] B1 — The Copilot page went blank on the first question (mission-control:57)
+
+The first warm-up click in K's Chrome replaced the whole console with an empty page; the console
+said `Uncaught TypeError: l is not a function` inside React's effect cleanup. The page had
+`useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), […])` — an arrow **without
+braces returns its expression**, and React treats whatever an effect returns as its cleanup. In
+the Chromium the render test used, `scrollIntoView()` returns `undefined`, so nothing happened;
+**newer Chrome returns a Promise** from it (promise-returning scroll methods), and the next
+message made React call that Promise as a function. With no error boundary, one screen's error
+unmounted everything — header, nav, and the approvals banner.
+**Fix:** block bodies for both expression effects (the palette had the same shape); a test that
+fails on any `useEffect(() => expr)` in `ui/src`; and an **error boundary** around each screen and
+around the shell — a crashing screen now shows its error with "try again / Overview / reload",
+while the banner and the nav keep working. Reproduced before shipping by patching
+`scrollIntoView` to return a Promise in the render harness: the old bundle failed with the same
+`l is not a function at …:8:95386`, the new one answers.
+The lesson: a render test is only as current as its browser. Day 25 is run from the browser —
+a page that can go blank is a page that can end the game day.
+
+---
+
 ### [NOTE] N1 — The bot's PLATFORM_FACTS did not know Days 18–22 existed
 
 The copilot's system prompt reuses the bot's `PLATFORM_FACTS` (the list of services, metrics and

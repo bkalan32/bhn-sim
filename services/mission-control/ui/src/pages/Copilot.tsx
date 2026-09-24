@@ -53,7 +53,11 @@ export function Copilot({ incident }: { incident?: string }) {
   useEffect(() => {
     store.set(key, conv);
   }, [key, conv]);
-  useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [conv.msgs.length, busy]);
+  // Braces matter: an effect may return only a cleanup function or nothing. Newer Chrome returns a
+  // Promise from scrollIntoView(), and React called it as the cleanup — a blank page (CORRECTIONS-DAY23 B1).
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [conv.msgs.length, busy]);
 
   const update = (fn: (m: Extract<Msg, { role: "assistant" }>) => void) =>
     setConv((c) => {

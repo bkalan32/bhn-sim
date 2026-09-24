@@ -58,7 +58,7 @@ have, and the palette is how you reach an action in two keystrokes under pressur
    cd services/mission-control && python3 -m venv .venv && . .venv/bin/activate
    pip install -q -r requirements.txt -r requirements-dev.txt && python -m pytest -q tests; deactivate; cd ../..
    ```
-   56 pass. The bot the same way (`services/incident-bot`): 36 pass.
+   57 pass. The bot the same way (`services/incident-bot`): 36 pass.
 2. **The key.** Mission control reads `ANTHROPIC_API_KEY` from `secret/ai-keys` — the one
    `90-ai-secret.sh` made on Day 9. `./scripts/90-ai-secret.sh --check` confirms it works. Nothing new to store.
 3. **Commit and push** (Jenkins builds from GitHub).
