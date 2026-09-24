@@ -194,7 +194,9 @@ TOOLS = [
                      "and 'which': top error reasons, which store, one trace. Fields: app.service, app.status, app.reason, "
                      "app.store_id, app.trace_id, app.version, app.msg. Give the window in 'earliest' (-5m, -30m, -2h), "
                      "not in the SPL. Example: 'app.service=activation app.status=error | stats count by app.reason | sort -count'. "
-                     "Side-effect commands are refused."),
+                     "Side-effect commands are refused. Results are CAPPED at 30 rows: a sum over them is not a "
+                     "total, and 'most of the errors' cannot be read off a capped list — compute shares in the SPL "
+                     "(e.g. two searches with app.store_id=EGIFT and app.store_id!=EGIFT, each | stats count)."),
      "input_schema": {"type": "object", "properties": {"spl": {"type": "string"},
                                                        "earliest": {"type": "string", "description": "relative window, default -30m"}},
                       "required": ["spl"]}},
@@ -221,7 +223,9 @@ TOOLS = [
     {"name": "proposal_status",
      "description": ("What happened to a proposal: pending (waiting for a human), approved and executed (by whom, "
                      "when, through which door), declined, expired unapproved, or failed. Pass the token that "
-                     "propose_action returned. Read-only. Use it instead of guessing whether a card was approved."),
+                     "propose_action returned — or \"pending\" to list every card waiting in the approvals banner "
+                     "now (yours, a human's, the remediator's). Read-only. Use it instead of guessing what is waiting "
+                     "or whether a card was approved."),
      "input_schema": {"type": "object", "properties": {"token": {"type": "string"}}, "required": ["token"]}},
     {"name": "propose_action",
      "description": ("PROPOSE an action from the platform's catalog for a HUMAN to approve. Nothing runs: this creates a "
@@ -332,6 +336,8 @@ def summarize(name: str, result) -> str:
         gs = result.get("groups") or []
         return (f"{result.get('alerts_total', 0)} alert(s) in {len(gs)} group(s)"
                 + (": " + ", ".join(f"{g['alertname']}×{g['count']}" if g["count"] > 1 else g["alertname"] for g in gs[:4]) if gs else ""))
+    if name == "proposal_status" and isinstance(result, dict) and "pending_cards" in result:
+        return f"{len(result['pending_cards'])} card(s) waiting" + "".join(f"; {c['action']} ({c['via']})" for c in result["pending_cards"][:3])
     if name == "proposal_status" and isinstance(result, dict):
         return f"{result.get('status')}" + (f" — by {result['decided']['by']} via {result['decided']['via']}" if result.get("decided") else "")
     if name == "propose_action" and isinstance(result, dict):

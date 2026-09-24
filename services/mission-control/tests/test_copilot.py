@@ -167,6 +167,8 @@ def test_a_proposal_queues_an_approval_and_runs_nothing(client, monkeypatch):
     assert r.status_code == 403
     st = asyncio.run(mc.hands.call("proposal_status", {"token": token}, {"operator": "K", "entrance": "copilot"}))
     assert st["status"].startswith("pending") and st["requested"]["via"] == "copilot"
+    waiting = asyncio.run(mc.hands.call("proposal_status", {"token": "pending"}, {"operator": "K", "entrance": "copilot"}))
+    assert any(c["token"] == token and c["via"] == "copilot" for c in waiting["pending_cards"])   # N12
     # a human can
     assert client.post(f"/api/approvals/{token}/approve", headers=K).json()["status"] == "executed"
     # …and the copilot can now SEE that (CORRECTIONS-DAY23 N8) — the refused copilot attempt is not the decision
@@ -250,7 +252,7 @@ def test_mcp_clients_get_the_platform_facts_not_just_the_tools(client):
     r = rpc(client, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                    "clientInfo": {"name": "t", "version": "0"}})
     ins = r.json()["result"]["instructions"]
-    assert "store_id=EGIFT" in ins and "issuer_declined" in ins and "rates, not raw counts" in ins
+    assert "store_id=EGIFT" in ins and "issuer_declined" in ins and "rates, not raw counts" in ins and "not a total" in ins
 
 
 def test_mcp_calls_are_audited_with_entrance_mcp_and_the_callers_name(client):

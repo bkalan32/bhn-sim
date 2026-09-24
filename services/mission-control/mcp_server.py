@@ -25,7 +25,7 @@ INSTRUCTIONS = ("Read-only tools over a payments platform (Prometheus, Splunk vi
 
 
 RULES = ("How to answer from these tools: quote every number with the tool that produced it; an empty result "
-         "means no data, say so; compare rates, not raw counts; a failed tool names the hop that failed, not the "
+         "means no data, say so; compare rates, not raw counts; a capped result (search_logs: 30 rows) is not a total; a failed tool names the hop that failed, not the "
          "systems behind it. propose_action only queues a card for a human; never say an action ran — check "
          "with proposal_status. Tier-3 situations (the KB says escalate) get no proposal.")
 

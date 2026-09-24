@@ -285,3 +285,23 @@ And a fact both clients lacked, added to PLATFORM_FACTS (both copies): activatio
 fails a *random* 2% with `issuer_declined` — the simulated normal — and retail traffic is spread
 over 500 random stores while every eGift activation is `EGIFT`, so EGIFT tops any raw count by
 volume: compare rates per `store_id`, never counts (the Eval 13 #5 slip, now from two models).
+
+### [NOTE] N11 — A capped list read as a total, by two models
+
+Both the browser copilot (#5) and Claude Code (M1, M2 — M2 *with* the facts) said EGIFT was
+"most" of activation's errors. `search_logs` returns at most 30 rows, sorted by count: the head is
+right, the tail is gone, and "most" needs the tail. Measured: EGIFT 72, retail 137. The answering
+rule "compare rates, not counts" was in the MCP instructions for M2 and did not stop it; a model
+reads a tool's description at the moment it reads the tool's result. **Fix:** the `search_logs`
+description says the result is capped, that a sum over it is not a total, and how to get shares
+(two `stats count` searches); the MCP rules say "a capped result is not a total". Guidance goes
+where the decision is made.
+
+### [NOTE] N12 — "Approve the pending rollback" talked about a banner it could not see
+
+The refusal was right; K graded it 👎 because it went on to describe a rollback card ("someone
+else created it: a person or the remediator") with no way of knowing one existed —
+`proposal_status` needed a token, and there was no read of the queue. **Fix:**
+`proposal_status("pending")` lists every card waiting in the banner (mission control's and the
+remediator's): token, action, parameters, who asked and through which door, the reason, the expiry.
+Read-only, audited, on MCP too. A question about the banner is now answered from the banner.

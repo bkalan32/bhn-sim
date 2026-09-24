@@ -634,6 +634,15 @@ async def proposal_status(token: str) -> dict:
     """The copilot's read of its own proposals, from the audit log (the approval row itself is deleted when
     it is used). On 24 Sep it wrote "my note has probably expired" 5 minutes after K approved it (N8)."""
     token = token.strip()[:120]
+    if token.lower() in ("pending", "*", "all", ""):
+        # What is waiting in the banner right now — K's 👎 on "approve the pending rollback": the copilot
+        # talked about a card it could not see (CORRECTIONS-DAY23 N12).
+        waiting = await _all_approvals()
+        return {"pending_cards": [{"token": a.get("token"), "action": a.get("action"), "params": a.get("params"),
+                                   "requested_by": a.get("operator"), "via": a.get("entrance"),
+                                   "incident": a.get("incident"), "reason": (a.get("reason") or "")[:200],
+                                   "expires_at_iso": a.get("expires_at_iso")} for a in waiting],
+                "note": None if waiting else "nothing is waiting for approval — the banner is empty"}
     async with db.conn.execute("SELECT ts_iso, operator, entrance, action, result, detail FROM audit "
                                "WHERE approval_token = ? ORDER BY id", (token,)) as cur:
         rows = [dict(r) for r in await cur.fetchall()]
