@@ -39,7 +39,7 @@ have, and the palette is how you reach an action in two keystrokes under pressur
 
 | Where | What |
 |---|---|
-| `services/mission-control/copilot.py` | the loop: raw streaming Messages API, adaptive thinking (summarised), strict tools, cache breakpoints, server-side fallback, 8-call cap, truncation, the kubectl allow-list, `propose_action` |
+| `services/mission-control/copilot.py` | the loop: raw streaming Messages API, adaptive thinking (summarised), strict read tools, cache breakpoints, server-side fallback, 8-call cap, truncation, the kubectl allow-list, `propose_action` |
 | `services/mission-control/mcp_server.py` | the MCP server (mcp SDK 2.2): nine tools, stateless, DNS-rebinding protection, behind `MCPGate` (the bearer token) |
 | `services/mission-control/app.py` | `POST /api/chat` (SSE), `GET /api/chat/turns`, every AI tool call audited (tier 0, `tool:<name>`), proposals → tier-2 approvals, `/api/eval` grades a copilot turn, `/mcp` |
 | `services/mission-control/db.py` | `turns` table (question, answer, trail, model, tokens, cost); `evals.turn_id` (migrated in place) |
@@ -58,7 +58,7 @@ have, and the palette is how you reach an action in two keystrokes under pressur
    cd services/mission-control && python3 -m venv .venv && . .venv/bin/activate
    pip install -q -r requirements.txt -r requirements-dev.txt && python -m pytest -q tests; deactivate; cd ../..
    ```
-   57 pass. The bot the same way (`services/incident-bot`): 36 pass.
+   58 pass. The bot the same way (`services/incident-bot`): 36 pass.
 2. **The key.** Mission control reads `ANTHROPIC_API_KEY` from `secret/ai-keys` — the one
    `90-ai-secret.sh` made on Day 9. `./scripts/90-ai-secret.sh --check` confirms it works. Nothing new to store.
 3. **Commit and push** (Jenkins builds from GitHub).

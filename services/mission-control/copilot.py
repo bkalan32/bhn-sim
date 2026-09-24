@@ -225,8 +225,17 @@ def _close(schema: dict) -> dict:
     return s
 
 
+# Strict (constrained decoding) where the arguments are EXECUTED as sent: PromQL, SPL, kubectl args. Not on
+# propose_action: its `params` holds one optional field per catalog parameter (11), and every optional field
+# doubles the grammar the API compiles — the real API answered "Schema is too complex" after 55 s
+# (CORRECTIONS-DAY23 B2). Its parameters are validated server-side by actions.validate() anyway, and an
+# invalid proposal is refused and audited: that check, not the schema, is the fence.
+STRICT_EXEMPT = {"propose_action"}
+
+
 def api_tools() -> list:
-    out = [{**t, "input_schema": _close(t["input_schema"]), "strict": True} for t in TOOLS]
+    out = [{**t, "input_schema": _close(t["input_schema"]), **({} if t["name"] in STRICT_EXEMPT else {"strict": True})}
+           for t in TOOLS]
     out[-1] = {**out[-1], "cache_control": {"type": "ephemeral"}}      # cache breakpoint after the tool list
     return out
 
@@ -473,7 +482,8 @@ class ModelError(Exception):
 # Newest API features, each switched off (and reported in /api/config) if THIS account or model rejects
 # it with a 400 naming it — the copilot degrades to plainer requests instead of failing every question.
 FEATURES = {"fallbacks": True, "strict": True, "display": True}
-_FEATURE_WORDS = {"fallbacks": ("fallback", "server-side-fallback"), "strict": ("strict",), "display": ("display",)}
+_FEATURE_WORDS = {"fallbacks": ("fallback", "server-side-fallback"), "strict": ("strict", "schema is too complex", "too complex"),
+                  "display": ("display",)}
 
 
 def _disable_feature_for(detail: str) -> bool:

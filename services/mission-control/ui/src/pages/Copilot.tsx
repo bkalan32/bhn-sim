@@ -236,19 +236,33 @@ function tail(s: string, n: number) {
   return "…" + (cut >= 0 && cut < 30 ? t.slice(cut + 1) : t);
 }
 
+/** Seconds since this answer started, ticking while it streams — a slow model call is not a hung page. */
+function useElapsed(running: boolean) {
+  const [start] = useState(() => Date.now());
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const t = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [running]);
+  return Math.round((Date.now() - start) / 1000);
+}
+
 function Answer({ m }: { m: Extract<Msg, { role: "assistant" }> }) {
   const [showThinking, setShowThinking] = useState(false);
+  const secs = useElapsed(m.streaming);
+  const failed = m.done?.note?.startsWith("model call failed") ? m.done.note : null;
   const proposals = m.tools.filter((t) => t.name === "propose_action" && !t.running);
   const running = m.tools.find((t) => t.running);
   return (
     <div className="max-w-[92%] rounded-lg border border-line bg-surface p-3">
       {m.thinking && (
         <button onClick={() => setShowThinking((s) => !s)} className="mb-1 block w-full text-left text-xs italic text-ink-3">
-          {m.streaming && !m.text ? "Thinking… " : "Thought · "}
+          {m.streaming && !m.text ? `Thinking… ${secs} s · ` : "Thought · "}
           {showThinking ? m.thinking : tail(m.thinking.replace(/ · $/, ""), 160)}
         </button>
       )}
-      {m.streaming && !m.thinking && !m.text && <p className="text-xs italic text-ink-3">Thinking…</p>}
+      {m.streaming && !m.thinking && !m.text && <p className="text-xs italic text-ink-3">Thinking… {secs} s</p>}
       {running && <p className="text-xs text-ink-3">↳ calling {running.name}…</p>}
       {m.text && <Markdown text={m.text} />}
       {proposals.map((p) => (
@@ -266,13 +280,18 @@ function Answer({ m }: { m: Extract<Msg, { role: "assistant" }> }) {
         <p key={i} className="mt-1 text-[11px] text-ink-3">ⓘ {n}</p>
       ))}
       {m.error && <p className="mt-2 text-sm text-ink"><span aria-hidden>⚠ </span>{m.error}</p>}
+      {failed && (
+        <p role="alert" className="mt-2 rounded border border-critical/70 bg-surface-3 p-2 text-xs text-ink">
+          <span aria-hidden>⚠ </span>No answer — {failed}. Nothing was run. Ask again, or start a new conversation.
+        </p>
+      )}
       {m.done && (
         <>
           <p className="mt-2 text-[11px] text-ink-3">
             {m.done.tool_calls} tool call{m.done.tool_calls === 1 ? "" : "s"} · {(m.done.ms / 1000).toFixed(1)} s · {m.done.tokens_in.toLocaleString()}→
             {m.done.tokens_out.toLocaleString()} tokens{m.done.cache_read ? ` (${m.done.cache_read.toLocaleString()} cached)` : ""}
             {m.done.cost_usd != null ? ` · $${m.done.cost_usd.toFixed(4)}` : ""} · {m.done.model}
-            {m.done.note ? ` · ${m.done.note}` : ""}
+            {m.done.note && !failed ? ` · ${m.done.note}` : ""}
           </p>
           <Grade turnId={m.done.turn_id} />
         </>

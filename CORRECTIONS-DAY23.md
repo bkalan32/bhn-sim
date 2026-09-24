@@ -120,6 +120,27 @@ a page that can go blank is a page that can end the game day.
 
 ---
 
+### [BUG] B2 — "Schema is too complex": the first real question failed after 55 s (mission-control:59)
+
+With B1 fixed, the first warm-up question sat on "Thinking…" for 55 seconds and ended with
+`model call failed: HTTP 400 … "Schema is too complex."`. Strict tools are compiled into a
+grammar the model's output is constrained to, and **every optional property doubles it**.
+`propose_action.params` declared one optional field per catalog parameter — eleven — so the
+grammar was too large to build, and the API worked on it for most of a minute before saying so.
+The render harness could not see it: its fake model accepted any schema (Day 22 B2's lesson in
+the other direction: a fake more obliging than the real thing hides exactly this).
+**Fix:** strict stays on the eight read tools — where the PDF's reason for it lives: their PromQL,
+SPL and kubectl arguments are *executed* as sent — and `propose_action` is not strict: its
+parameters were always validated server-side (`actions.validate()`, the same check as a button
+request) and a bad proposal is refused and audited, which is the real fence. A test caps the
+optional fields across the strict tools at four (today: two). "Schema is too complex" is now one
+of the answers that turns `strict` off for the process instead of failing the question (D6), and
+the fake model in the harness rejects the old schema the way the API did. On the screen:
+"Thinking… 12 s" ticks, so a slow call does not look like a hung page, and a failed call is a red
+"No answer — … Nothing was run" line instead of a note at the end of the grey meta line.
+
+---
+
 ### [NOTE] N1 — The bot's PLATFORM_FACTS did not know Days 18–22 existed
 
 The copilot's system prompt reuses the bot's `PLATFORM_FACTS` (the list of services, metrics and

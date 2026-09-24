@@ -62,11 +62,21 @@ def test_platform_facts_mirror_the_bot():
     assert ast.literal_eval(node.value) == copilot.PLATFORM_FACTS
 
 
-def test_every_tool_is_strict_and_closed():
+def test_read_tools_are_strict_and_every_tool_is_closed():
     def closed(s):
         return s.get("type") != "object" or (s.get("additionalProperties") is False and all(closed(v) for v in s.get("properties", {}).values()))
+
+    def optional(s):
+        if s.get("type") != "object":
+            return 0
+        props = s.get("properties", {})
+        return len(set(props) - set(s.get("required", []))) + sum(optional(v) for v in props.values())
     tools = copilot.api_tools()
-    assert all(t["strict"] is True and closed(t["input_schema"]) for t in tools)
+    assert all(closed(t["input_schema"]) for t in tools)
+    strict = [t for t in tools if t.get("strict")]
+    assert {t["name"] for t in tools} - {t["name"] for t in strict} == {"propose_action"}   # CORRECTIONS-DAY23 B2
+    # every optional field doubles the grammar the API compiles for strict tools: keep the total tiny
+    assert sum(optional(t["input_schema"]) for t in strict) <= 4
     assert tools[-1]["cache_control"] == {"type": "ephemeral"}          # the cache breakpoint after the tool list
     prop = next(t for t in tools if t["name"] == "propose_action")
     assert prop["input_schema"]["properties"]["action_id"]["enum"] == sorted(actions.CATALOG)
@@ -273,6 +283,30 @@ def test_a_feature_the_account_rejects_is_dropped_not_fatal(monkeypatch):
             return await copilot.run_turn(h, conv, "q", None, _noop, {"operator": "K", "entrance": "copilot"})
     rec = asyncio.run(go())
     assert rec["answer"] == "fine" and copilot.FEATURES["fallbacks"] is False and len(calls) == 2
+
+
+def test_schema_too_complex_turns_strict_off_instead_of_failing(monkeypatch):
+    """The real API's answer on mission-control:59 (CORRECTIONS-DAY23 B2)."""
+    calls = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        calls.append(body)
+        if any(t.get("strict") for t in body["tools"]):
+            return httpx.Response(400, json={"type": "error", "error": {"type": "invalid_request_error", "message": "Schema is too complex."}})
+        ok = [{"type": "message_start", "message": {"model": "m", "usage": {}}},
+              {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+              {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "fine"}},
+              {"type": "content_block_stop", "index": 0}, {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}]
+        return httpx.Response(200, text="".join(f"data: {json.dumps(e)}\n\n" for e in ok))
+    monkeypatch.setattr(copilot, "FEATURES", {"fallbacks": True, "strict": True, "display": True})
+    monkeypatch.setattr(copilot.config, "ANTHROPIC_API_KEY", "k")
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as h:
+            return await copilot.run_turn(h, {"messages": []}, "q", None, _noop, {"operator": "K", "entrance": "copilot"})
+    rec = asyncio.run(go())
+    assert rec["answer"] == "fine" and copilot.FEATURES["strict"] is False and len(calls) == 2
 
 
 # ------------------------------------------------------------------- UI guard --
