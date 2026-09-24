@@ -2,7 +2,7 @@
 mcp_server.py — Day 23 Step 4: the copilot's tool surface, published as an MCP server on /mcp.
 
 One tool surface, two AI clients, one policy. Claude Code, Cursor or Claude Desktop reach the same
-nine tools the in-browser copilot uses — the same allow-lists (copilot.check_kubectl), the same
+ten tools the in-browser copilot uses — the same allow-lists (copilot.check_kubectl), the same
 truncation, the same audit rows (entrance: mcp) — and the same single write: propose_action, which
 queues a tier-2 approval a HUMAN grants in the browser. There is no approve tool, and the approval
 routes refuse the mcp entrance anyway (app.py HUMAN_ENTRANCES): two fences, again.
@@ -76,6 +76,10 @@ def build(get_hands):
     @mcp.tool(description=_desc("get_incident"), structured_output=False)
     async def get_incident(incident_id: str, ctx: Context) -> str:
         return await run("get_incident", {"incident_id": incident_id}, ctx)
+
+    @mcp.tool(description=_desc("proposal_status"), structured_output=False)
+    async def proposal_status(token: str, ctx: Context) -> str:
+        return await run("proposal_status", {"token": token}, ctx)
 
     @mcp.tool(description=_desc("propose_action"), structured_output=False)
     async def propose_action(action_id: str, reason: str, ctx: Context, params: dict | None = None) -> str:

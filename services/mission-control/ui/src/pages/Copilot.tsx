@@ -333,7 +333,7 @@ function Grade({ turnId }: { turnId: number }) {
 
 function ToolCard({ t }: { t: Tool }) {
   const [open, setOpen] = useState(false);
-  const arg = (t.input.query ?? t.input.spl ?? t.input.args ?? t.input.symptoms ?? t.input.incident_id ?? t.input.service ?? t.input.action_id) as string | undefined;
+  const arg = (t.input.query ?? t.input.spl ?? t.input.args ?? t.input.symptoms ?? t.input.incident_id ?? t.input.service ?? t.input.action_id ?? t.input.token) as string | undefined;
   return (
     <li className={cx("rounded-md border bg-surface p-2 text-xs", t.error ? "border-critical/70" : t.name === "propose_action" ? "border-warning/70" : "border-line")}>
       <div className="flex items-center justify-between gap-2">

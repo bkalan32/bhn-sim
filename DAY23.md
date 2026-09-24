@@ -27,7 +27,7 @@ commands (`/drill fraud`, `/rollback activation`, `/note …`, `/report`, `/kb s
 `/ask …`). The third entrance to the same catalog — it opens the same confirmation card and
 skips no tier.
 
-**The MCP server.** The same nine tools, published on `/mcp` behind the same token. Claude Code
+**The MCP server.** The same ten tools, published on `/mcp` behind the same token. Claude Code
 in your terminal can now investigate the platform *through* mission control, with the same
 allow-lists and the same audit log (entrance `mcp`). One tool surface, two AI clients, one
 policy — the shape "engineering assistants" take in real companies now.
@@ -40,7 +40,7 @@ have, and the palette is how you reach an action in two keystrokes under pressur
 | Where | What |
 |---|---|
 | `services/mission-control/copilot.py` | the loop: raw streaming Messages API, adaptive thinking (summarised), strict read tools, cache breakpoints, server-side fallback, 8-call cap, truncation, the kubectl allow-list, `propose_action` |
-| `services/mission-control/mcp_server.py` | the MCP server (mcp SDK 2.2): nine tools, stateless, DNS-rebinding protection, behind `MCPGate` (the bearer token) |
+| `services/mission-control/mcp_server.py` | the MCP server (mcp SDK 2.2): ten tools, stateless, DNS-rebinding protection, behind `MCPGate` (the bearer token) |
 | `services/mission-control/app.py` | `POST /api/chat` (SSE), `GET /api/chat/turns`, every AI tool call audited (tier 0, `tool:<name>`), proposals → tier-2 approvals, `/api/eval` grades a copilot turn, `/mcp` |
 | `services/mission-control/db.py` | `turns` table (question, answer, trail, model, tokens, cost); `evals.turn_id` (migrated in place) |
 | `services/mission-control/ui/` | Copilot page, Evals page, the command palette, "Investigate with copilot →" on the incident page |

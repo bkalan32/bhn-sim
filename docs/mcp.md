@@ -12,7 +12,7 @@ and the policy lives with the tools — not in each client's prompt.
 
 ## The tools
 
-The same nine the Copilot page uses (`copilot.TOOLS` — the descriptions are shared, so the two
+The same ten the Copilot page uses (`copilot.TOOLS` — the descriptions are shared, so the two
 clients cannot drift apart):
 
 | Tool | What it reaches | The fence |
@@ -24,6 +24,7 @@ clients cannot drift apart):
 | `kubectl_get` | kubectl in the mission-control pod | get/describe/logs/explain/rollout status\|history; **no** secrets, configmaps or service accounts; platform namespaces only; no `-A`; logs capped at 80 lines |
 | `get_incidents`, `get_incident` | the incident bot's records | read-only |
 | `search_kb` | the KB ConfigMap (`kb/*.md`) | read-only |
+| `proposal_status` | mission control's audit log | read-only: pending / approved (by whom, via which door) / declined / expired |
 | `propose_action` | the action catalog | **queues** a tier-2 approval — it never executes, whatever the action's tier |
 
 There is no approve tool and no execute tool. Even if there were, the approval routes refuse
@@ -56,10 +57,10 @@ be localhost / 127.0.0.1 / the in-cluster name; a web page you visit cannot aim 
 the token.) `X-Operator` is `$MC_OPERATOR via claude-code` — `$USER` if you have not set it.
 
 1. `./scripts/220-mc-open.sh` — the port-forward to :8040 (keep it running).
-2. `./scripts/230-mcp.sh` — 401 without the token, nine tools with it, and what Claude Code sees.
+2. `./scripts/230-mcp.sh` — 401 without the token, ten tools with it, and what Claude Code sees.
 3. `export MC_OPERATOR=bkalan32` (so the audit rows name you), then `cd ~/bhn-sim && claude`.
    First time in this folder: accept the workspace-trust dialog, then **approve** the project
-   server `bhn-sim`. `/mcp` should show it ✔ connected with 9 tools.
+   server `bhn-sim`. `/mcp` should show it ✔ connected with 10 tools.
 4. Ask: **"which store had the most activation errors in the last 30 minutes?"** Claude Code
    will ask permission for each `mcp__bhn-sim__…` tool the first time; allow them.
 5. Watch the Audit page (or `python3 tools/mc.py audit 10`): `tool:query_prometheus` (or

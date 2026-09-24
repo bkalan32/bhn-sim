@@ -213,6 +213,11 @@ TOOLS = [
                      "(metrics snapshot, deploys, top log reasons). The AI's earlier drafts are excluded on purpose: a "
                      "model quoting a model is not evidence."),
      "input_schema": {"type": "object", "properties": {"incident_id": {"type": "string"}}, "required": ["incident_id"]}},
+    {"name": "proposal_status",
+     "description": ("What happened to a proposal: pending (waiting for a human), approved and executed (by whom, "
+                     "when, through which door), declined, expired unapproved, or failed. Pass the token that "
+                     "propose_action returned. Read-only. Use it instead of guessing whether a card was approved."),
+     "input_schema": {"type": "object", "properties": {"token": {"type": "string"}}, "required": ["token"]}},
     {"name": "propose_action",
      "description": ("PROPOSE an action from the platform's catalog for a HUMAN to approve. Nothing runs: this creates a "
                      "pending approval card (tier 2, marked as proposed by the copilot) and returns its token. Use only "
@@ -318,6 +323,12 @@ def summarize(name: str, result) -> str:
         return f"{result.get('count', len(result.get('rows', [])))} row(s)"
     if name == "search_kb" and isinstance(result, dict):
         return ", ".join(f"{m['id']} ({m.get('score')})" for m in result.get("matches", [])) or "no match"
+    if name == "firing_alerts" and isinstance(result, dict):
+        gs = result.get("groups") or []
+        return (f"{result.get('alerts_total', 0)} alert(s) in {len(gs)} group(s)"
+                + (": " + ", ".join(f"{g['alertname']}×{g['count']}" if g["count"] > 1 else g["alertname"] for g in gs[:4]) if gs else ""))
+    if name == "proposal_status" and isinstance(result, dict):
+        return f"{result.get('status')}" + (f" — by {result['decided']['by']} via {result['decided']['via']}" if result.get("decided") else "")
     if name == "propose_action" and isinstance(result, dict):
         return f"queued for a human: {result.get('token')}"
     if isinstance(result, list):
@@ -358,8 +369,8 @@ class Hands:
     """The tool implementations. `propose` is injected by app.py: it is the ONE path into the approval
     queue (the same one tools/mc.py and the buttons use), so a proposal is validated and audited there."""
 
-    def __init__(self, http: httpx.AsyncClient, propose):
-        self.http, self.propose = http, propose
+    def __init__(self, http: httpx.AsyncClient, propose, proposal_status=None):
+        self.http, self.propose, self._proposal_status = http, propose, proposal_status
         self._kb = (0.0, {})
 
     async def _get(self, url, **params):
@@ -391,9 +402,28 @@ class Hands:
     async def firing_alerts(self):
         d = await self._get(f"{config.PROM_URL}/api/v1/alerts")
         al = [a for a in d.get("data", {}).get("alerts", []) if a.get("state") in ("firing", "pending")]
-        return [{"alertname": a["labels"].get("alertname"), "state": a.get("state"), "severity": a["labels"].get("severity"),
-                 "service": a["labels"].get("service"), "since": a.get("activeAt"),
-                 "summary": a.get("annotations", {}).get("summary")} for a in al[:30]] or [{"note": "no alerts firing or pending"}]
+        # Grouped by name + state: a storm of one alert (24 Sep: dozens of PrometheusMissingRuleEvaluations)
+        # filled the 6,000-char result and truncated the list, so the model could only say which alerts were
+        # absent "from the part I received" (CORRECTIONS-DAY23 N8). One row per alert name, with a count.
+        groups: dict = {}
+        for a in al:
+            lb = a.get("labels", {})
+            g = groups.setdefault((lb.get("alertname"), a.get("state")), {
+                "alertname": lb.get("alertname"), "state": a.get("state"), "severity": lb.get("severity"),
+                "count": 0, "services": set(), "since": a.get("activeAt"),
+                "summary": (a.get("annotations", {}).get("summary") or "")[:200]})
+            g["count"] += 1
+            if lb.get("service"):
+                g["services"].add(lb["service"])
+            if a.get("activeAt") and (not g["since"] or a["activeAt"] < g["since"]):
+                g["since"] = a["activeAt"]
+        rank = {"critical": 0, "warning": 1, "info": 2, "none": 3}
+        out = sorted(groups.values(), key=lambda g: (g["alertname"] == "Watchdog", g["state"] != "firing",
+                                                     rank.get(g["severity"] or "", 2), g["alertname"] or ""))
+        for g in out:
+            g["services"] = sorted(g["services"])
+        return {"alerts_total": len(al), "groups": out[:60],
+                "note": None if out else "no alerts firing or pending — this is the COMPLETE list, not a truncation"}
 
     async def search_logs(self, spl: str, earliest: str = "-30m"):
         r = await self.http.post(f"{config.BOT_URL}/tools/search_logs",
@@ -482,6 +512,10 @@ class Hands:
                 return await self.get_incidents(args.get("status") or "any")
             if name == "get_incident":
                 return await self.get_incident(args["incident_id"])
+            if name == "proposal_status":
+                if not self._proposal_status:
+                    return {"error": "proposal status is not available here"}
+                return await self._proposal_status(str(args.get("token") or ""))
             if name == "propose_action":
                 return await self.propose(args.get("action_id"), args.get("params") or {}, args.get("reason") or "", ctx)
             return {"error": f"no tool '{name}'"}

@@ -189,7 +189,7 @@ async def lifespan(app):
     global http
     http = httpx.AsyncClient(timeout=config.UPSTREAM_TIMEOUT_S)
     global hands
-    hands = AuditedHands(http, propose)
+    hands = AuditedHands(http, propose, proposal_status)
     await db.open()
     task = asyncio.create_task(_health_poller())
     jlog("started", version=config.VERSION, dry_run=config.DRY_RUN, auth="on" if config.MC_TOKEN else "REFUSING (no MC_TOKEN)",
@@ -623,6 +623,31 @@ async def propose(action_id, params, reason, ctx) -> dict:
     return {"status": "pending_approval", "token": token, "action": action_id, "params": p,
             "note": "Queued for a human. It has NOT run. It runs only if a human approves it in Mission Control "
                     "(the pending-approvals banner); it expires in 30 minutes."}
+
+
+_STATUS = {"pending": "pending: waiting for a human in the approvals banner", "ok": "approved and executed",
+           "failed": "approved, but the execution failed", "declined": "declined by a human",
+           "expired": "expired: nobody approved it within 30 minutes", "rejected": "rejected: invalid proposal"}
+
+
+async def proposal_status(token: str) -> dict:
+    """The copilot's read of its own proposals, from the audit log (the approval row itself is deleted when
+    it is used). On 24 Sep it wrote "my note has probably expired" 5 minutes after K approved it (N8)."""
+    token = token.strip()[:120]
+    async with db.conn.execute("SELECT ts_iso, operator, entrance, action, result, detail FROM audit "
+                               "WHERE approval_token = ? ORDER BY id", (token,)) as cur:
+        rows = [dict(r) for r in await cur.fetchall()]
+    rows = [r for r in rows if r["result"] != "refused"]          # an AI's refused approve attempt is not a decision
+    if not rows:
+        return {"token": token, "status": "unknown token (not in mission control's audit log; remediator proposals "
+                                          "live in the remediator)"}
+    last = rows[-1]
+    out = {"token": token, "action": last["action"], "status": _STATUS.get(last["result"], last["result"]),
+           "requested": {"by": rows[0]["operator"], "via": rows[0]["entrance"], "at": rows[0]["ts_iso"]}}
+    if last["result"] != "pending":
+        out["decided"] = {"by": last["operator"], "via": last["entrance"], "at": last["ts_iso"],
+                          "detail": (last["detail"] or "")[:300]}
+    return out
 
 
 class AuditedHands(copilot.Hands):

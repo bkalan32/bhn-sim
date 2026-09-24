@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Day 23 Step 4 — is the MCP endpoint ready for Claude Code? Run it after ./scripts/220-mc-open.sh.
 #
-#   ./scripts/230-mcp.sh     /mcp refuses without the token, lists the nine tools with it,
+#   ./scripts/230-mcp.sh     /mcp refuses without the token, lists the ten tools with it,
 #                            and shows whether Claude Code sees the bhn-sim server (.mcp.json)
 #
 # It lists tools only — tools/list is not audited — so the "entrance: mcp" rows the checkpoint

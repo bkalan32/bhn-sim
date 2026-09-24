@@ -87,7 +87,7 @@ restart; the token onto the Windows clipboard, never printed; the browser.
 ## The copilot and the MCP server (Day 23)
 
 `services/mission-control/copilot.py` is the loop; `mcp_server.py` publishes the same tools on
-`/mcp` (`docs/mcp.md`). Nine tools: eight reads and `propose_action`. The policy, in one table:
+`/mcp` (`docs/mcp.md`). Ten tools: nine reads and `propose_action`. The policy, in one table:
 
 | Control | Where |
 |---|---|

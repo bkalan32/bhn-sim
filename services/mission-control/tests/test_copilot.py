@@ -165,8 +165,13 @@ def test_a_proposal_queues_an_approval_and_runs_nothing(client, monkeypatch):
     # the model's own approval is impossible twice over: no tool, and the route refuses the entrance
     r = client.post(f"/api/approvals/{token}/approve", headers={**AUTH, "X-Operator": "K", "X-Entrance": "copilot"})
     assert r.status_code == 403
+    st = asyncio.run(mc.hands.call("proposal_status", {"token": token}, {"operator": "K", "entrance": "copilot"}))
+    assert st["status"].startswith("pending") and st["requested"]["via"] == "copilot"
     # a human can
     assert client.post(f"/api/approvals/{token}/approve", headers=K).json()["status"] == "executed"
+    # …and the copilot can now SEE that (CORRECTIONS-DAY23 N8) — the refused copilot attempt is not the decision
+    st = asyncio.run(mc.hands.call("proposal_status", {"token": token}, {"operator": "K", "entrance": "copilot"}))
+    assert st["status"] == "approved and executed" and st["decided"]["via"] == "button"
 
 
 def test_a_bad_proposal_is_an_error_the_model_sees(client, monkeypatch):
@@ -307,6 +312,28 @@ def test_schema_too_complex_turns_strict_off_instead_of_failing(monkeypatch):
             return await copilot.run_turn(h, {"messages": []}, "q", None, _noop, {"operator": "K", "entrance": "copilot"})
     rec = asyncio.run(go())
     assert rec["answer"] == "fine" and copilot.FEATURES["strict"] is False and len(calls) == 2
+
+
+def test_an_alert_storm_is_grouped_not_truncated(monkeypatch):
+    """CORRECTIONS-DAY23 N8: 40 copies of one alert must not push the others out of the result."""
+    storm = [{"labels": {"alertname": "PrometheusMissingRuleEvaluations", "severity": "warning"}, "state": "pending",
+              "activeAt": f"2026-09-24T15:0{i % 3}:15Z", "annotations": {"summary": "x" * 180}} for i in range(40)]
+    real = [{"labels": {"alertname": "ActivationHighErrorRate", "severity": "critical", "service": "activation"},
+             "state": "firing", "activeAt": "2026-09-24T14:48:13Z", "annotations": {}},
+            {"labels": {"alertname": "Watchdog", "severity": "none"}, "state": "firing", "activeAt": "x", "annotations": {}}]
+
+    def prom(req):
+        return httpx.Response(200, json={"status": "success", "data": {"alerts": storm + real}})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(prom)) as h:
+            return await copilot.Hands(h, None).call("firing_alerts", {}, {})
+    out = asyncio.run(go())
+    names = [g["alertname"] for g in out["groups"]]
+    assert out["alerts_total"] == 42 and names[0] == "ActivationHighErrorRate" and names[-1] == "Watchdog"
+    storm_row = next(g for g in out["groups"] if g["alertname"] == "PrometheusMissingRuleEvaluations")
+    assert storm_row["count"] == 40 and storm_row["since"] == "2026-09-24T15:00:15Z"
+    assert len(copilot._truncate(out)) < copilot.MAX_RESULT_CHARS
 
 
 def test_a_failed_hop_is_named_not_guessed(monkeypatch):
