@@ -623,3 +623,22 @@ turned "high" into "medium" with a stated reason, and the responder's first note
 model's concern — the note and the hypothesis agreed because both read the same gap. The
 platform's failure (no alert for a dead log pipeline) was surfaced by the AI's honesty about its
 input, which is the argument for making every collector's *emptiness* visible, not just its errors.
+
+## Eval 13 — the copilot, server-side: the Day 11 warm-up from the browser (Day 23, 24 Sep 2026)
+
+`claude-opus-5-5`, adaptive thinking, strict read tools, mission-control:60/61. Every row is also an
+eval row in mission control (Evals page) with its question, trail, tokens and cost. Questions:
+`docs/copilot-questions/warmup.txt`. Checked against the tools' own results and Prometheus.
+
+| # | Question | Tools (calls) | Verdict | Note |
+|---|---|---|---|---|
+| 1 | overall platform health | firing_alerts, get_incidents, query_prometheus ×6 (8 — the whole budget) | **pass** | platform 79.09, egift 57.66 weakest, activation 79.62, settlement 100 — all quoted with their query. Noticed both open incidents' alerts are not firing ("may be stale"). Named KubeJobFailed ×2 and suggested `kubectl get jobs`. Said honestly it could not explain egift's 57.7 without the formula — a facts gap, not a model error (N7). $0.046. |
+| 2 | activation error rate + p95, 5 m | query_prometheus ×2 | **pass** | 2.09 %, 0.171 s, timestamped; said what it did *not* check. $0.012. |
+| 3 | any open incidents | get_incidents, firing_alerts | **pass** | the right call: both incidents are reboot leftovers whose resolve webhooks were lost; it checked the alert list and said so instead of calling them live. Table unrendered (N6); "not on the documented alert list" was true of a wrong list (N7). $0.020. |
+| 4 | settlement last success + records | query_prometheus ×3 | **pass** | 14:35:14Z, 4,686 records, "234 s before my query"; hedged on `settlement_last_run_status` because the facts did not define it (N7), and warned the records gauge could be from an earlier run — the Pushgateway caveat, unprompted. $0.016. |
+| 5 | which store had the most activation errors, 30 m | search_logs | **pass** | EGIFT 98 is the eGift channel, not a store; STORE-0057 and STORE-0479 tie at 3. **One reasoning slip:** "the problem is concentrated in the eGift channel" — EGIFT carries *all* eGift-originated activations, so its count is volume, not concentration; the claim needs a rate by `app.store_id`. First attempt (before B3) failed honestly: no store invented, Prometheus used to prove errors happened, but blamed Splunk for the bot's readiness probe. $0.037. |
+
+**What the eval says:** five of five with evidence in the trail, and the three near-misses were
+all *platform* gaps the model reported honestly (a missing formula, a wrong alert inventory, a
+failing hop named badly) — each became a fix (B3, N6, N7). The one genuine reasoning slip is
+count-versus-rate, the Day 14 lesson; worth an adversarial question of its own.

@@ -45,15 +45,25 @@ PLATFORM_FACTS = """PLATFORM FACTS (the complete inventory; nothing else exists)
 - Metrics: activation_requests_total{status="ok|error"}, activation_latency_seconds_bucket,
   egift_orders_total{status}, egift_order_latency_seconds_bucket,
   egift_step_latency_seconds_bucket{step="generate_code|activate|send_email"}, settlement_last_success_timestamp,
-  settlement_records_processed, settlement_last_run_status, and recording rules
+  settlement_last_run_timestamp, settlement_records_processed, settlement_last_run_status (1 = the last
+  run succeeded, 0 = it failed), settlement_duration_seconds, and recording rules
   activation:health_score, egift:health_score, settlement:health_score, platform:health_score,
   activation:error_budget_burn_rate:1h|5m|6h, activation:sli_availability:ratio_rate5m|1h|6h.
   ALERTS{alertname,alertstate} lists alert state. Pod restarts: kube_pod_container_status_restarts_total.
   Traffic: loadgen_requests_total{target,outcome}, loadgen_target_rps, loadgen_rate_multiplier
   (0 = traffic turned off on purpose).
-- Alerts: ActivationHighErrorRate, ActivationHighLatency, ActivationNoTraffic, ActivationErrorBudgetBurnFast/Slow,
-  EgiftHighErrorRate, EgiftHighLatency, EgiftStepSlow, SettlementJobFailed, SettlementStale,
-  SettlementZeroRecords, IncidentBotDown, plus the kube-prometheus-stack defaults.
+- Health scores (0-100, docs/health-score.md): activation = 60 x availability term + 40 x latency term
+  (share of requests <= 300 ms); egift = 70 x order-success term + 30 x p95 order-latency term (full at
+  <= 0.5 s, zero at >= 2.5 s); settlement = 70 if the last success is within 15 min + 30 if the last run
+  processed > 0 records; platform = plain average of the three. Availability/success terms are linear
+  from 100% of points at >= 99.5% to 0 at <= 95% ("ten error budgets below"): ~2% errors keeps two thirds
+  of the term (activation ~80), ~3% keeps under half (egift ~60). A few percent of errors is a yellow
+  or red score by design, not a mystery.
+- Alerts (the complete custom set): ActivationHighErrorRate, ActivationNoTraffic,
+  ActivationErrorBudgetBurnFast/Slow, ActivationLatencyBudgetBurn, EgiftHighErrorRate, EgiftHighLatency,
+  EgiftStepSlow, SettlementJobFailed, SettlementStale, SettlementZeroRecords, IncidentBotDown,
+  RemediatorDown, PaymentsPodCrashLooping, PlatformPodRestarting, plus the kube-prometheus-stack defaults
+  (KubeJobFailed, CPUThrottlingHigh, KubeAPIErrorBudgetBurn, Watchdog, ...).
 - Logs: Splunk index=main, JSON fields app.service (activation|egift|settlement|incident-bot),
   app.status (ok|error), app.reason (e.g. fraud_service_timeout, issuer_declined,
   velocity_check_blocked; settlement: db_unreachable, zero_records), app.store_id, app.trace_id,

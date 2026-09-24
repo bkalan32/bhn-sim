@@ -1,7 +1,8 @@
 // The AI's drafts arrive as markdown ("## 1. WHAT WE KNOW", "**bold**", ```promql blocks```):
 // since the bot moved to claude-sonnet-4-5 the model writes it whether asked or not, and the
 // incident page showed the raw `##` and `**`. This renders the small subset the drafts use —
-// headings, bold, inline code, fenced code, bullet and numbered lists — as React elements.
+// headings, bold, inline code, fenced code, bullet and numbered lists, and (Day 23, the copilot
+// writes them) pipe tables — as React elements.
 // No HTML is ever injected: the text is data from a model, and the page has a CSP to keep.
 import type { ReactNode } from "react";
 
@@ -57,6 +58,33 @@ export function Markdown({ text }: { text: string }) {
           {fence[1] && <span className="mb-1 block text-[10px] uppercase tracking-wider text-ink-3">{fence[1]}</span>}
           {body.join("\n")}
         </pre>,
+      );
+      continue;
+    }
+    // A pipe table: a header row, a |---|---| separator, then rows (CORRECTIONS-DAY23 N6).
+    const cells = (l: string) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+      flushPara(); flushList();
+      const head = cells(line);
+      const rows: string[][] = [];
+      i += 2;
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(cells(lines[i++]));
+      i--;
+      blocks.push(
+        <div key={k++} className="my-2 overflow-x-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr>{head.map((c, j) => <th key={j} className="border-b border-line px-2 py-1 text-left font-semibold text-ink-3">{inline(c, `th${k}-${j}`)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri} className="border-b border-line/50">
+                  {head.map((_, j) => <td key={j} className="px-2 py-1 align-top">{inline(r[j] ?? "", `td${k}-${ri}-${j}`)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
       );
       continue;
     }

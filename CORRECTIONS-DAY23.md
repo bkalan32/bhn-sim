@@ -202,3 +202,29 @@ outside the catalog, an injection through a tool result).
 
 The `mcp` SDK and its dependencies, plus up to 200 in-memory conversations. The limit is headroom, not a measured need — watch
 `container_memory_working_set_bytes{pod=~"mission-control.*"}` during the adversarial half hour.
+
+### [NOTE] N6 — Tables arrived as raw pipes
+
+Opus 5.5 answers "any open incidents?" with a markdown table; Day 22's renderer knew headings,
+bold, code and lists, so the answer showed `| Incident | Service | … |---|---|` as text. Pipe
+tables now render (header, separator, rows; inline bold and code inside cells).
+
+### [NOTE] N7 — PLATFORM_FACTS listed an alert that does not exist, and missed four that do
+
+The warm-up's "open incidents" answer said the two incidents' alerts were "not on the platform's
+documented alert list" and compared ActivationLatencyBudgetBurn to **ActivationHighLatency** —
+an alert the facts listed and no rule has ever defined (Day 16 replaced it with the latency
+budget burn). `ActivationLatencyBudgetBurn`, `PlatformPodRestarting`, `PaymentsPodCrashLooping`
+and `RemediatorDown` exist in `k8s/alerts.yaml` and were missing. The model reasoned correctly
+from a wrong inventory. Fixed from the rule files, not from memory: the alert list is now the
+`alert:` names in `k8s/alerts.yaml` + `k8s/kps-values.yaml`, plus the kube-prometheus defaults
+it will see (KubeJobFailed, CPUThrottlingHigh, …). Also added: `settlement_last_run_status`
+means 1 = success / 0 = failure (the settlement answer hedged on it, correctly, because the
+facts did not say), `settlement_last_run_timestamp`, `settlement_duration_seconds`, and **the
+health-score formula** in four lines. The health answer said eGift's 57.7 "isn't explained by a
+3% error rate, and I don't have the formula" — with the formula it is arithmetic: 3.06% errors
+keeps ~43% of the 70-point success term (≈30) + 30 latency points ≈ 60. That also closes the item
+carried since Day 22 ("egift baseline ~60, red tile"): not a fault — eGift's ~3% baseline
+(activation's 2% cascading plus the email partner's 1%) scored by a formula that is deliberately
+harsh (docs/health-score.md). Both copies of PLATFORM_FACTS changed together; the mirror test
+holds them equal. Rebuild the bot too.
