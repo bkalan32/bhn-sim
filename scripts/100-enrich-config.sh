@@ -93,6 +93,12 @@ unset GTOKEN
 ok "stored: GRAFANA_TOKEN, SPLUNK_URL=${SURL:-(none — EKS)}, CW_LOG_GROUP=${CWG:-(none — kind)}, SPLUNK_USER, SPLUNK_PASSWORD, SPLUNK_VERIFY=false"
 dim "SPLUNK_VERIFY=false accepts Splunk's self-signed certificate. Lab only; flagged in the README."
 
+# Day 22: mission-control reads GRAFANA_TOKEN from this secret too (deploys today, the feed's
+# deploy events) — a re-minted token is a dead one there until it restarts.
+if k get deploy mission-control -n "$PAYMENTS_NS" >/dev/null 2>&1; then
+  k rollout restart deployment/mission-control -n "$PAYMENTS_NS" >/dev/null && ok "restarted mission-control (reads GRAFANA_TOKEN from this secret)"
+fi
+
 if k get deploy incident-bot -n "$PAYMENTS_NS" >/dev/null 2>&1; then
   step "Restarting the bot to pick up the secret"
   k rollout restart deployment/incident-bot -n "$PAYMENTS_NS" >/dev/null

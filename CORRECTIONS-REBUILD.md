@@ -121,6 +121,42 @@ itself. (Mission Control's `silence_alert` action, Day 21 Step 3, is the other h
 
 ---
 
+## [BUG] B10 — A power cut reshuffled the container IPs, and three things broke without a word
+
+23 Sep, 16:44 local: the PC lost power. Everything came back — pods Running, etcd clean, `up.sh`
+green enough — and five hours later a drill showed the incident page's log histogram empty
+("no error-status events") while activation failed seven requests a second. Fluent Bit had been
+`0/1` since the reboot, retrying and then dropping every chunk: it was sending to 172.19.0.3.
+Docker gives addresses on the kind network in **start order**; before the power cut the order was
+node .2, splunk .3, jenkins .4, after it jenkins .2, node .3, splunk .4. Three consumers held the
+old addresses: Fluent Bit's Splunk host (Terraform), the bot's `SPLUNK_URL` (`enrich-config`) and
+Mission Control's `JENKINS_URL` — the last now pointing at Splunk. The code knew: `tf.sh`'s own
+comment says the IP "moves on every Docker restart", and `up.sh` warns when `SPLUNK_URL` drifts.
+Knowing and warning is not fixing. **Fix:** `scripts/137-pin-container-ips.sh` gives Splunk and
+Jenkins fixed addresses (x.y.255.10 / .11, far from Docker's own allocation) in place — stop,
+reconnect with `--ip`, start; data, trial and jobs untouched — and `21-splunk-up.sh` /
+`50-jenkins-rebuild.sh` create them pinned. `210-mc-config.sh` now restarts Mission Control after
+repairing its Jenkins URL (it updated the Secret and left the pod on the old address), and
+`100-enrich-config.sh` restarts it after re-minting the Grafana token it also reads. The lesson
+for the platform's own alerting — a log pipeline down for five hours paged nobody — is a Day 24
+item: `FluentBitNotShipping` (output errors > 0 for 10 m, or no events in Splunk for 10 m).
+
+## [BUG] B11 — Every Splunk restart turned HEC's SSL back on; Terraform kept telling Fluent Bit "Off"
+
+The second half of B10's silent five hours. With Splunk at its pinned address, plain HTTP to
+8088 still got nothing — from Fluent Bit, from WSL, even from inside the container — while
+HTTPS answered 200. The `splunk/splunk` image re-runs its Ansible setup on **every container
+start** ("Setup global HEC"), and its default is HEC over SSL; the rebuild's "SSL off" was a
+click in the web UI that lived only until the first restart. The power cut was the first
+restart. `22-fluent-bit.sh` had always probed both schemes — once, on day 3 — and wrote the answer
+into the rendered values file; `tf.sh` read that file forever after. A fact about a running
+system was stored as if it were configuration. **Fix:** `tf.sh` asks HEC on every run (https,
+then http; localhost from WSL, the container IP from Jenkins) and falls back to the rendered
+file only if Splunk does not answer, saying so. Fluent Bit therefore runs with TLS On and
+TLS.Verify Off (Splunk's certificate is self-signed — the same trade the bot has made on 8089
+since Day 10), and the HEC token now crosses the kind network encrypted, which it should have
+all along.
+
 ## [DESIGN] D1 — New Relic's cluster agents are off; the remote write stays
 
 The storm came back after B7 (Docker Desktop: 3393 % of 800 % CPU, 9.40 of 9.48 GB), and the

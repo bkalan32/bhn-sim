@@ -157,6 +157,21 @@ splunk_ip() {
   docker inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' "$SPLUNK_CONTAINER" 2>/dev/null || true
 }
 
+# Day 22 (CORRECTIONS-REBUILD B10): Splunk and Jenkins get FIXED addresses on the kind network.
+# Docker hands out .2, .3, .4 in start order, so a restart that starts the containers in a
+# different order moves every address — on 24 Sep that silently broke Fluent Bit -> Splunk,
+# the bot's log collector and Mission Control's Jenkins URL at once. The pinned addresses sit
+# at the top of the /16 (x.y.255.10 / .11), far from anything Docker allocates on its own.
+kind_fixed_ip() {  # suffix  -> <first two octets of the kind subnet>.255.<suffix>
+  local subnet
+  subnet=$(timeout 15 docker network inspect kind -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null \
+    | tr ' ' '\n' | grep -m1 -E '^[0-9]+\.[0-9]+\.0\.0/16$' || true)
+  [[ -n "$subnet" ]] || { echo ""; return 1; }
+  printf '%s.255.%s' "${subnet%.0.0/16}" "$1"
+}
+SPLUNK_IP_SUFFIX=10
+JENKINS_IP_SUFFIX=11
+
 # ---------------------------------------------------------------- Day 4 -----
 # shellcheck disable=SC2034
 TRACING_NS="tracing"

@@ -36,7 +36,9 @@ else
   # Day 14: Splunk's hourly housekeeping (archivebuckets, summary maintenance) took every core
   # on the 4-CPU VM during the game day and starved the API server — cap it. 1.5 CPUs is
   # plenty for the lab's volume. (docker update --cpus 1.5 splunk applies it to a running one.)
-  docker run -d --name "$SPLUNK_CONTAINER" --network kind --cpus 1.5 --memory 3g \
+  # Day 22 (CORRECTIONS-REBUILD B10): a fixed address, so a Docker restart cannot move it.
+  PIN=$(kind_fixed_ip "$SPLUNK_IP_SUFFIX") || die "the kind network is not a /16 — see scripts/137-pin-container-ips.sh"
+  docker run -d --name "$SPLUNK_CONTAINER" --network kind --ip "$PIN" --cpus 1.5 --memory 3g \
     -p 8000:8000 -p 8088:8088 \
     -e SPLUNK_START_ARGS=--accept-license \
     -e "SPLUNK_PASSWORD=${SPLUNK_PASSWORD}" \

@@ -77,6 +77,8 @@ if k get secret mission-control-config -n "$PAYMENTS_NS" >/dev/null 2>&1 && [[ "
       | python3 -c "import json,sys,base64; d=json.load(sys.stdin); d['data']['JENKINS_URL']=base64.b64encode(b'http://$JIP:8080').decode(); [d['metadata'].pop(k,None) for k in ('resourceVersion','uid','creationTimestamp','managedFields','annotations')]; print(json.dumps(d))" \
       | k apply -f - >/dev/null
     ok "Jenkins moved ($CUR -> http://$JIP:8080) — URL updated, token kept"
+    # env is read at start: without a restart the pod keeps calling the OLD address (CORRECTIONS-REBUILD B10)
+    k get deploy mission-control -n "$PAYMENTS_NS" >/dev/null 2>&1 && { k rollout restart deploy/mission-control -n "$PAYMENTS_NS" >/dev/null; ok "restarted mission-control to read it"; }
   fi
 else
   say "  Jenkins > (your name, top right) > Security > API Token > Add new token > name it mission-control > copy"

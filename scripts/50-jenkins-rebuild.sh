@@ -27,7 +27,9 @@ docker rm -f jenkins >/dev/null 2>&1 || true
 # ALLOW_LOCAL_CHECKOUT: the git plugin refuses to clone from a local path (like /repo)
 # by default — a 2022 hardening, since a local checkout could read anything on the
 # controller. Lab-only; in production the SCM is a real remote.
-docker run -d --name jenkins --network kind -u root \
+# Day 22 (CORRECTIONS-REBUILD B10): a fixed address — Mission Control's JENKINS_URL holds it.
+PIN=$(kind_fixed_ip "$JENKINS_IP_SUFFIX") || die "the kind network is not a /16 — see scripts/137-pin-container-ips.sh"
+docker run -d --name jenkins --network kind --ip "$PIN" -u root \
   -p 8081:8080 -p 50000:50000 \
   --restart unless-stopped \
   -e JAVA_OPTS="-Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true" \

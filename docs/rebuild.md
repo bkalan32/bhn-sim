@@ -32,6 +32,7 @@ df -h /mnt/c                                               # C: holds both VMs' 
                                     #   HEC Global Settings: All Tokens Enabled, SSL off; New Token "k8s"
 ./scripts/50-jenkins-rebuild.sh     # image jenkins-lab (survives), volume jenkins_home (jobs survive);
                                     # regenerates ci/kubeconfig-internal.yaml for the NEW cluster
+./scripts/137-pin-container-ips.sh --check   # Splunk .255.10, Jenkins .255.11 — a restart must not move them (B10)
 ```
 
 ## 2. The platform layer — one script, in the order an empty cluster needs

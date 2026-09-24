@@ -14,6 +14,7 @@ import type { Incident as Inc, KBEntry, TimelineEvent, UIConfig } from "../lib/t
 import { ApprovalCard } from "../components/approvals";
 import { ActionButton } from "../components/actions";
 import { useToast } from "../components/toast";
+import { Markdown } from "../components/markdown";
 import { Badge, Button, Card, CopyButton, ExtLink, Skeleton, Status, TierBadge, Unavailable, cx } from "../components/ui";
 
 export function Incident({ id }: { id: string }) {
@@ -206,7 +207,7 @@ function Hypothesis({ inc }: { inc: Inc }) {
               </>
             )}
           </div>
-          <div className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{text}</div>
+          <Markdown text={text} />
           <Thumbs inc={inc} draft="hypothesis" />
         </>
       )}
@@ -352,7 +353,7 @@ function DraftBlock({ inc, kind, text, waiting }: { inc: Inc; kind: "open" | "re
                   <span className="text-xs font-semibold uppercase tracking-wider text-ink-3">{p.heading || "Draft"}</span>
                   <CopyButton text={p.body} />
                 </div>
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{p.body}</div>
+                <Markdown text={p.body} />
               </div>
             ))}
           </div>

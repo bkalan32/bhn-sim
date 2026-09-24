@@ -156,3 +156,23 @@ on the dark surface, too low to carry small text on its own.
 
 For a single-operator console loaded once per shift through a port-forward, that is fine. Day
 23's copilot screen is the natural place to code-split if it grows.
+
+### [NOTE] N5 — The AI started writing markdown; the page showed the `##` and `**`
+
+The first real incident on the page (INC-0023's) had a hypothesis full of `## 1. WHAT WE KNOW`,
+`**bold**` and a ```` ```promql ```` block: the bot's model writes markdown whether the prompt asks
+for it or not. The render test's fake drafts were plain text — again a fake more polite than the
+real thing (B2). `components/markdown.tsx` renders the subset the drafts use (headings, bold,
+inline and fenced code, lists — keeping the model's own numbering, so "5. CONFIDENCE" is not
+shown as "1.") as React elements. No HTML is injected: the text comes from a model, and the page
+has a CSP to keep. The copy buttons still copy the markdown source, which is what a Slack or
+Jira paste wants.
+
+### [NOTE] N6 — The first drill found an outage the platform had not: the log pipeline
+
+INC-0023's context card said "no error-status events for activation in the last 10m" while
+activation failed seven requests a second. Both hypotheses (activation and egift) noticed the
+contradiction, said so, and lowered their confidence to medium instead of inventing a histogram
+— the Day 10 rule working as designed. The cause was two restarts' worth of drift
+(CORRECTIONS-REBUILD B10, B11). What did not work: nothing paged. A log pipeline down for five
+hours is an incident; Day 24 adds the alert.
