@@ -95,6 +95,7 @@ export function Copilot({ incident }: { incident?: string }) {
           case "tool_start":
             update((m) => {
               if (m.thinking && !m.thinking.endsWith(" · ")) m.thinking += " · "; // one round's thinking ends at its tool call
+              if (m.text.trim() && !m.text.endsWith("\n\n")) m.text += "\n\n";   // …and its text: "Retry once.I can't" (B3)
               m.tools.push({ ...e.data, summary: "running…", ms: 0, error: false, running: true });
             });
             break;

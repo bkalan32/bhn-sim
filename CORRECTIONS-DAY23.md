@@ -141,6 +141,34 @@ the fake model in the harness rejects the old schema the way the API did. On the
 
 ---
 
+### [BUG] B3 — The copilot blamed Splunk for the incident bot's readiness probe (mission-control:60)
+
+Warm-up #5 ("which store had the most activation errors…") gave an honest answer — no store
+invented, 274.5 errors quoted from `increase()` — but its log searches failed: the first after 45 s
+(`ReadTimeout`), the second in **16 ms** (`ConnectError: All connection attempts failed`), and the
+model concluded "Splunk itself may be down". Splunk was up (the same search took 4.7 s a minute
+later). Three faults, one symptom:
+1. **The bot's probes.** Events: `Readiness probe failed … context deadline exceeded`. The bot runs
+   at a 200m CPU limit with the default **1 s** probe timeout — sized on Day 8, when only
+   Alertmanager called it. Since Days 21–23 mission control's poller, the copilot and MCP clients
+   all route log searches, incident reads and KB search through it; one busy moment and `/readyz`
+   missed its second, the pod left the Service, and the next call was refused instantly — the
+   16 ms. **Fix:** `timeoutSeconds: 3`, readiness `failureThreshold: 3`, CPU limit 500m, memory
+   192 Mi (`k8s/incident-bot.yaml`).
+2. **The timeout race.** Mission control waited 45 s for the bot; the bot's own Splunk budget
+   ends at about the same time — so a raw `ReadTimeout` won instead of the bot's clean "search
+   timed out" result. **Fix:** `SEARCH_TIMEOUT_S = 75`.
+3. **The error text.** `ConnectError: All connection attempts failed` names no hop, and the model
+   guessed the far end. **Fix:** `explain_failure()` names the dependency that failed ("could not
+   connect to the incident bot … it says nothing about the systems behind it") and suggests the
+   reasonable next move (one retry, a narrower window). Test: `test_a_failed_hop_is_named_not_guessed`.
+Also: text the model writes before a tool call no longer runs into the final answer ("Retry
+once.I can't tell you…") — each round starts a new paragraph.
+The model's behaviour is the part to keep: when a source failed it said so, used a second
+source, and did not invent the store. The platform's job is to make the failure message true.
+
+---
+
 ### [NOTE] N1 — The bot's PLATFORM_FACTS did not know Days 18–22 existed
 
 The copilot's system prompt reuses the bot's `PLATFORM_FACTS` (the list of services, metrics and

@@ -309,6 +309,22 @@ def test_schema_too_complex_turns_strict_off_instead_of_failing(monkeypatch):
     assert rec["answer"] == "fine" and copilot.FEATURES["strict"] is False and len(calls) == 2
 
 
+def test_a_failed_hop_is_named_not_guessed(monkeypatch):
+    """CORRECTIONS-DAY23 B3: 'ConnectError: All connection attempts failed' was read as 'Splunk may be down';
+    the hop that failed was the incident bot. The tool result now names the hop."""
+    monkeypatch.setattr(copilot.config, "BOT_URL", "http://incident-bot.payments:8020")
+
+    def refuse(req):
+        raise httpx.ConnectError("All connection attempts failed", request=req)
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(refuse)) as h:
+            return await copilot.Hands(h, None).call("search_logs", {"spl": "app.service=activation"}, {})
+    out = asyncio.run(go())
+    assert "could not connect to the incident bot" in out["error"] and "says nothing about the systems behind it" in out["error"]
+    assert copilot.SEARCH_TIMEOUT_S > 45                      # longer than the bot's own Splunk budget
+
+
 # ------------------------------------------------------------------- UI guard --
 def test_no_effect_returns_a_value():
     """CORRECTIONS-DAY23 B1: `useEffect(() => expr)` returns expr, and React calls a returned value as the

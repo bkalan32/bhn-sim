@@ -40,7 +40,10 @@ import httpx
 import actions
 import config
 
-MAX_RESULT_CHARS = 6000        # a huge log dump must not blow up the context (Day 11)
+MAX_RESULT_CHARS = 6000
+# Longer than the bot's own Splunk budget, so the bot's clean "search timed out" result arrives before
+# our ReadTimeout does (CORRECTIONS-DAY23 B3: both were ~45 s, and the raw timeout won the race).
+SEARCH_TIMEOUT_S = 75        # a huge log dump must not blow up the context (Day 11)
 TOOL_CALL_BUDGET = 8           # Day 11 troubleshooting: the eight-call cap — per question
 MAX_ROUNDS = 12                # model turns per question; the budget normally ends it first
 CONVERSATION_TTL_S = 30 * 60   # Day 11: "copilots need the last 30 minutes, not a long memory"
@@ -314,6 +317,33 @@ def summarize(name: str, result) -> str:
     return _truncate(result)[:160]
 
 
+def _who(url: str) -> str:
+    """Which dependency a URL belongs to — so a failed hop is named, not guessed (CORRECTIONS-DAY23 B3)."""
+    u = str(url)
+    for base, name in ((config.BOT_URL, "the incident bot (it runs the Splunk searches, incident reads and KB search "
+                                        "for these tools)"), (config.PROM_URL, "Prometheus"), (config.AM_URL, "Alertmanager")):
+        if base and u.startswith(base):
+            return name
+    return u.split("?")[0][:80]
+
+
+def explain_failure(e: Exception) -> str:
+    """A tool failure in words the model can reason from. On 24 Sep the model read "ConnectError: All
+    connection attempts failed" as "Splunk may be down" — the hop that failed was the incident bot
+    (readiness probe timing out), and Splunk answered the same search in 5 s a minute later."""
+    req = getattr(e, "request", None)
+    who = _who(req.url) if req is not None else "the dependency"
+    if isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return (f"could not connect to {who}. That hop failed; it says nothing about the systems behind it. "
+                "It is often a brief restart or a failed readiness check: say so, and you may retry once.")
+    if isinstance(e, httpx.TimeoutException):
+        return (f"{who} did not answer in time ({type(e).__name__}). The search or query may simply be slow "
+                "(e.g. Splunk right after a restart): a narrower time window or one retry is reasonable.")
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"{who} answered HTTP {e.response.status_code}: {e.response.text[:200]}"
+    return f"{type(e).__name__}: {str(e)[:300]}"
+
+
 class Hands:
     """The tool implementations. `propose` is injected by app.py: it is the ONE path into the approval
     queue (the same one tools/mc.py and the buttons use), so a proposal is validated and audited there."""
@@ -357,7 +387,8 @@ class Hands:
 
     async def search_logs(self, spl: str, earliest: str = "-30m"):
         r = await self.http.post(f"{config.BOT_URL}/tools/search_logs",
-                                 json={"spl": spl, "earliest": earliest or "-30m", "limit": 30}, timeout=45)
+                                 json={"spl": spl, "earliest": earliest or "-30m", "limit": 30},
+                                 timeout=SEARCH_TIMEOUT_S)
         r.raise_for_status()
         return r.json()
 
@@ -445,7 +476,7 @@ class Hands:
                 return await self.propose(args.get("action_id"), args.get("params") or {}, args.get("reason") or "", ctx)
             return {"error": f"no tool '{name}'"}
         except Exception as e:  # noqa: BLE001
-            return {"error": f"{type(e).__name__}: {str(e)[:300]}"}
+            return {"error": explain_failure(e)}
 
 
 # ---------------------------------------------------------------- the memory --

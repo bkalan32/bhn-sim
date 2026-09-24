@@ -116,18 +116,26 @@ spec:
             httpGet: {path: /healthz, port: 8020}
             periodSeconds: 5
             failureThreshold: 24
+          # Day 23 (CORRECTIONS-DAY23 B3): the bot is no longer called only by Alertmanager — mission
+          # control's poller, the copilot and MCP clients route log searches, incident reads and KB
+          # search through it. At 200m CPU and the default 1 s probe timeout, one busy moment made
+          # /readyz miss its second; Kubernetes took the pod out of the Service and the copilot's
+          # next call was refused in 16 ms. 3 s timeouts, three misses before "not ready", more CPU.
           readinessProbe:
             httpGet: {path: /readyz, port: 8020}
             initialDelaySeconds: 2
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             httpGet: {path: /healthz, port: 8020}
             initialDelaySeconds: 10
             periodSeconds: 20
+            timeoutSeconds: 3
             failureThreshold: 6
           resources:
-            requests: {cpu: 20m, memory: 64Mi}
-            limits:   {cpu: 200m, memory: 128Mi}
+            requests: {cpu: 50m, memory: 96Mi}
+            limits:   {cpu: 500m, memory: 192Mi}
       volumes:
         - name: data
           persistentVolumeClaim:
