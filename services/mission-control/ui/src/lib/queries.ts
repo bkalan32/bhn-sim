@@ -2,7 +2,7 @@
 // these keys when something changes, so polling is only the safety net — except health, which
 // the PDF polls every 15 s (and the feed also pushes every 15 s).
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, post, ApiError } from "./api";
+import { api, post, ApiError, type Entrance } from "./api";
 import { useToast } from "../components/toast";
 import type { Action, ActionResult, Approval, AuditRow, EvalRow, Incident, IncidentSummary, KBEntry, Overview, UIConfig } from "./types";
 import { params } from "./format";
@@ -43,12 +43,12 @@ export const useEvals = (incident: string) =>
 
 /** Run a catalog action through the ONE door (POST /api/actions/{id}). Tier 1 executes; tier 2
  *  comes back pending with a token and lands in the approvals banner for the second click. */
-export function useRunAction() {
+export function useRunAction(entrance: Entrance = "button") {
   const toast = useToast();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { id: string; params?: Record<string, unknown>; reason?: string }) =>
-      post<ActionResult>(`/api/actions/${encodeURIComponent(v.id)}`, { params: v.params ?? {}, reason: v.reason ?? "" }),
+      post<ActionResult>(`/api/actions/${encodeURIComponent(v.id)}`, { params: v.params ?? {}, reason: v.reason ?? "" }, entrance),
     onSuccess: (r, v) => {
       if (r.status === "pending_approval") {
         toast({ tone: "warning", title: `${v.id} requested — waiting for approval`, detail: `${params(v.params)} · token ${(r as { token: string }).token}` });
@@ -85,3 +85,5 @@ export function useDecide() {
     onError: (e) => toast({ tone: "critical", title: "Approval failed", detail: e instanceof ApiError ? `${e.status}: ${e.message}` : String(e) }),
   });
 }
+
+export const useEvalRows = () => useQuery({ queryKey: ["evals", "all"], queryFn: () => api<EvalRow[]>("/api/eval"), refetchInterval: 30_000 });

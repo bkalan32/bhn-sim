@@ -14,14 +14,18 @@ import { Incidents } from "./pages/Incidents";
 import { Incident } from "./pages/Incident";
 import { KB } from "./pages/KB";
 import { Login } from "./pages/Login";
+import { Copilot } from "./pages/Copilot";
+import { Evals } from "./pages/Evals";
+import { PaletteProvider, usePalette } from "./components/palette";
 
 const NAV: { key: string; label: string; day?: number }[] = [
   { key: "", label: "Overview" },
   { key: "incidents", label: "Incidents" },
-  { key: "copilot", label: "Copilot", day: 23 },
+  { key: "copilot", label: "Copilot" },
   { key: "gameday", label: "Game Day", day: 24 },
   { key: "kpis", label: "KPIs & Reports", day: 24 },
   { key: "kb", label: "Knowledge Base" },
+  { key: "evals", label: "Evals" },
   { key: "audit", label: "Audit" },
 ];
 
@@ -39,7 +43,9 @@ export function App() {
   if (!signedIn) return <Login onDone={() => setSignedIn(true)} />;
   return (
     <FeedProvider>
-      <Shell onSignOut={() => { clearSession(); qc.clear(); setSignedIn(false); }} />
+      <PaletteProvider>
+        <Shell onSignOut={() => { clearSession(); qc.clear(); setSignedIn(false); }} />
+      </PaletteProvider>
     </FeedProvider>
   );
 }
@@ -73,6 +79,7 @@ function Shell({ onSignOut }: { onSignOut: () => void }) {
           ))}
         </nav>
         <div className="flex items-center gap-3 text-sm">
+          <PaletteHint />
           <span className="text-ink-3">
             as <span className="text-ink-2">{getSession()?.operator}</span>
           </span>
@@ -100,6 +107,10 @@ function Page({ route }: { route: string[] }) {
       return <KB id={id} />;
     case "audit":
       return <AuditPage />;
+    case "copilot":
+      return <Copilot incident={id} key={id ?? "_page"} />;
+    case "evals":
+      return <Evals />;
     default: {
       const n = NAV.find((x) => x.key === section);
       return (
@@ -115,5 +126,14 @@ function Page({ route }: { route: string[] }) {
 
 function AuditPage() {
   const { data } = useAudit(200);
-  return <Card title="Audit log — every tier 1 and tier 2 attempt, any entrance">{data ? <AuditTable rows={data} /> : <Skeleton className="h-40" />}</Card>;
+  return <Card title="Audit log — every action attempt and every AI tool call (tier 0), any entrance">{data ? <AuditTable rows={data} /> : <Skeleton className="h-40" />}</Card>;
+}
+
+function PaletteHint() {
+  const { open } = usePalette();
+  return (
+    <button onClick={open} className="rounded-md border border-line px-2 py-1 text-xs text-ink-3 hover:text-ink" title="Command palette">
+      Ctrl K
+    </button>
+  );
 }

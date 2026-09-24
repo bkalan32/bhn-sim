@@ -56,6 +56,9 @@ function Header({ inc }: { inc: Inc }) {
         <Status tone={inc.status === "open" ? "warning" : "good"} label={inc.status} />
         <Badge tone={severityTone(inc.severity)}>{inc.severity}</Badge>
         <Badge>{inc.service ?? "?"}</Badge>
+        <a href={href("copilot", inc.id)} className="ml-auto rounded-md border border-info px-2.5 py-1 text-xs text-ink hover:bg-surface-3">
+          Investigate with copilot →
+        </a>
       </div>
       <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
         <Fact k="Opened" v={utcDateTime(inc.opened_at_iso)} />

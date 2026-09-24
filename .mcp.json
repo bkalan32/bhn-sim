@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bhn-sim": {
+      "type": "http",
+      "url": "http://localhost:8040/mcp",
+      "headersHelper": "scripts/mc-mcp-headers.sh"
+    }
+  }
+}

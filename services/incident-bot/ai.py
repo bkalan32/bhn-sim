@@ -35,7 +35,9 @@ import kb            # Day 17: the team's memory (kb/*.md via a ConfigMap at /kb
 # exist here. Shared with tools/copilot.py (it imports this constant) so the bot and the
 # copilot describe the same platform.
 PLATFORM_FACTS = """PLATFORM FACTS (the complete inventory; nothing else exists):
-- Kubernetes namespace `payments`: Deployments activation, egift, incident-bot; CronJob
+- Kubernetes namespace `payments`: Deployments activation, egift, incident-bot, remediator
+  (Day 12: tier-1 fixes, tier-2 proposals), loadgen (Day 21: the traffic, containers activation
+  and egift, knob RATE_MULTIPLIER), mission-control (Day 21: the console and its API); CronJob
   settlement (a job every few minutes, metrics via Pushgateway). Namespace `monitoring`:
   Prometheus, Alertmanager, Grafana (kube-prometheus-stack, release kps). Namespace
   `logging`: Fluent Bit -> Splunk (Splunk itself runs outside the cluster). Namespace
@@ -47,6 +49,8 @@ PLATFORM_FACTS = """PLATFORM FACTS (the complete inventory; nothing else exists)
   activation:health_score, egift:health_score, settlement:health_score, platform:health_score,
   activation:error_budget_burn_rate:1h|5m|6h, activation:sli_availability:ratio_rate5m|1h|6h.
   ALERTS{alertname,alertstate} lists alert state. Pod restarts: kube_pod_container_status_restarts_total.
+  Traffic: loadgen_requests_total{target,outcome}, loadgen_target_rps, loadgen_rate_multiplier
+  (0 = traffic turned off on purpose).
 - Alerts: ActivationHighErrorRate, ActivationHighLatency, ActivationNoTraffic, ActivationErrorBudgetBurnFast/Slow,
   EgiftHighErrorRate, EgiftHighLatency, EgiftStepSlow, SettlementJobFailed, SettlementStale,
   SettlementZeroRecords, IncidentBotDown, plus the kube-prometheus-stack defaults.

@@ -124,6 +124,13 @@ spec:
             - name: GRAFANA_TOKEN
               valueFrom:
                 secretKeyRef: {name: enrich-config, key: GRAFANA_TOKEN, optional: true}
+            # Day 23: the copilot. ONE key from ai-keys (scripts/90-ai-secret.sh), not the whole
+            # secret — mission control needs the API key, not the bot's AI_MODEL/AI_BASE_URL.
+            # Missing = the Copilot page says "not configured"; everything else works.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: {name: ai-keys, key: ANTHROPIC_API_KEY, optional: true}
+            - {name: COPILOT_MODEL, value: claude-opus-5-5}
           volumeMounts:
             - {name: data, mountPath: /data}
           readinessProbe:
@@ -138,7 +145,7 @@ spec:
             failureThreshold: 6
           resources:
             requests: {cpu: 50m, memory: 96Mi}
-            limits:   {cpu: 500m, memory: 256Mi}
+            limits:   {cpu: 500m, memory: 384Mi}   # Day 23: + the mcp SDK and the copilot's conversations
 ---
 apiVersion: v1
 kind: Service

@@ -164,8 +164,13 @@ def test_overview_degrades_per_tile(client):
 
 
 def test_later_days_say_so(client):
-    assert client.post("/api/chat", headers=AUTH, json={}).status_code == 501
     assert "Day 24" in client.get("/api/kpis", headers=AUTH).text
+
+
+def test_chat_without_a_key_says_so(client, monkeypatch):
+    monkeypatch.setattr(mc.config, "ANTHROPIC_API_KEY", "")
+    r = client.post("/api/chat", headers=K, json={"message": "hi"})
+    assert r.status_code == 503 and "ai-keys" in r.text
 
 
 # ------------------------------------------------------------------ Day 22 --

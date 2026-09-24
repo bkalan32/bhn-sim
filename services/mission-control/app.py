@@ -27,7 +27,11 @@ Routes (Step 2)             tier   notes
   GET  /api/audit             0
   GET  /api/config            0    (Day 22) what the browser needs: public Grafana/Splunk URLs, panels to embed
   GET  /api/eval, POST /api/eval   0 / 1 (Day 22) thumbs up/down on an AI draft; audited as "rate_draft"
-  POST /api/chat, GET /api/kpis    501 until Days 23-24 — said, not faked
+  POST /api/chat              0*   (Day 23) the copilot, streamed as SSE; *its only write is propose_action,
+                                    which queues a tier-2 approval (entrance copilot) — never executes
+  GET  /api/chat/turns        0    every copilot answer, for the eval page
+  /mcp                             (Day 23) the same tools as an MCP server, same token, entrance mcp
+  GET  /api/kpis              501 until Day 24 — said, not faked
   GET  /                      the UI (Day 22): the built React app from UI_DIR, with a CSP
 """
 
@@ -51,6 +55,8 @@ from sse_starlette.sse import EventSourceResponse
 
 import actions
 import config
+import copilot
+import mcp_server
 from db import DB
 from events import Broker, alerts_from_webhook
 
@@ -72,6 +78,7 @@ SSE_CLIENTS = Gauge("mc_sse_clients", "Open /api/events streams")
 HOOKS = Counter("mc_alertmanager_webhooks_total", "Alertmanager notifications received", ["status"])
 UPSTREAM = Counter("mc_upstream_errors_total", "Upstream calls that failed", ["upstream"])
 BUILD = Gauge("mc_build_info", "Build metadata", ["version"]); BUILD.labels(config.VERSION).set(1)
+COPILOT = Counter("mc_copilot_answers_total", "Copilot questions answered", ["outcome"])
 
 db = DB(f"{config.DATA_DIR}/mission-control.db")
 broker = Broker()
@@ -181,10 +188,16 @@ async def _health_poller():
 async def lifespan(app):
     global http
     http = httpx.AsyncClient(timeout=config.UPSTREAM_TIMEOUT_S)
+    global hands
+    hands = AuditedHands(http, propose)
     await db.open()
     task = asyncio.create_task(_health_poller())
-    jlog("started", version=config.VERSION, dry_run=config.DRY_RUN, auth="on" if config.MC_TOKEN else "REFUSING (no MC_TOKEN)")
-    yield
+    jlog("started", version=config.VERSION, dry_run=config.DRY_RUN, auth="on" if config.MC_TOKEN else "REFUSING (no MC_TOKEN)",
+         copilot=config.COPILOT_MODEL if config.ANTHROPIC_API_KEY else "off (no key)")
+    global mcp, _mcp_asgi                             # a session manager runs once: a fresh one per start
+    mcp, _mcp_asgi = mcp_server.build(lambda: hands)
+    async with mcp.session_manager.run():            # the MCP app's task group lives as long as ours
+        yield
     task.cancel()
     await http.aclose()
     await db.close()
@@ -537,19 +550,33 @@ async def evals(incident: str | None = None, c: Caller = Depends(caller)):
 
 
 @app.post("/api/eval")
-async def rate_draft(request: Request, c: Caller = Depends(writer)):
-    """A thumbs up/down on an AI draft (Day 22's incident page). Tier 1: it writes MC's own table,
-    not the platform, so it is not a catalog action — but it is audited like one."""
-    body = await request.json()
-    incident, draft, verdict = (body or {}).get("incident", ""), (body or {}).get("draft"), (body or {}).get("verdict")
+async def rate(request: Request, c: Caller = Depends(writer)):
+    """A thumbs up/down — on an AI draft (Day 22's incident page: {incident, draft, verdict}) or on a
+    copilot answer (Day 23: {turn_id, verdict}). Tier 1: it writes MC's own table, not the platform,
+    so it is not a catalog action — but it is audited like one."""
+    body = await request.json() or {}
+    verdict, comment = body.get("verdict"), str(body.get("comment") or "")
+    if verdict not in ("up", "down"):
+        raise HTTPException(422, "verdict: up or down")
+    if body.get("turn_id") is not None:
+        try:
+            turn = await db.turn(int(body["turn_id"]))
+        except (TypeError, ValueError):
+            turn = None
+        if not turn:
+            raise HTTPException(404, "no such copilot answer")
+        row = await db.add_eval(operator=c.operator, incident=turn["incident"] or "-", draft="copilot", verdict=verdict,
+                                comment=comment, model=turn["model"], turn_id=turn["id"])
+        await _audit(operator=c.operator, action="rate_answer", params={"turn_id": turn["id"], "verdict": verdict},
+                     tier=1, entrance=c.entrance, result="ok", detail=row["comment"])
+        return row
+    incident, draft = body.get("incident", ""), body.get("draft")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", incident or ""):
         raise HTTPException(422, "incident: an incident id")
     if draft not in DRAFTS:
         raise HTTPException(422, f"draft: one of {', '.join(DRAFTS)}")
-    if verdict not in ("up", "down"):
-        raise HTTPException(422, "verdict: up or down")
     row = await db.add_eval(operator=c.operator, incident=incident, draft=draft, verdict=verdict,
-                            comment=str((body or {}).get("comment") or ""), model=(body or {}).get("model"))
+                            comment=comment, model=body.get("model"))
     await _audit(operator=c.operator, action="rate_draft", params={"incident": incident, "draft": draft, "verdict": verdict},
                  tier=1, entrance=c.entrance, result="ok", detail=row["comment"])
     return row
@@ -561,14 +588,130 @@ async def ui_config(c: Caller = Depends(caller)):
     return {"version": config.VERSION, "grafana_url": config.GRAFANA_PUBLIC_URL, "splunk_url": config.SPLUNK_PUBLIC_URL,
             "prom_datasource_uid": config.PROM_DATASOURCE_UID, "embed_panels": config.EMBED_PANELS,
             "metric_queries": config.METRIC_QUERIES, "log_reasons_spl": config.LOG_REASONS_SPL,
+            "copilot": {"enabled": bool(config.ANTHROPIC_API_KEY), "model": config.COPILOT_MODEL,
+                        "tool_budget": copilot.TOOL_CALL_BUDGET, "features": copilot.FEATURES},
             "dry_run": config.DRY_RUN}
 
 
-@app.api_route("/api/chat", methods=["POST"])
+# ----------------------------------------------------------------- copilot --
+# Day 23. The copilot's hands are copilot.Hands; these two additions make them Mission Control's:
+# every tool call is an audit row (tier 0, entrance copilot|mcp — "what did the AI look at" is one
+# query), and propose_action goes through the SAME approval queue as a button.
+async def propose(action_id, params, reason, ctx) -> dict:
+    """The copilot's and the MCP client's only write: a pending approval, never an execution."""
+    a = actions.CATALOG.get(action_id)
+    who, door = ctx["operator"], ctx["entrance"]
+    if not a:
+        await _audit(operator=who, action=str(action_id)[:60], params=params or {}, tier=2, entrance=door,
+                     result="rejected", detail="not in the catalog")
+        return {"error": f"'{action_id}' is not in the catalog: not an action anyone can take here (tier 3: escalate)"}
+    clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+    extra = set(clean) - set(a["params"])
+    if extra:
+        return {"error": f"{action_id} takes {', '.join(a['params']) or 'no parameters'} — not {', '.join(sorted(extra))}"}
+    try:
+        p = actions.validate(action_id, clean)
+    except actions.ParamError as e:
+        await _audit(operator=who, action=action_id, params=clean, tier=2, entrance=door, result="rejected", detail=str(e))
+        return {"error": str(e)}
+    token = f"{action_id}-{secrets.token_urlsafe(8)}"
+    ap = await db.add_approval(token=token, action=action_id, params=p, reason=(reason or "")[:500], tier=2,
+                               entrance=door, operator=who)
+    await _audit(operator=who, action=action_id, params=p, tier=2, entrance=door, result="pending", token=token,
+                 detail=f"proposed by the {door}: {reason}"[:500])
+    broker.publish("approval", {"event": "created", **ap, "blast_radius": a["blast_radius"], "rationale": a["rationale"]})
+    return {"status": "pending_approval", "token": token, "action": action_id, "params": p,
+            "note": "Queued for a human. It has NOT run. It runs only if a human approves it in Mission Control "
+                    "(the pending-approvals banner); it expires in 30 minutes."}
+
+
+class AuditedHands(copilot.Hands):
+    async def call(self, name, args, ctx):
+        out = await super().call(name, args, ctx)
+        if name != "propose_action":                   # a proposal audits itself, with its token
+            await _audit(operator=ctx["operator"], action=f"tool:{name}",
+                         params={k: str(v)[:300] for k, v in (args or {}).items()}, tier=0, entrance=ctx["entrance"],
+                         result="error" if isinstance(out, dict) and out.get("error") else "ok",
+                         detail=copilot.summarize(name, out))
+        return out
+
+
+conversations = copilot.Conversations()
+_busy: set[str] = set()
+hands: AuditedHands | None = None
+
+
+@app.post("/api/chat")
+async def chat(request: Request, c: Caller = Depends(writer)):
+    """One question; the answer streams back as SSE: conversation, thinking, tool_start, tool_call,
+    text, fallback, done (with turn_id — what a thumbs up/down grades) or error."""
+    if not config.ANTHROPIC_API_KEY:
+        raise HTTPException(503, "copilot not configured: no ANTHROPIC_API_KEY (secret/ai-keys — scripts/90-ai-secret.sh)")
+    body = await request.json() or {}
+    msg = str(body.get("message") or "").strip()
+    if not msg or len(msg) > 4000:
+        raise HTTPException(422, "message: 1-4000 characters")
+    inc = body.get("incident") or None
+    if inc and not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", str(inc)):
+        raise HTTPException(422, "incident: an incident id")
+    conv = conversations.get_or_create(body.get("conversation_id"), c.operator, inc)
+    if conv["id"] in _busy:
+        raise HTTPException(409, "this conversation is still answering")
+    question = msg
+    if conv["incident"] and not conv["messages"]:
+        question = f"[Investigating incident {conv['incident']} — start from get_incident.]\n\n{msg}"
+    q: asyncio.Queue = asyncio.Queue()
+
+    async def emit(kind, data):
+        await q.put((kind, data))
+
+    ctx = {"operator": c.operator, "entrance": "copilot"}
+
+    async def worker():
+        _busy.add(conv["id"])
+        try:
+            rec = await copilot.run_turn(http, conv, question, hands, emit, ctx)
+            rec["question"] = msg
+            turn_id = await db.add_turn(conversation=conv["id"], incident=conv["incident"], operator=c.operator,
+                                        entrance="copilot", rec=rec)
+            COPILOT.labels("ok" if rec["answer"] and not rec["note"] else "partial").inc()
+            await emit("done", {"turn_id": turn_id, "conversation_id": conv["id"], "answer": rec["answer"],
+                                "note": rec["note"], "model": rec["model"], "tokens_in": rec["tokens_in"],
+                                "tokens_out": rec["tokens_out"], "cache_read": rec["cache_read"],
+                                "cost_usd": rec["cost_usd"], "ms": rec["ms"], "tool_calls": len(rec["trail"])})
+        except Exception as e:  # noqa: BLE001
+            COPILOT.labels("error").inc()
+            await emit("error", {"detail": f"{type(e).__name__}: {str(e)[:300]}"})
+        finally:
+            _busy.discard(conv["id"])
+            await q.put(None)
+
+    asyncio.create_task(worker())
+
+    async def stream():
+        yield {"event": "conversation", "data": json.dumps({"conversation_id": conv["id"], "incident": conv["incident"],
+                                                            "model": config.COPILOT_MODEL})}
+        while True:
+            item = await q.get()
+            if item is None:
+                break
+            yield {"event": item[0], "data": json.dumps(item[1], default=str)}
+    return EventSourceResponse(stream(), ping=15)
+
+
+@app.get("/api/chat/turns")
+async def turns(limit: int = 50, c: Caller = Depends(caller)):
+    async with db.conn.execute("SELECT id, ts_iso, conversation, incident, operator, entrance, question, model, "
+                               "tokens_in, tokens_out, cost_usd, ms, json_array_length(trail) AS tool_calls, "
+                               "(SELECT GROUP_CONCAT(json_extract(j.value, '$.name')) FROM json_each(turns.trail) j) AS tools "
+                               "FROM turns ORDER BY id DESC LIMIT ?",
+                               (min(max(limit, 1), 500),)) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
 @app.api_route("/api/kpis", methods=["GET"])
 async def later(request: Request, c: Caller = Depends(caller)):
-    day = {"/api/chat": 23, "/api/kpis": 24}[request.url.path]
-    return JSONResponse({"detail": f"not built yet — Day {day}"}, status_code=501)
+    return JSONResponse({"detail": "not built yet — Day 24"}, status_code=501)
 
 
 # ---------------------------------------------------------------- the feed --
@@ -628,3 +771,10 @@ async def root():
     return FileResponse(os.path.join(config.UI_DIR, "index.html"), headers={
         "Content-Security-Policy": _csp(), "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer"})
+
+
+# ---------------------------------------------------------------------- MCP --
+# Day 23 Step 4: /mcp — the copilot's tools for any MCP client, behind the same bearer token.
+
+mcp = _mcp_asgi = None                                # built in lifespan()
+app.add_middleware(mcp_server.MCPGate, get_mcp_app=lambda: _mcp_asgi, token_ok=_token_ok)

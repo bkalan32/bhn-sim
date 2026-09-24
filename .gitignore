@@ -33,3 +33,6 @@ infra/aws/**/*.tfplan
 infra/aws/platform/charts/
 checkpoints/day16-evidence.txt
 infra/local/*.txt
+
+# Day 23: Claude Code writes per-user approvals (e.g. of the .mcp.json server) here
+.claude/settings.local.json

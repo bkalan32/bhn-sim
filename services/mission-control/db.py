@@ -14,7 +14,10 @@ is atomic without extra locking.
              both remove the row in the statement that reads it (take()).
   evals      (Day 22) a human's verdict on an AI draft — thumbs up/down from the incident page:
              incident, which draft, verdict, optional comment, who, when. The structured
-             version of docs/ai-eval.md; Day 23 adds the eval screen on top of it.
+             version of docs/ai-eval.md. Day 23: also on a copilot answer (turn_id).
+  turns      (Day 23) every copilot answer: question, answer, the tool trail, model, tokens,
+             cost — what a grade is a grade OF. The conversation itself lives in memory
+             for 30 minutes (copilot.py); the record of what was said lives here.
 
 Deliberately NOT here: incidents (the bot owns them), remediator proposals (the remediator owns
 them). Mission Control shows them; it does not keep a second copy that can disagree.
@@ -64,7 +67,26 @@ CREATE TABLE IF NOT EXISTS evals (
     model      TEXT
 );
 CREATE INDEX IF NOT EXISTS evals_incident ON evals (incident);
+CREATE TABLE IF NOT EXISTS turns (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          REAL NOT NULL,
+    ts_iso      TEXT NOT NULL,
+    conversation TEXT NOT NULL,
+    incident    TEXT,
+    operator    TEXT NOT NULL,
+    entrance    TEXT NOT NULL,
+    question    TEXT NOT NULL,
+    answer      TEXT NOT NULL,
+    note        TEXT,
+    trail       TEXT NOT NULL,
+    model       TEXT,
+    tokens_in   INTEGER,
+    tokens_out  INTEGER,
+    cost_usd    REAL,
+    ms          INTEGER
+);
 """
+MIGRATIONS = [("evals", "turn_id", "INTEGER")]      # Day 23: a grade can be of a copilot answer
 
 TTL_S = int(os.getenv("APPROVAL_TTL_S", "1800"))
 
@@ -85,6 +107,11 @@ class DB:
         await self.conn.execute("PRAGMA journal_mode = WAL")
         await self.conn.execute("PRAGMA busy_timeout = 5000")
         await self.conn.executescript(SCHEMA)
+        for table, col, typ in MIGRATIONS:              # a PVC written by an older image gains the column
+            async with self.conn.execute(f"PRAGMA table_info({table})") as cur:
+                cols = {r[1] for r in await cur.fetchall()}
+            if col not in cols:
+                await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         await self.conn.commit()
 
     async def close(self):
@@ -154,19 +181,44 @@ class DB:
         return [self._approval(r) for r in rows]
 
     # ------------------------------------------------------------------ evals --
-    async def add_eval(self, *, operator, incident, draft, verdict, comment="", model=None) -> dict:
+    async def add_eval(self, *, operator, incident, draft, verdict, comment="", model=None, turn_id=None) -> dict:
         ts = time.time()
         cur = await self.conn.execute(
-            "INSERT INTO evals (ts, ts_iso, operator, incident, draft, verdict, comment, model) VALUES (?,?,?,?,?,?,?,?)",
-            (ts, _iso(ts), operator, incident, draft, verdict, (comment or "")[:1000], model))
+            "INSERT INTO evals (ts, ts_iso, operator, incident, draft, verdict, comment, model, turn_id) VALUES (?,?,?,?,?,?,?,?,?)",
+            (ts, _iso(ts), operator, incident, draft, verdict, (comment or "")[:1000], model, turn_id))
         await self.conn.commit()
         return {"id": cur.lastrowid, "ts_iso": _iso(ts), "operator": operator, "incident": incident, "draft": draft,
-                "verdict": verdict, "comment": (comment or "")[:1000], "model": model}
+                "verdict": verdict, "comment": (comment or "")[:1000], "model": model, "turn_id": turn_id}
 
     async def evals(self, incident=None, limit=200) -> list:
-        q, args = "SELECT * FROM evals", []
+        """Grades, newest first — with the copilot answer each one is about, when it is about one."""
+        q = ("SELECT e.*, t.question AS question, t.answer AS answer, t.trail AS trail, t.tokens_in AS tokens_in, "
+             "t.tokens_out AS tokens_out, t.cost_usd AS cost_usd, t.entrance AS turn_entrance "
+             "FROM evals e LEFT JOIN turns t ON t.id = e.turn_id")
+        args = []
         if incident:
-            q += " WHERE incident = ?"; args.append(incident)
-        q += " ORDER BY id DESC LIMIT ?"; args.append(int(limit))
+            q += " WHERE e.incident = ?"; args.append(incident)
+        q += " ORDER BY e.id DESC LIMIT ?"; args.append(int(limit))
         async with self.conn.execute(q, args) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+            rows = [dict(r) for r in await cur.fetchall()]
+        for r in rows:
+            r["trail"] = json.loads(r["trail"]) if r.get("trail") else None
+        return rows
+
+    # ------------------------------------------------------------------ turns --
+    async def add_turn(self, *, conversation, incident, operator, entrance, rec: dict) -> int:
+        ts = time.time()
+        trail = [{k: v for k, v in t.items() if k != "result"} for t in rec.get("trail", [])]
+        cur = await self.conn.execute(
+            "INSERT INTO turns (ts, ts_iso, conversation, incident, operator, entrance, question, answer, note, trail, "
+            "model, tokens_in, tokens_out, cost_usd, ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (ts, _iso(ts), conversation, incident, operator, entrance, rec["question"][:4000], rec["answer"][:20000],
+             rec.get("note"), json.dumps(trail, default=str)[:60000], rec.get("model"), rec.get("tokens_in"),
+             rec.get("tokens_out"), rec.get("cost_usd"), rec.get("ms")))
+        await self.conn.commit()
+        return cur.lastrowid
+
+    async def turn(self, turn_id: int):
+        async with self.conn.execute("SELECT * FROM turns WHERE id = ?", (int(turn_id),)) as cur:
+            r = await cur.fetchone()
+        return dict(r) if r else None

@@ -129,17 +129,29 @@ export type UIConfig = {
   embed_panels: { dashboard: string; panel: number; title: string }[];
   metric_queries: Record<string, Record<string, string>>;
   log_reasons_spl: string;
+  copilot?: { enabled: boolean; model: string; tool_budget: number; features: Record<string, boolean> };
   dry_run: boolean;
 };
+
+export type TrailItem = { id: string; name: string; input: Record<string, unknown>; summary: string; ms: number; error: boolean; result?: string };
 
 export type EvalRow = {
   id: number;
   ts_iso: string;
   operator: string;
   incident: string;
-  draft: "open" | "hypothesis" | "resolved";
+  draft: "open" | "hypothesis" | "resolved" | "copilot";
   verdict: "up" | "down";
   comment: string | null;
+  model?: string | null;
+  turn_id?: number | null;
+  question?: string | null;
+  answer?: string | null;
+  trail?: TrailItem[] | null;
+  tokens_in?: number | null;
+  tokens_out?: number | null;
+  cost_usd?: number | null;
+  turn_entrance?: string | null;
 };
 
 export type ActionResult =

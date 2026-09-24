@@ -85,3 +85,10 @@ METRIC_QUERIES = {
 }
 # The SPL the bot's log collector runs (enrich.top_log_reasons), for the Splunk deep link.
 LOG_REASONS_SPL = "index=main app.service={service} app.status=error | stats count by app.reason | sort -count"
+
+# Day 23 — the copilot, server-side. The key comes from secret/ai-keys (scripts/90-ai-secret.sh),
+# the same one the bot uses; the MODEL is Mission Control's own choice (CORRECTIONS-DAY23 D2).
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+ANTHROPIC_URL = os.getenv("ANTHROPIC_URL", "https://api.anthropic.com/v1/messages")
+COPILOT_MODEL = os.getenv("COPILOT_MODEL", "claude-opus-5-5").strip()
+COPILOT_MAX_TOKENS = int(os.getenv("COPILOT_MAX_TOKENS", "8000"))

@@ -63,8 +63,9 @@ and every byte of data behind it is under `/api/`.
 | Overview | 22 | the ten-second screen: scores + 1 h sparklines, critical alerts, open incidents, deploys, settlement age, the live feed, embedded Grafana panels, the last ten audit rows |
 | Incidents | 22 | the list (open first) and the incident page: context with deep links, hypothesis + KB chips, timeline + note box, actions rail, AI drafts with copy and 👍/👎 |
 | Knowledge Base | 22 | where the KB chips land; read-only (the KB is git + `172-kb.sh`) |
-| Audit | 22 | every tier 1 / tier 2 attempt, any entrance |
-| Copilot | 23 | |
+| Audit | 22 | every tier 1 / tier 2 attempt, any entrance; from Day 23 also every AI tool call (tier 0, `tool:<name>`) |
+| Copilot | 23 | chat + the tool trail (every query, exactly as run); answers stream with a thinking line; 👍/👎 + note → an eval row; proposals land in the banner |
+| Evals | 23 | every grade of an AI output — copilot answers (question, trail, answer, tokens, cost) and incident drafts |
 | Game Day, KPIs & Reports | 24 | |
 
 **On every page:** the pending-approvals banner. Approve there is the human's second click for
@@ -82,3 +83,23 @@ restart; the token onto the Windows clipboard, never printed; the browser.
 | Content-Security-Policy: scripts and fetch/SSE to itself only, iframes from Grafana only, not frameable | `app.py _csp()` |
 | Grafana panels as an anonymous **Viewer** (an iframe cannot carry a token); admin pages refused | `k8s/kps-values.yaml`, proven by `228` |
 | every write sends `X-Entrance: button` — the audit says which door | `ui/src/lib/api.ts` |
+
+## The copilot and the MCP server (Day 23)
+
+`services/mission-control/copilot.py` is the loop; `mcp_server.py` publishes the same tools on
+`/mcp` (`docs/mcp.md`). Nine tools: eight reads and `propose_action`. The policy, in one table:
+
+| Control | Where |
+|---|---|
+| strict tool schemas, `additionalProperties: false` — the PromQL/SPL/kubectl arrive as declared | `copilot.TOOLS`, `api_tools()` |
+| kubectl: read verbs only; no secrets, configmaps or service accounts; platform namespaces; no `-A`; logs ≤ 80 lines | `copilot.check_kubectl()` |
+| every tool result truncated (6,000 chars); 8 tool calls per question | `copilot._truncate`, `TOOL_CALL_BUDGET` |
+| `propose_action` validates like a button, then **queues** a tier-2 approval — any tier, any action | `app.py propose()` |
+| no approve tool; approval routes refuse `copilot` and `mcp` | `HUMAN_ENTRANCES` |
+| every tool call audited: `tool:<name>`, tier 0, entrance `copilot`/`mcp`, who asked | `AuditedHands` |
+| `/mcp`: same bearer token; DNS-rebinding protection; stateless | `MCPGate`, `mcp_server.build()` |
+| the model never sees a secret: the key is mission control's env, the tools cannot read secrets | `k8s/mission-control.yaml`, `check_kubectl` |
+
+The **command palette** (Ctrl+K / ⌘K) is the `command` entrance: screens, the catalog, the KB,
+and `/drill /revert /rollback /scale /note /report /kb /ask` — each opens the same confirmation
+card as the button.

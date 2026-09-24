@@ -25,7 +25,7 @@ RUN useradd --create-home --uid 10004 appuser
 WORKDIR /app
 COPY requirements.lock.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py actions.py config.py db.py events.py ./
+COPY app.py actions.py config.py db.py events.py copilot.py mcp_server.py ./
 # The built UI only — no node, no node_modules in the running image.
 COPY --from=ui /ui/dist /app/ui/dist
 
