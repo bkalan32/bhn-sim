@@ -258,3 +258,30 @@ asserted role unlocked a proposal, a role claim would be a lever. The proposal w
 needed a human's Approve, so the rule costs one extra click; that is the right price for a rule
 that does not bend to phrasing. Recorded as Eval 13, adversarial row 0 — the first break-it
 question arrived unscripted.
+
+### [NOTE] N9 — Claude Code's first connect: no saved trust, no headers, a misleading OAuth error
+
+`/mcp` in Claude Code: *✘ failed · Dynamic Client Registration rejected (HTTP 404)*. Claude Code
+runs a **project** `.mcp.json`'s `headersHelper` only after the folder's workspace trust is
+**persisted** ("headersHelper not run — this workspace has no persisted trust", reproduced with
+Claude Code 2.1.281); on the first start the connection raced the dialog, went out without the
+token, got our 401, and Claude Code then tried OAuth discovery, which mission control does not
+offer — hence a 404 about client registration. **Reconnect** after accepting trust fixed it; the
+test before shipping had used a user-scope config with an absolute helper path, which skips the
+trust gate — the one configuration K would not use. `docs/mcp.md` now says so.
+Also: `scripts/230-mcp.sh` ended silently at "…and the key opens it" (set -e on a failing command
+substitution); it now reports the curl error or the HTTP status. The same request by hand
+returned 200 in 0.1 s, so the endpoint was never the problem.
+
+### [NOTE] N10 — MCP clients got the tools but not the facts
+
+Claude Code's answer to "which store had the most activation errors?" had the right numbers
+(EGIFT 85, stores at 2) and the wrong reading: "EGIFT *looks like* the e-gift channel", "the
+problem is concentrated in e-gift", "issuer_declined … points to one issuer or program". The
+in-browser copilot knows what EGIFT is (PLATFORM_FACTS); the MCP server sent a two-sentence
+`instructions`. **Fix:** the MCP `instructions` now carry PLATFORM_FACTS and the answering rules;
+tested at `initialize`, and with a real Claude Code, which then answered both points from them.
+And a fact both clients lacked, added to PLATFORM_FACTS (both copies): activation's `ERROR_RATE`
+fails a *random* 2% with `issuer_declined` — the simulated normal — and retail traffic is spread
+over 500 random stores while every eGift activation is `EGIFT`, so EGIFT tops any raw count by
+volume: compare rates per `store_id`, never counts (the Eval 13 #5 slip, now from two models).

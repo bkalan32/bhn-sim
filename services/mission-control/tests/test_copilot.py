@@ -245,6 +245,14 @@ def test_mcp_lists_the_same_tools_and_no_approve(client):
     assert sorted(names) == sorted(t["name"] for t in copilot.TOOLS)
 
 
+def test_mcp_clients_get_the_platform_facts_not_just_the_tools(client):
+    """CORRECTIONS-DAY23 N10: the facts travel with the tools."""
+    r = rpc(client, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                   "clientInfo": {"name": "t", "version": "0"}})
+    ins = r.json()["result"]["instructions"]
+    assert "store_id=EGIFT" in ins and "issuer_declined" in ins and "rates, not raw counts" in ins
+
+
 def test_mcp_calls_are_audited_with_entrance_mcp_and_the_callers_name(client):
     r = rpc(client, "tools/call", {"name": "kubectl_get", "arguments": {"args": "get secret ai-keys -n payments"}})
     assert "off limits" in r.text

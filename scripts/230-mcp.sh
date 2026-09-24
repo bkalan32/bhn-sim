@@ -20,7 +20,10 @@ CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 5 -X POST "$B/mcp" -H "Content-
 [[ "$CODE" == 401 ]] && ok "/mcp without the token: 401" || die "/mcp without the token: HTTP $CODE (want 401) — is this image Day 23's?"
 
 step "…and the key opens it"
-OUT=$(rpc -H "Authorization: Bearer $(cat "$TOKF")")
+# set -e would end the script silently on a curl failure (CORRECTIONS-DAY23 N9): say what failed instead.
+OUT=$(rpc -H "Authorization: Bearer $(cat "$TOKF")" -w '\n%{http_code}' 2>&1) || die "tools/list: curl failed ($?) — is the port-forward reconnecting after a deploy? ./scripts/220-mc-open.sh --status"
+CODE=$(echo "$OUT" | tail -1); OUT=$(echo "$OUT" | sed '$d')
+[[ "$CODE" == 200 ]] || die "tools/list: HTTP $CODE — $(echo "$OUT" | head -c 300)"
 echo "$OUT" | python3 -c '
 import json, sys
 try:

@@ -60,7 +60,13 @@ the token.) `X-Operator` is `$MC_OPERATOR via claude-code` — `$USER` if you ha
 2. `./scripts/230-mcp.sh` — 401 without the token, ten tools with it, and what Claude Code sees.
 3. `export MC_OPERATOR=bkalan32` (so the audit rows name you), then `cd ~/bhn-sim && claude`.
    First time in this folder: accept the workspace-trust dialog, then **approve** the project
-   server `bhn-sim`. `/mcp` should show it ✔ connected with 10 tools.
+   server `bhn-sim`. Claude Code runs a project's `headersHelper` **only once the folder's trust
+   is saved** — the very first start can race it: `/mcp` shows *failed · Dynamic Client
+   Registration rejected (HTTP 404)*. That is a 401 (no token was sent) followed by Claude Code
+   looking for an OAuth login mission control does not offer. Choose **Reconnect** (not
+   Authenticate), or restart `claude`. `/mcp` should then show ✔ connected with 10 tools.
+   With Claude Code's **auto mode** on, tool calls may run without a prompt: safe here, because
+   the fences are server-side — nine reads, and `propose_action` only queues a card.
 4. Ask: **"which store had the most activation errors in the last 30 minutes?"** Claude Code
    will ask permission for each `mcp__bhn-sim__…` tool the first time; allow them.
 5. Watch the Audit page (or `python3 tools/mc.py audit 10`): `tool:query_prometheus` (or
@@ -69,6 +75,14 @@ the token.) `X-Operator` is `$MC_OPERATOR via claude-code` — `$USER` if you ha
    checkpoint wants both `tool:search_kb` and `tool:query_prometheus` from the `mcp` entrance.
 
 Not installed? `curl -fsSL https://claude.ai/install.sh | bash` in WSL, then `claude` once to sign in.
+
+## The facts travel with the tools
+
+An MCP client gets the tools' descriptions — and, in the server's `instructions`, the same
+PLATFORM_FACTS the in-browser copilot reads plus the answering rules (quote the tool, rates not
+counts, a failed hop is named, proposals only queue). Without them Claude Code guessed what
+`EGIFT` was and read the lab's baseline 2% `issuer_declined` as "one issuer" (CORRECTIONS-DAY23
+N10). One policy means one set of facts, not only one set of fences.
 
 ## Other clients
 

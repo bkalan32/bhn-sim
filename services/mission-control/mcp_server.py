@@ -24,13 +24,21 @@ INSTRUCTIONS = ("Read-only tools over a payments platform (Prometheus, Splunk vi
                 "to approve in Mission Control. Nothing you call can change the platform. Cite what the tools return.")
 
 
+RULES = ("How to answer from these tools: quote every number with the tool that produced it; an empty result "
+         "means no data, say so; compare rates, not raw counts; a failed tool names the hop that failed, not the "
+         "systems behind it. propose_action only queues a card for a human; never say an action ran — check "
+         "with proposal_status. Tier-3 situations (the KB says escalate) get no proposal.")
+
+
 def _desc(name: str) -> str:
     return next(t["description"] for t in copilot.TOOLS if t["name"] == name)
 
 
 def build(get_hands):
     """get_hands() -> the app's AuditedHands (created in the app's lifespan, after the HTTP client)."""
-    mcp = MCPServer("bhn-sim mission control", instructions=INSTRUCTIONS)
+    # The facts travel with the tools (CORRECTIONS-DAY23 N10): on 24 Sep Claude Code, given the tools but
+    # not PLATFORM_FACTS, guessed what EGIFT was and read the baseline issuer_declined as "one issuer".
+    mcp = MCPServer("bhn-sim mission control", instructions=INSTRUCTIONS + "\n\n" + copilot.PLATFORM_FACTS + "\n\n" + RULES)
 
     def ctx_of(ctx: Context) -> dict:
         op = ""

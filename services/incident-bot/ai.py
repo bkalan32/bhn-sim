@@ -73,6 +73,11 @@ PLATFORM_FACTS = """PLATFORM FACTS (the complete inventory; nothing else exists)
   (its "activate" step), so activation failures cascade into egift. Activations that egift
   triggers carry app.store_id=EGIFT — that is the eGift channel, not a retail store; retail
   stores look like STORE-0421.
+- Baseline, not fault: activation's ERROR_RATE knob (default 0.02) fails a RANDOM 2% of requests
+  with app.reason=issuer_declined — that is the simulated normal, not an issuer or program problem.
+  Retail traffic picks one of STORE-0001..STORE-0500 at random per request, while every eGift
+  activation is store_id=EGIFT, so EGIFT always tops a raw error count by volume alone: compare
+  error RATES per store_id (errors / requests), never raw counts, before calling anything concentrated.
 - Deploys go through Jenkins (deploy-service job) which annotates Grafana with tags
   deploy/rollback + the service name; images are tagged <service>:<build number>."""
 
