@@ -16,6 +16,8 @@ Event kinds (the `event:` field of the SSE message):
   health    the four health scores, every 15 s (the poller in app.py)
   incident  (Day 22) opened / resolved — the poller diffs the bot's open list every 15 s
   deploy    (Day 22) a new deploy/rollback annotation the pipeline wrote to Grafana
+  gameday   (Day 24) a run started / a sealed step fired / aborted / revealed at Retro
+  report    (Day 24) a daily report arrived at the bot after "Generate now"
 
 The heartbeat is sse-starlette's `ping` (a comment line every 15 s): `kubectl port-forward`
 and most proxies close a stream that has been silent for a while (PDF troubleshooting note).
@@ -25,7 +27,10 @@ import asyncio
 import itertools
 import time
 
-KINDS = ("hello", "alert", "audit", "approval", "health", "incident", "deploy")
+KINDS = ("hello", "alert", "audit", "approval", "health", "incident", "deploy", "gameday", "report")
+# Day 24: everything but the 15-s health pulse is KEPT (db.feed) — a game-day run's timeline is read
+# back from it at Retro, so the scribe's draft is the feed the responders watched.
+KEPT = ("alert", "audit", "approval", "incident", "deploy", "gameday", "report")
 
 
 class Broker:
@@ -34,6 +39,7 @@ class Broker:
         self.subscribers: set[asyncio.Queue] = set()
         self.seq = itertools.count(1)
         self.last: dict[str, dict] = {}          # last event of each kind — replayed to a new tab
+        self.on_publish = None                   # Day 24: app.py persists KEPT kinds through this
 
     def subscribe(self) -> asyncio.Queue:
         q = asyncio.Queue(maxsize=self.maxsize)
@@ -56,6 +62,8 @@ class Broker:
                 except asyncio.QueueEmpty:
                     pass
             q.put_nowait(ev)
+        if self.on_publish and kind in KEPT:
+            self.on_publish(ev)
         return ev
 
 

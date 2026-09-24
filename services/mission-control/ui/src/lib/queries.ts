@@ -4,7 +4,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, post, ApiError, type Entrance } from "./api";
 import { useToast } from "../components/toast";
-import type { Action, ActionResult, Approval, AuditRow, EvalRow, Incident, IncidentSummary, KBEntry, Overview, UIConfig } from "./types";
+import type { Action, ActionResult, Approval, AuditRow, EvalRow, GameDayState, Incident, IncidentSummary, KBEntry, KBFeeding, KPIs, Overview, Report, ReportSummary, UIConfig } from "./types";
 import { params } from "./format";
 
 export const useConfig = () => useQuery({ queryKey: ["config"], queryFn: () => api<UIConfig>("/api/config"), staleTime: Infinity });
@@ -87,3 +87,17 @@ export function useDecide() {
 }
 
 export const useEvalRows = () => useQuery({ queryKey: ["evals", "all"], queryFn: () => api<EvalRow[]>("/api/eval"), refetchInterval: 30_000 });
+
+// ---- Day 24 ----
+export const useGameDay = () =>
+  useQuery({ queryKey: ["gameday"], queryFn: () => api<GameDayState>("/api/gameday"), refetchInterval: 10_000 });
+
+export const useKPIs = () => useQuery({ queryKey: ["kpis"], queryFn: () => api<KPIs>("/api/kpis"), refetchInterval: 120_000 });
+
+export const useReports = () => useQuery({ queryKey: ["reports"], queryFn: () => api<ReportSummary[]>("/api/reports"), refetchInterval: 120_000 });
+
+export const useReport = (day: string) =>
+  useQuery({ queryKey: ["report", day], queryFn: () => api<Report>(`/api/reports/${encodeURIComponent(day)}`), staleTime: 60_000 });
+
+export const useKBFeeding = () =>
+  useQuery({ queryKey: ["kb-feeding"], queryFn: () => api<Record<string, KBFeeding>>("/api/kb-feeding"), staleTime: 30_000 });

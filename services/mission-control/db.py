@@ -15,6 +15,8 @@ is atomic without extra locking.
   evals      (Day 22) a human's verdict on an AI draft — thumbs up/down from the incident page:
              incident, which draft, verdict, optional comment, who, when. The structured
              version of docs/ai-eval.md. Day 23: also on a copilot answer (turn_id).
+  feed, runs, kb_feeding, settings   (Day 24) the feed kept for timelines; game-day runs; the
+             Day 17 feeding decision per resolved incident; one-time settings.
   turns      (Day 23) every copilot answer: question, answer, the tool trail, model, tokens,
              cost — what a grade is a grade OF. The conversation itself lives in memory
              for 30 minutes (copilot.py); the record of what was said lives here.
@@ -85,6 +87,38 @@ CREATE TABLE IF NOT EXISTS turns (
     cost_usd    REAL,
     ms          INTEGER
 );
+-- Day 24 --------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS feed (          -- the live feed, kept: a run's timeline is read back from here
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts    REAL NOT NULL,
+    kind  TEXT NOT NULL,
+    data  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feed_ts ON feed (ts);
+CREATE TABLE IF NOT EXISTS runs (          -- game-day runs: a sealed schedule, executed server-side
+    id          TEXT PRIMARY KEY,
+    scenario    TEXT NOT NULL,
+    title       TEXT,
+    started_at  REAL NOT NULL,
+    operator    TEXT NOT NULL,
+    requested_by TEXT,
+    token       TEXT,
+    status      TEXT NOT NULL,             -- running | done | aborted
+    steps       TEXT NOT NULL,             -- JSON: the plan, and what happened at each step
+    revealed_at REAL,
+    ended_at    REAL,
+    reset_at    REAL
+);
+CREATE TABLE IF NOT EXISTS kb_feeding (    -- Day 17's rule as a record: every resolved incident feeds the KB, or says why not
+    incident TEXT PRIMARY KEY,
+    ts       REAL NOT NULL,
+    ts_iso   TEXT NOT NULL,
+    operator TEXT NOT NULL,
+    decision TEXT NOT NULL,                -- updated | not_needed
+    kb_id    TEXT,
+    reason   TEXT
+);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 MIGRATIONS = [("evals", "turn_id", "INTEGER")]      # Day 23: a grade can be of a copilot answer
 
@@ -222,3 +256,73 @@ class DB:
         async with self.conn.execute("SELECT * FROM turns WHERE id = ?", (int(turn_id),)) as cur:
             r = await cur.fetchone()
         return dict(r) if r else None
+
+    # ------------------------------------------------------------------- feed --
+    async def add_feed(self, ts: float, kind: str, data: dict):
+        await self.conn.execute("INSERT INTO feed (ts, kind, data) VALUES (?,?,?)", (ts, kind, json.dumps(data, default=str)[:20000]))
+        await self.conn.commit()
+
+    async def feed_between(self, t0: float, t1: float, limit: int = 2000) -> list:
+        async with self.conn.execute("SELECT ts, kind, data FROM feed WHERE ts >= ? AND ts <= ? ORDER BY ts LIMIT ?",
+                                     (t0, t1, limit)) as cur:
+            return [{"ts": r["ts"], "kind": r["kind"], "data": json.loads(r["data"])} for r in await cur.fetchall()]
+
+    async def prune_feed(self, days: float = 30):
+        await self.conn.execute("DELETE FROM feed WHERE ts < ?", (time.time() - days * 86400,))
+        await self.conn.commit()
+
+    # ------------------------------------------------------------------- runs --
+    async def save_run(self, run: dict):
+        await self.conn.execute(
+            "INSERT INTO runs (id, scenario, title, started_at, operator, requested_by, token, status, steps, revealed_at, ended_at, reset_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status, steps=excluded.steps, "
+            "revealed_at=excluded.revealed_at, ended_at=excluded.ended_at, reset_at=excluded.reset_at",
+            (run["id"], run["scenario"], run.get("title"), run["started_at"], run["operator"], run.get("requested_by"),
+             run.get("token"), run["status"], json.dumps(run["steps"], default=str), run.get("revealed_at"),
+             run.get("ended_at"), run.get("reset_at")))
+        await self.conn.commit()
+
+    @staticmethod
+    def _run(r) -> dict:
+        d = dict(r)
+        d["steps"] = json.loads(d["steps"])
+        return d
+
+    async def run(self, run_id: str):
+        async with self.conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)) as cur:
+            r = await cur.fetchone()
+        return self._run(r) if r else None
+
+    async def runs(self, limit: int = 50, status: str | None = None) -> list:
+        q, args = "SELECT * FROM runs", []
+        if status:
+            q += " WHERE status = ?"; args.append(status)
+        q += " ORDER BY started_at DESC LIMIT ?"; args.append(int(limit))
+        async with self.conn.execute(q, args) as cur:
+            return [self._run(r) for r in await cur.fetchall()]
+
+    # ------------------------------------------------------------- kb feeding --
+    async def set_kb_feeding(self, *, incident, operator, decision, kb_id=None, reason=None) -> dict:
+        ts = time.time()
+        await self.conn.execute(
+            "INSERT INTO kb_feeding (incident, ts, ts_iso, operator, decision, kb_id, reason) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(incident) DO UPDATE SET ts=excluded.ts, ts_iso=excluded.ts_iso, operator=excluded.operator, "
+            "decision=excluded.decision, kb_id=excluded.kb_id, reason=excluded.reason",
+            (incident, ts, _iso(ts), operator, decision, kb_id, reason))
+        await self.conn.commit()
+        return {"incident": incident, "ts_iso": _iso(ts), "operator": operator, "decision": decision, "kb_id": kb_id, "reason": reason}
+
+    async def kb_feeding(self) -> dict:
+        async with self.conn.execute("SELECT * FROM kb_feeding") as cur:
+            return {r["incident"]: dict(r) for r in await cur.fetchall()}
+
+    # --------------------------------------------------------------- settings --
+    async def setting(self, key: str, default: str | None = None, *, store_default: bool = False):
+        async with self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)) as cur:
+            r = await cur.fetchone()
+        if r:
+            return r["value"]
+        if store_default and default is not None:
+            await self.conn.execute("INSERT INTO settings (key, value) VALUES (?,?)", (key, default))
+            await self.conn.commit()
+        return default

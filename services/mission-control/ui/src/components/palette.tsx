@@ -16,7 +16,8 @@ type Pending = { action: Action; fixed: Record<string, unknown>; reason?: string
 const Ctx = createContext<{ open: () => void }>({ open: () => undefined });
 export const usePalette = () => useContext(Ctx);
 
-const SCREENS: [string, string][] = [["Overview", ""], ["Incidents", "incidents"], ["Copilot", "copilot"], ["Knowledge base", "kb"], ["Audit log", "audit"], ["Evals", "evals"]];
+const SCREENS: [string, string][] = [["Overview", ""], ["Incidents", "incidents"], ["Copilot", "copilot"], ["Game Day", "gameday"],
+  ["KPIs", "kpis"], ["Reports", "reports"], ["Knowledge base", "kb"], ["Audit log", "audit"], ["Evals", "evals"]];
 
 // /drill <name> — the Day 2-5 faults, as tier-2 requests. /revert <name> puts the knob back to its baseline.
 const DRILLS: Record<string, { target: string; knob: string; value: string; what: string }> = {
@@ -35,6 +36,8 @@ const SLASH = [
   ["/scale <service> <0-4>", "scale a Deployment (tier 2)"],
   ["/note <text>", "note on the incident you are looking at (tier 1)"],
   ["/report", "generate the daily ops report (tier 1)"],
+  ["/reset", "every fault knob back to baseline; ends a game day (tier 1)"],
+  ["/gameday <scenario>", "run a scenario sealed (tier 2)"],
   ["/kb <words>", "search the knowledge base"],
   ["/ask <question>", "ask the copilot"],
 ];
@@ -110,6 +113,13 @@ function Palette({ onClose }: { onClose: () => void }) {
           break;
         case "report":
           add("/report — generate the daily ops report now", () => act("generate_report"));
+          break;
+        case "reset":
+          add("/reset — every fault knob back to baseline (ends a game day)", () => act("reset_faults"));
+          break;
+        case "gameday":
+          (byId("run_scenario")?.scenarios ?? []).filter((x) => !arg || x.startsWith(arg)).forEach((x) =>
+            add(`/gameday ${x}`, () => act("run_scenario", { scenario: x }, `game day: ${x}`), "sealed — the steps stay hidden until Retro"));
           break;
         case "kb":
           (kb ?? []).filter((e) => !arg || `${e.id} ${e.title} ${e.markdown}`.toLowerCase().includes(arg.toLowerCase())).slice(0, 8)

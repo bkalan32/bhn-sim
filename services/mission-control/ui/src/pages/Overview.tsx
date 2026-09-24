@@ -29,6 +29,7 @@ export function Overview() {
   const deploys = partData(ov?.deploys_today);
   const settlementAge = partData(ov?.settlement_age_s);
   const traffic = partData(ov?.traffic);
+  const needs = partData(ov?.needs_human);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -73,6 +74,32 @@ export function Overview() {
             ))}
             {ov && <span className="ml-2">· overview built in {ov.ms} ms</span>}
           </p>
+        )}
+
+        {/* ---- Day 24: the record that is waiting for a human ---- */}
+        {needs && (needs.kb_unfed.length > 0 || needs.stale_open.length > 0) && (
+          <Card title="Needs a human" tone="warning">
+            {needs.stale_open.length > 0 && (
+              <div className="mb-2">
+                <p className="text-xs text-ink-3">Open, but none of their alerts fire (open &gt; 30 min) — close as stale, with a reason:</p>
+                <ul className="mt-1 flex flex-wrap gap-2 text-xs">
+                  {needs.stale_open.map((i) => (
+                    <li key={i.id}><a className="font-mono text-info hover:underline" href={href("incidents", i.id)}>{i.id}</a> <span className="text-ink-3">{i.service} · {i.alerts.join(", ")}</span></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {needs.kb_unfed.length > 0 && (
+              <div>
+                <p className="text-xs text-ink-3">Resolved with no KB decision — "KB updated" or "not needed because …":</p>
+                <ul className="mt-1 flex flex-wrap gap-2 text-xs">
+                  {needs.kb_unfed.map((i) => (
+                    <li key={i.id}><a className="font-mono text-info hover:underline" href={href("incidents", i.id)}>{i.id}</a> <span className="text-ink-3">{i.service}</span></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
         )}
 
         {/* ---- live feed, on narrow screens ---- */}

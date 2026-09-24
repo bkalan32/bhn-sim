@@ -68,6 +68,11 @@ of. These are the seven. Resist adding an eighth without removing one.
 | 6 | **Alert precision** | alert *names* that reached a ticket ÷ alert names that fired at all in the window (Watchdog excluded). Coarse on purpose: the name is what the audit judges | Prometheus `ALERTS{alertstate="firing"}` × records | the audit (docs/alert-audit.md): every routed-away name raises it honestly; every silenced real alert would too — which is why the noise list is printed next to it |
 | 7 | **Deploy frequency and failure rate** | `deploy-service` builds in the window per day; builds with result FAILURE or ABORTED ÷ builds (a Verify rollback is a failed build — that is the point) | Jenkins API (needs `JENKINS_USER`/`JENKINS_PASS`; otherwise *no data*) | pipeline health, Verify's thresholds |
 
+**Day 24:** the seven are also Mission Control's KPIs page (`services/mission-control/kpis.py`),
+with a 4-week trend each. MTTD there is *measured* for incidents a console game day caused (the
+run records when it injected each fault — CORRECTIONS-DAY24 D7), and MTTR leaves out incidents a
+human closed as stale (D8).
+
 Four of the seven are pure PromQL and sit on the **Platform Overview** dashboard's bottom row
 (KPIs, Day 18). The other three need the records (MTTD, MTTR, precision) or Jenkins
 (deploys) and are computed by `tools/kpis.py --summary` — which the daily report reads.

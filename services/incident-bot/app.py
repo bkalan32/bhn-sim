@@ -29,7 +29,8 @@ DATA_DIR/incidents.db. The Day 8-20 JSON files are imported on first start and r
 
 Endpoints
   POST   /alertmanager           Alertmanager webhook receiver
-  GET    /incidents              summary list  (?status=open|resolved  &since=<epoch|ISO>)
+  GET    /incidents              summary list  (?status=open|resolved  &since=<epoch|ISO>  &full=1: Day 24 KPIs)
+  POST   /incidents/{id}/close   a human closes a stale ticket, with a reason (Day 24)
   GET    /incidents/{id}         full record with timeline
   POST   /incidents/{id}/note    {"text": "..."} — the bridge scribe (Day 9)
   POST   /incidents/{id}/draft   ?kind=open|resolved|hypothesis — (re)generate an AI draft (Day 9/10)
@@ -388,7 +389,7 @@ async def receive(request: Request):
 
 # ------------------------------------------------------------------ reads ---
 SUMMARY_KEYS = ("id", "status", "service", "severity", "alerts", "opened_at_iso",
-                "resolved_at_iso", "duration_min")
+                "resolved_at_iso", "duration_min", "closed_by_human")
 
 
 def _since(v):
@@ -404,10 +405,49 @@ def _since(v):
         return ts
 
 
+# Day 24: ?full=1 is mission control's KPI page — every field a KPI needs (first_alert_at, the
+# timeline's drill notes, closed_by_human) and none of the heavy ones (drafts, context).
+HEAVY_KEYS = ("ai_open_draft", "ai_resolution_draft", "ai_hypothesis", "context", "context_meta", "ai_meta", "groups")
+
+
 @app.get("/incidents")
-def list_incidents(status: str | None = None, since: str | None = None):
+def list_incidents(status: str | None = None, since: str | None = None, full: bool = False):
     incs = store.summaries(status=status or None, since=_since(since))
+    if full:
+        out = []
+        for i in incs:
+            rec = store.load(i["id"]) or i
+            out.append({k: v for k, v in rec.items() if k not in HEAVY_KEYS})
+        return out
     return [{k: i.get(k) for k in SUMMARY_KEYS} for i in incs]
+
+
+@app.post("/incidents/{iid}/close")
+async def close_incident(iid: str, request: Request):
+    """Day 24: a human closes a ticket whose 'resolved' webhook will never come (a restart lost it).
+    Mission control's close_incident action checks first that none of its alerts still fires. The
+    record says so for ever: closed_by_human {by, reason}, and the KPI page leaves it out of MTTR —
+    its duration is how long nobody noticed, not how long anything was broken. No resolution draft:
+    the AI would be summarising a gap in the record, not an incident."""
+    body = await request.json() or {}
+    by, reason = str(body.get("by") or "").strip()[:60], str(body.get("reason") or "").strip()[:300]
+    if not by or len(reason) < 10:
+        raise HTTPException(400, "close needs 'by' and a 'reason' of at least 10 characters")
+    with _lock:
+        inc = _load(iid)
+        if inc.get("status") != "open":
+            raise HTTPException(409, f"{iid} is already {inc.get('status')}")
+        now = _now()
+        inc["status"] = "resolved"
+        inc["resolved_at"], inc["resolved_at_iso"] = now, _iso(now)
+        inc["duration_min"] = round((now - inc["opened_at"]) / 60, 1)
+        inc["closed_by_human"] = {"by": by, "reason": reason, "at_iso": _iso(now)}
+        inc["timeline"].append(_event("incident_closed", by=by, reason=reason, duration_min=inc["duration_min"]))
+        RESOLVED.labels(service=inc.get("service")).inc()
+        _save(inc)
+        _refresh_open_gauge()
+    log.info("incident closed by a human", extra={"extra": {"incident": iid, "by": by}})
+    return {"ok": True, "incident": iid, "status": "resolved", "closed_by_human": inc["closed_by_human"]}
 
 
 @app.get("/incidents/{iid}")

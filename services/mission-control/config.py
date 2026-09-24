@@ -92,3 +92,12 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_URL = os.getenv("ANTHROPIC_URL", "https://api.anthropic.com/v1/messages")
 COPILOT_MODEL = os.getenv("COPILOT_MODEL", "claude-opus-5-5").strip()
 COPILOT_MAX_TOKENS = int(os.getenv("COPILOT_MAX_TOKENS", "8000"))
+
+# Day 24 — the Game Day console, KPIs, reports, the KB as cards.
+GAMEDAY_DIR = os.getenv("GAMEDAY_DIR", "/gameday")            # ConfigMap `gameday` (scripts/240-gameday.sh)
+# An EDITOR token for the game-day annotations (the Viewer token above cannot write). Minted by
+# scripts/241-mc-grafana-writer.sh into secret/mission-control-config. Missing = no markers, nothing else.
+GRAFANA_WRITE_TOKEN = os.getenv("GRAFANA_WRITE_TOKEN", "").strip()
+# Where a KB card's "learned from INC-00xx" links go: the incident write-ups live in git, not in the bot.
+REPO_URL = os.getenv("REPO_URL", "https://github.com/bkalan32/bhn-sim/blob/main").rstrip("/")
+KPI_CACHE_S = float(os.getenv("KPI_CACHE_S", "60"))

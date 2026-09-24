@@ -47,7 +47,12 @@ KNOBS = {
 }
 
 KUBECTL_VERBS = {("create", "job"), ("delete", "pod"), ("rollout", "undo"), ("scale", "deployment"),
-                 ("set", "env"), ("get", "pod"), ("get", "configmap")}
+                 ("set", "env"), ("get", "pod"), ("get", "configmap"),
+                 ("get", "deployment"), ("get", "cronjob")}          # Day 24: read the knobs' live values
+
+# Day 24: executors that need the app (the game-day runner, the scenario list) reach it through
+# these hooks, set in app.py's lifespan — actions.py stays importable without the app (tests).
+HOOKS: dict = {}
 
 
 class ParamError(ValueError):
@@ -152,6 +157,21 @@ def _v_silence(p):
     return {"alertname": _str(p.get("alertname"), "alertname", r"^[A-Za-z0-9_:]{1,100}$"),
             "minutes": _int(p.get("minutes", 30), "minutes", 5, 240),
             "service": _str(p["service"], "service", r"^[a-z0-9-]{1,40}$") if p.get("service") else None}
+
+
+def _v_run_scenario(p):
+    sid = _str(p.get("scenario"), "scenario", r"^[a-z0-9][a-z0-9-]{0,39}$")
+    known = HOOKS.get("scenarios")
+    if known is not None and sid not in known():
+        raise ParamError(f"scenario: one of {', '.join(sorted(known())) or '(none loaded — ./scripts/240-gameday.sh)'}")
+    return {"scenario": sid}
+
+
+def _v_close(p):
+    why = p.get("why")
+    if not isinstance(why, str) or len(why.strip()) < 10 or len(why) > 300:
+        raise ParamError("why: 10-300 characters — a closed incident without a reason is a deleted one")
+    return {"incident": _str(p.get("incident"), "incident", r"^[A-Za-z0-9_.-]{1,80}$"), "why": why.strip()}
 
 
 def _v_fault(p):
@@ -261,6 +281,103 @@ async def x_set_fault(http, p, operator):
                          f"{p['knob']}={p['value']}")
 
 
+def _env_of(obj: dict, kind: str, container: str | None) -> dict:
+    spec = obj.get("spec", {})
+    pod = spec.get("jobTemplate", {}).get("spec", {}).get("template", {}) if kind == "cronjob" else spec.get("template", {})
+    cs = pod.get("spec", {}).get("containers", [])
+    c = next((c for c in cs if c.get("name") == container), None) if container else (cs[0] if cs else None)
+    return {e["name"]: e.get("value") for e in (c or {}).get("env", []) if "name" in e}
+
+
+async def read_knobs() -> dict:
+    """Every knob's LIVE value, read from the Deployments/CronJob — never from what we last set.
+    {target: {knob: {"value", "baseline", "at_baseline"}}}; a target that cannot be read carries "error"."""
+    out, cache = {}, {}
+    for target, t in KNOBS.items():
+        key = (t["kind"], t["name"])
+        if key not in cache:
+            cache[key] = await kubectl("get", f"{t['kind']}/{t['name']}", "-o", "json", keep=None)
+        ok, text = cache[key]
+        if not ok or config.DRY_RUN:
+            out[target] = {"error": text[:200] if not ok else "DRY_RUN", "knobs": {}}
+            continue
+        try:
+            env = _env_of(json.loads(text), t["kind"], t["container"])
+        except Exception as e:  # noqa: BLE001
+            out[target] = {"error": f"unreadable: {e}", "knobs": {}}
+            continue
+        knobs = {}
+        for knob, spec in t["knobs"].items():
+            v = env.get(knob)
+            val = v if v is not None else spec[3]           # unset = the app's default = the baseline
+            knobs[knob] = {"value": val, "set": v is not None, "baseline": spec[3],
+                           "at_baseline": str(val).strip().lower() == str(spec[3]).lower()}
+        out[target] = {"kind": t["kind"], "name": t["name"], "container": t["container"], "knobs": knobs}
+    return out
+
+
+async def x_reset_faults(http, p, operator):
+    """Every knob back to its baseline — ONE tier-1 action; every game day ends with it. Only knobs
+    that are off baseline are touched (a same-value set env would still restart nothing, but the audit
+    row should say what actually changed). Any scenario still running is aborted FIRST, so a step
+    cannot re-break the platform after the reset."""
+    aborted = ""
+    if HOOKS.get("abort_runs"):
+        n = await HOOKS["abort_runs"](operator, "reset_faults")
+        aborted = f"; aborted {n} running scenario(s)" if n else ""
+    state = await read_knobs()
+    groups, changed = {}, []
+    for target, t in state.items():
+        if t.get("error"):
+            if config.DRY_RUN:
+                continue
+            return False, f"could not read {target}: {t['error']}{aborted}"
+        for knob, k in t["knobs"].items():
+            if not k["at_baseline"]:
+                groups.setdefault((t["kind"], t["name"], t["container"]), []).append(f"{knob}={k['baseline']}")
+                changed.append(f"{target} {knob} {k['value']}→{k['baseline']}")
+    if config.DRY_RUN:
+        return True, f"DRY_RUN would reset every knob to baseline{aborted}"
+    if not groups:
+        return True, f"every knob already at baseline{aborted}"
+    for (kind, name, container), kvs in groups.items():
+        ok, out = await kubectl("set", "env", f"{kind}/{name}", *(["-c", container] if container else []), *kvs)
+        if not ok:
+            return False, f"{kind}/{name}: {out}{aborted}"
+    return True, "reset: " + ", ".join(changed) + aborted
+
+
+async def x_run_scenario(http, p, operator):
+    start = HOOKS.get("start_run")
+    if not start:
+        return False, "the game-day runner is not available"
+    return await start(p["scenario"], operator)
+
+
+async def x_close_incident(http, p, operator):
+    """Close a ticket whose alerts will never send 'resolved' (a restart lost the webhook). Refused
+    while any of its alerts still fires: closing a live incident is hiding it."""
+    r = await http.get(f"{config.BOT_URL}/incidents/{p['incident']}", timeout=5)
+    if r.status_code != 200:
+        return False, f"incident-bot: HTTP {r.status_code}"
+    inc = r.json()
+    if inc.get("status") != "open":
+        return False, f"{p['incident']} is already {inc.get('status')}"
+    names = [a for a in inc.get("alerts", []) if re.fullmatch(r"[A-Za-z0-9_:]+", a)]
+    if names:
+        q = 'count by (alertname) (ALERTS{alertstate="firing",alertname=~"%s"})' % "|".join(names)
+        pr = await http.get(f"{config.PROM_URL}/api/v1/query", params={"query": q}, timeout=5)
+        firing = [x["metric"].get("alertname") for x in pr.json().get("data", {}).get("result", [])] if pr.status_code == 200 else None
+        if firing is None:
+            return False, "could not check whether its alerts still fire (Prometheus) — not closing blind"
+        if firing:
+            return False, f"refused: {', '.join(firing)} still firing — this incident is not stale"
+    if config.DRY_RUN:
+        return True, f"DRY_RUN would close {p['incident']}"
+    r = await http.post(f"{config.BOT_URL}/incidents/{p['incident']}/close", json={"by": operator, "reason": p["why"]}, timeout=5)
+    return r.status_code == 200, r.text[:300]
+
+
 def _t(tier, title, params, validate, execute, blast, rationale):
     return {"tier": tier, "title": title, "params": params, "validate": validate, "execute": execute,
             "blast_radius": blast, "rationale": rationale}
@@ -278,6 +395,12 @@ CATALOG = {
                           "read-only: terraform plan in Jenkins", "Day 13: is the platform what the code says?"),
     "generate_report": _t(1, "Generate the daily ops report now", (), _v_none, x_report,
                           "read-only: a Jenkins job writes a report", "Day 18: the brief, on demand."),
+    "reset_faults": _t(1, "Reset every fault knob to baseline", (), _v_none, x_reset_faults,
+                       "restarts only the targets whose knobs are off baseline; aborts a running scenario",
+                       "Day 24: every game day ends with it — putting things back is always safe."),
+    "close_incident": _t(1, "Close a stale incident (with a reason)", ("incident", "why"), _v_close, x_close_incident,
+                         "one ticket marked resolved by a human; refused while its alerts fire; excluded from MTTR",
+                         "A restart can lose the 'resolved' webhook; the ticket would stay open forever."),
     # tier 2 — a human approves
     "rollback": _t(2, "Roll back a Deployment one revision", ("service",), _v_rollback, x_rollback,
                    "every pod of that service is replaced", "Day 6 / Day 12: the known fix for a bad release."),
@@ -289,6 +412,9 @@ CATALOG = {
                         "matching alerts stop notifying — including the bot", "Planned maintenance (CORRECTIONS-REBUILD B9)."),
     "set_fault": _t(2, "Set a fault knob", ("target", "knob", "value"), _v_fault, x_set_fault,
                     "the target restarts with the new value; a fault is a production change", "Game days (Day 24): breaking on purpose has the same ceremony as fixing."),
+    "run_scenario": _t(2, "Run a sealed game-day scenario", ("scenario",), _v_run_scenario, x_run_scenario,
+                       "a schedule of fault knobs injected server-side, hidden until Retro; Reset all ends it",
+                       "Day 14's rule as a feature: write it, seal it, walk away. One approval for the whole run."),
 }
 
 
@@ -305,5 +431,7 @@ def public_catalog() -> list:
             item["services"] = list(ROLLBACKABLE)
         if aid == "deploy":
             item["services"] = list(SERVICES)
+        if aid == "run_scenario" and HOOKS.get("scenarios"):
+            item["scenarios"] = sorted(HOOKS["scenarios"]())
         out.append(item)
     return out

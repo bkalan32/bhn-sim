@@ -1,0 +1,37 @@
+# ============================================================================
+#  GAME DAY 2 — "the quarter-end special"                 DO NOT READ BEFORE THE RETRO
+#
+#  Day 19's scenario-2.sh (run on EKS), rewritten for the Game Day console (Day 24). Three
+#  faults, staggered and jittered so the clock does not tell you what the platform should;
+#  each layer has to answer a different way: investigate / let the automation work / escalate.
+# ============================================================================
+id: scenario-2
+title: "Game day 2 — the quarter-end special"
+summary: >-
+  Three different correct responses. The gaps are jittered. Nothing about the order is a clue.
+steps:
+  - at_seconds: 0
+    action: set_fault
+    params: {target: activation, knob: BASE_LATENCY_MS, value: "600"}
+    note: >-
+      Slow, no errors: activation's own work gets 7x slower (80 → 600 ms). No dependency, no
+      deploy; the error rate stays at baseline. Only ActivationLatencyBudgetBurn (a warning, a
+      ticket) can fire, after ~9 min of its 1h window. Correct response: investigate, conclude
+      "internal latency regression", keep watching — and say the lab cannot tell a knob from a
+      real regression.
+  - at_seconds: 200
+    jitter_seconds: 89
+    action: set_fault
+    params: {target: settlement, knob: SETTLEMENT_FAIL_MODE, value: crash}
+    note: >-
+      Loud and KNOWN: settlement crashes every run (kb-004). The remediator's tier-1 re-run
+      crashes too while the mode is set → "human required". You are the vendor: reset the mode
+      at the second failure and watch the NEXT automated run succeed on its own.
+  - at_seconds: 400
+    jitter_seconds: 89
+    action: set_fault
+    params: {target: egift, knob: EMAIL_FAIL_RATE, value: "0.5"}
+    note: >-
+      Loud and EXTERNAL: the email partner falls over (kb-003). The hypothesis should cite
+      kb-003 and recommend escalation, NOT a remediation. Activation is unaffected — the trap
+      is to look there, because that is where fault 1 is.

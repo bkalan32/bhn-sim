@@ -3,7 +3,7 @@
 // actions rail · AI drafts with a thumbs up/down that writes an eval row.
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useActions, useApprovals, useConfig, useEvals, useIncident, useKB } from "../lib/queries";
+import { useActions, useApprovals, useConfig, useEvals, useIncident, useKB, useKBFeeding } from "../lib/queries";
 import { post, ApiError } from "../lib/api";
 import { duration, num, severityTone, utcDateTime, utcTime } from "../lib/format";
 import { exploreUrl, splunkUrl, dashboardUrl, SERVICE_DASHBOARD } from "../lib/links";
@@ -427,6 +427,7 @@ function ActionsRail({ inc }: { inc: Inc }) {
   const byId = (id: string) => catalog?.find((a) => a.id === id);
 
   const tier1 = [svc === "settlement" ? "rerun_settlement" : null, "run_drift_check", "generate_report"].filter(Boolean) as string[];
+  const close = inc.status === "open" ? byId("close_incident") : undefined;
   const tier2: { id: string; fixed: Record<string, unknown>; label?: string }[] = [];
   if (byId("rollback")?.services?.includes(svc)) tier2.push({ id: "rollback", fixed: { service: svc }, label: `Roll back ${svc}` });
   if (byId("scale")?.services?.includes(svc)) tier2.push({ id: "scale", fixed: { service: svc }, label: `Scale ${svc}` });
@@ -467,7 +468,14 @@ function ActionsRail({ inc }: { inc: Inc }) {
       <Card title="Tier 1 — one click, audited">
         <div className="flex flex-wrap gap-2">
           {tier1.map((id) => byId(id) && <ActionButton key={id} action={byId(id)!} />)}
+          {close && <ActionButton action={close} fixed={{ incident: inc.id }} label="Close as stale" />}
         </div>
+        {close && (
+          <p className="mt-2 text-[11px] text-ink-3">
+            Close as stale: for a ticket whose "resolved" webhook was lost (a restart). Refused while any of its alerts still
+            fires; kept out of MTTR.
+          </p>
+        )}
       </Card>
 
       <Card title="Tier 2 — request, then a human approves">
@@ -479,6 +487,127 @@ function ActionsRail({ inc }: { inc: Inc }) {
           </div>
         )}
       </Card>
+      <KBFeeding inc={inc} />
+      <KBTemplate inc={inc} />
     </aside>
   );
+}
+
+// ------------------------------------------------------------------- Day 24 --
+/** Day 17's feeding rule: every resolved incident updates a KB entry, or says why not. */
+function KBFeeding({ inc }: { inc: Inc }) {
+  const { data: feeding } = useKBFeeding();
+  const { data: kb } = useKB();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const cur = feeding?.[inc.id];
+  const [decision, setDecision] = useState<"updated" | "not_needed">("updated");
+  const [kbId, setKbId] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (inc.status !== "resolved") return null;
+  const save = async () => {
+    setBusy(true);
+    try {
+      await post(`/api/incidents/${encodeURIComponent(inc.id)}/kb-feeding`, { decision, kb_id: kbId, reason });
+      qc.invalidateQueries({ queryKey: ["kb-feeding"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      toast({ tone: "good", title: "KB decision recorded", detail: decision === "updated" ? kbId : reason });
+    } catch (e) {
+      toast({ tone: "critical", title: "Not recorded", detail: e instanceof ApiError ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card title="Knowledge base — feed it or say why not" tone={cur ? undefined : "warning"}>
+      {cur && (
+        <p className="mb-2 text-sm text-ink-2">
+          {cur.decision === "updated" ? <>KB updated: <a className="font-mono text-info hover:underline" href={href("kb", cur.kb_id ?? "")}>{cur.kb_id}</a></> : <>Not needed because {cur.reason}</>}
+          <span className="block text-[11px] text-ink-3">{cur.operator} · {utcDateTime(cur.ts_iso)}</span>
+        </p>
+      )}
+      <div className="space-y-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input type="radio" checked={decision === "updated"} onChange={() => setDecision("updated")} /> KB updated — which entry?
+        </label>
+        <select className="w-full rounded border border-line bg-surface px-1 py-1 text-xs" value={kbId} onChange={(e) => setKbId(e.target.value)} disabled={decision !== "updated"}>
+          <option value="">choose the entry you updated or added</option>
+          {(kb ?? []).filter((e) => e.id).map((e) => <option key={e.id} value={e.id!}>{e.id} — {e.title}</option>)}
+        </select>
+        <label className="flex items-center gap-2">
+          <input type="radio" checked={decision === "not_needed"} onChange={() => setDecision("not_needed")} /> KB not needed because
+        </label>
+        <input className="w-full rounded border border-line bg-surface px-2 py-1 text-xs" value={reason} disabled={decision !== "not_needed"}
+          placeholder="e.g. a drill of kb-001 — the entry matched, nothing new learned" onChange={(e) => setReason(e.target.value)} />
+        <Button size="sm" variant="primary" disabled={busy || (decision === "updated" ? !kbId : reason.trim().length < 10)} onClick={() => void save()}>
+          {cur ? "Change" : "Record"}
+        </Button>
+      </div>
+      <p className="mt-2 text-[11px] text-ink-3">An unchecked resolved incident shows on the Overview as "needs a human".</p>
+    </Card>
+  );
+}
+
+/** "Add a KB entry from this incident": the Day 17 template, pre-filled from the record. It is copied,
+ *  not saved — the KB is git (kb/*.md, then ./scripts/172-kb.sh), and an entry is a commit. */
+function KBTemplate({ inc }: { inc: Inc }) {
+  const { data: kb } = useKB();
+  const [open, setOpen] = useState(false);
+  const next = useMemo(() => {
+    const n = Math.max(0, ...(kb ?? []).map((e) => Number((e.id ?? "kb-0").slice(3)) || 0)) + 1;
+    return `kb-${String(n).padStart(3, "0")}`;
+  }, [kb]);
+  const md = useMemo(() => kbTemplate(inc, next), [inc, next]);
+  return (
+    <Card title="Add a KB entry from this incident">
+      {!open ? (
+        <Button size="sm" onClick={() => setOpen(true)}>Open the pre-filled template</Button>
+      ) : (
+        <>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-ink-3">save as <span className="font-mono">kb/&lt;slug&gt;.md</span>, fill every TODO, commit, <span className="font-mono">./scripts/172-kb.sh</span></span>
+            <CopyButton text={md} />
+          </div>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-surface p-2 font-mono text-[11px] text-ink-2">{md}</pre>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function kbTemplate(inc: Inc, id: string): string {
+  const svc = inc.service ?? "TODO";
+  const reasons = (inc.context?.top_error_reasons ?? []).filter((r) => r.reason).slice(0, 2);
+  const m = inc.context?.metrics ?? {};
+  const deploys = (inc.context?.recent_deploys ?? []).filter((d) => d.text);
+  const notes = inc.timeline.filter((e) => e.event === "note" && e.text && !String(e.text).startsWith("drill:"));
+  const symptoms = [
+    ...inc.alerts.map((a) => `  - ${a} firing (${inc.severity})`),
+    ...reasons.map((r) => `  - app.reason=${r.reason} in the logs (${r.count} at the ticket)`),
+    ...(m.error_rate_pct != null ? [`  - error rate ${num(m.error_rate_pct)}% (5m) at the ticket`] : []),
+    ...(m.p95_latency_s != null ? [`  - p95 latency ${num(m.p95_latency_s, 3)}s at the ticket`] : []),
+    deploys.length
+      ? `  - deploy in the 6 h before (${deploys[0].minutes_before_first_alert ?? "?"} min before the first alert): ${deploys[0].text}`
+      : `  - no deploy or rollback of ${svc} in the 6 h before`,
+  ];
+  return [
+    "---",
+    `id: ${id}`,
+    `title: TODO the failure pattern in a few words (${inc.alerts[0] ?? "alert"} on ${svc})`,
+    `services: [${svc}]`,
+    "symptoms:",
+    ...symptoms,
+    "discriminating_checks:",
+    `  - "Splunk: index=main app.service=${svc} app.status=error earliest=-10m | stats count by app.reason   (TODO which reason means THIS pattern)"`,
+    '  - "TODO the check that tells this apart from its look-alike"',
+    "fix: TODO what worked, from the timeline — and whether a machine may do it",
+    "tier: TODO 1 (auto) | 2 (approve) | 3 (escalate)",
+    "learned_from: [TODO INC-00NN]",
+    "---",
+    `Notes: From ${inc.id} (${inc.opened_at_iso}, ${inc.duration_min ?? "?"} min).`,
+    ...notes.map((n) => `- ${n.author ?? "responder"}: ${n.text}`),
+    "Look-alike: TODO which entry fires the same alerts, and the check above that separates them.",
+    "",
+  ].join("\n");
 }

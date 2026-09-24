@@ -21,6 +21,7 @@ export type IncidentSummary = {
   opened_at_iso: string;
   resolved_at_iso: string | null;
   duration_min: number | null;
+  closed_by_human?: { by: string; reason: string; at_iso: string } | null;
 };
 
 export type Approval = {
@@ -48,6 +49,7 @@ export type Overview = {
   deploys_today: Part<{ time_ms: number; text: string; tags: string[] }[]>;
   settlement_age_s: Part<number | null>;
   traffic: Part<{ rps: Record<string, number>; multiplier: Record<string, number> }>;
+  needs_human?: Part<NeedsHuman>;
 };
 
 export type AuditRow = {
@@ -72,6 +74,7 @@ export type Action = {
   blast_radius: string;
   rationale: string;
   services?: string[];
+  scenarios?: string[];
   knobs?: Record<string, Record<string, { type: string; range: unknown; baseline: string }>>;
 };
 
@@ -118,7 +121,53 @@ export type KBEntry = {
   tier: string | null;
   fix: string | null;
   services: string[];
+  symptoms: string[];
+  checks: string[];
+  learned_from: string[];
+  notes: string;
   markdown: string;
+  error?: string;
+};
+
+// ---- Day 24 ----------------------------------------------------------------------------------
+export type KnobValue = { value: string; set: boolean; baseline: string; at_baseline: boolean };
+export type KnobTarget = { kind?: string; name?: string; container?: string | null; knobs: Record<string, KnobValue>; error?: string };
+export type Scenario = { id: string; title: string; summary: string; file: string };
+export type RunStep = {
+  n: number; at_seconds: number; action: string; params: Record<string, string>; note: string; state: string;
+  ok?: boolean; detail?: string; late_s?: number; fired_at_iso?: string | null; offset_s?: number | null;
+};
+export type Run = {
+  id: string; scenario: string; title?: string; operator: string; status: string; sealed: boolean;
+  started_at_iso: string; revealed_at_iso: string | null; reset_at_iso: string | null; ended_at_iso: string | null;
+  steps?: RunStep[];
+};
+export type GameDayState = {
+  scenarios: Scenario[];
+  scenario_errors: Record<string, string>;
+  runs: Run[];
+  knobs: Record<string, KnobTarget> | { sealed: true; run: string };
+  sealed_run: string | null;
+  annotations: boolean;
+};
+export type KPITile = {
+  key: string; title: string; value: number | null; unit: string; trend: (number | null)[]; n?: number | null;
+  definition: string; detail: string; second?: (number | null)[]; second_label?: string;
+};
+export type KPIRow = {
+  id: string; service: string | null; severity: string; status: string; alerts: string[];
+  opened_at_iso: string; first_alert_at_iso?: string | null; ttd_s: number | null; ttd_source: string | null;
+  ttt_s: number | null; duration_min: number | null; closed_by_human: boolean; closed_reason?: string | null;
+  remediation: string[]; kb: string | null; kb_id: string | null;
+};
+export type KPIs = { generated_at: string; weeks: string[]; tiles: KPITile[]; incidents: KPIRow[] };
+export type ReportSummary = { day: string; words: number; stored_at_iso: string; model: string | null };
+export type Report = ReportSummary & { text: string; data?: unknown };
+export type KBFeeding = { incident: string; ts_iso: string; operator: string; decision: "updated" | "not_needed"; kb_id: string | null; reason: string | null };
+export type NeedsHuman = {
+  kb_unfed: { id: string; service: string | null; resolved_at_iso: string | null }[];
+  stale_open: { id: string; service: string | null; alerts: string[]; opened_at_iso: string }[];
+  feeding_since_iso: string;
 };
 
 export type UIConfig = {
@@ -130,6 +179,8 @@ export type UIConfig = {
   metric_queries: Record<string, Record<string, string>>;
   log_reasons_spl: string;
   copilot?: { enabled: boolean; model: string; tool_budget: number; features: Record<string, boolean> };
+  repo_url?: string;
+  annotations?: boolean;
   dry_run: boolean;
 };
 
@@ -140,7 +191,7 @@ export type EvalRow = {
   ts_iso: string;
   operator: string;
   incident: string;
-  draft: "open" | "hypothesis" | "resolved" | "copilot";
+  draft: "open" | "hypothesis" | "resolved" | "copilot" | "report";
   verdict: "up" | "down";
   comment: string | null;
   model?: string | null;

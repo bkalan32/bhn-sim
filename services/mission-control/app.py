@@ -36,6 +36,7 @@ Routes (Step 2)             tier   notes
 """
 
 import asyncio
+import contextvars
 import contextlib
 import hmac
 import json
@@ -47,6 +48,7 @@ import sys
 import time
 
 import httpx
+import yaml
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -56,9 +58,12 @@ from sse_starlette.sse import EventSourceResponse
 import actions
 import config
 import copilot
+import gameday
+import kbparse
+import kpis as kpi
 import mcp_server
 from db import DB
-from events import Broker, alerts_from_webhook
+from events import Broker, alerts_from_webhook, KINDS
 
 ENTRANCES = ("button", "command", "copilot", "mcp", "api")
 HUMAN_ENTRANCES = ("button", "command", "api")   # who may APPROVE: never the AI, by construction
@@ -93,6 +98,8 @@ class _Seen:
     open_incidents: dict | None = None
     rem_tokens: set | None = None
     deploy_ms: int | None = None
+    report_since: float | None = None      # Day 24: waiting for a report "Generate now" asked for
+    report_until: float = 0.0
 
 
 seen = _Seen()
@@ -166,10 +173,31 @@ async def _watch_deploys():
     seen.deploy_ms = newest
 
 
+async def _watch_reports():
+    """After Generate now: the Jenkins job takes a minute or three, then POSTs to the bot. Poll the
+    bot's list until a report stored after the click appears, then tell every tab ("streams the
+    result in when the bot receives it"). Nobody asked → nothing is polled."""
+    if seen.report_since is None:
+        return
+    if time.time() > seen.report_until:
+        broker.publish("report", {"event": "timeout", "note": "no report arrived within 15 min — check the daily-ops-report job"})
+        seen.report_since = None
+        return
+    try:
+        reps = await _get("incident-bot", f"{config.BOT_URL}/reports")
+    except HTTPException:
+        return
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seen.report_since - 5))
+    new = [r for r in reps if (r.get("stored_at_iso") or "") >= since]
+    if new:
+        broker.publish("report", {"event": "arrived", **new[0]})
+        seen.report_since = None
+
+
 async def _health_poller():
     while True:
         try:
-            await asyncio.gather(_watch_incidents(), _watch_remediator(), _watch_deploys())
+            await asyncio.gather(_watch_incidents(), _watch_remediator(), _watch_deploys(), _watch_reports())
         except Exception as e:  # noqa: BLE001
             jlog("watch failed", error=str(e))
         try:
@@ -191,6 +219,16 @@ async def lifespan(app):
     global hands
     hands = AuditedHands(http, propose, proposal_status)
     await db.open()
+    await db.prune_feed(days=30)
+    global _loop
+    _loop = asyncio.get_running_loop()
+    broker.on_publish = _keep                       # Day 24: the feed is kept for run timelines
+    global runner
+    runner = gameday.Runner(db, lambda: http, _audit, broker.publish)
+    actions.HOOKS.update(scenarios=lambda: [k for k in gameday.load_scenarios() if not k.startswith("_")],
+                         start_run=_start_run, abort_runs=lambda op, why: runner.abort(op, why))
+    await runner.resume()                           # a run interrupted by a restart keeps going
+    await db.setting("kb_feeding_since", str(time.time()), store_default=True)
     task = asyncio.create_task(_health_poller())
     jlog("started", version=config.VERSION, dry_run=config.DRY_RUN, auth="on" if config.MC_TOKEN else "REFUSING (no MC_TOKEN)",
          copilot=config.COPILOT_MODEL if config.ANTHROPIC_API_KEY else "off (no key)")
@@ -201,6 +239,26 @@ async def lifespan(app):
     task.cancel()
     await http.aclose()
     await db.close()
+
+
+runner: gameday.Runner | None = None
+_TOKEN = contextvars.ContextVar("approval_token", default=None)   # the token an executing action was approved with
+
+
+_loop: asyncio.AbstractEventLoop | None = None       # the app's loop, set in lifespan
+
+
+def _keep(ev: dict):
+    """Persist a feed event — always on the APP's loop. A write started on some other loop (a test's
+    asyncio.run, a thread) would be cancelled when that loop closes, mid-statement, and the one
+    aiosqlite connection would wait for ever on the reply (found by the test suite hanging)."""
+    if _loop is None or _loop.is_closed():
+        return
+    _loop.call_soon_threadsafe(lambda: _loop.create_task(db.add_feed(ev["ts"], ev["kind"], ev["data"])))
+
+
+async def _start_run(scenario: str, operator: str):
+    return await runner.start(scenario, operator, token=_TOKEN.get())
 
 
 app = FastAPI(title="mission-control", version=config.VERSION, lifespan=lifespan)
@@ -275,10 +333,15 @@ async def run_action(action_id: str, raw_params: dict, reason: str, c: Caller) -
 async def _execute(action_id, params, operator, entrance, token):
     a = actions.CATALOG[action_id]
     t0 = time.perf_counter()
+    tok = _TOKEN.set(token)
     try:
         ok, detail = await a["execute"](http, params, operator)
     except Exception as e:  # noqa: BLE001
         ok, detail = False, f"{type(e).__name__}: {e}"
+    finally:
+        _TOKEN.reset(tok)
+    if action_id == "generate_report" and ok:
+        seen.report_since, seen.report_until = time.time(), time.time() + 900
     row = await _audit(operator=operator, action=action_id, params=params, tier=a["tier"], entrance=entrance,
                        result="ok" if ok else "failed", token=token, detail=detail)
     return {"status": "executed" if ok else "failed", "action": action_id, "params": params, "detail": detail,
@@ -386,11 +449,12 @@ async def _all_approvals():
 @app.get("/api/overview")
 async def overview(c: Caller = Depends(caller)):
     t0 = time.perf_counter()
-    names = ("health", "sparklines", "alerts", "incidents", "approvals", "deploys_today", "settlement_age_s", "traffic")
+    names = ("health", "sparklines", "alerts", "incidents", "approvals", "deploys_today", "settlement_age_s", "traffic", "needs_human")
     parts = await asyncio.gather(_part("health", _health_scores()), _part("sparklines", _sparklines()),
                                  _part("alerts", _alerts()), _part("incidents", _open_incidents()),
                                  _part("approvals", _all_approvals()), _part("deploys", _deploys_today()),
-                                 _part("settlement", _settlement_age()), _part("traffic", _traffic()))
+                                 _part("settlement", _settlement_age()), _part("traffic", _traffic()),
+                                 _part("needs_human", _needs_human()))
     return {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "ms": round((time.perf_counter() - t0) * 1000), **dict(zip(names, parts))}
 
@@ -402,7 +466,7 @@ async def events(request: Request, c: Caller = Depends(caller)):
 
     async def stream():
         try:
-            yield {"event": "hello", "data": json.dumps({"server_time": time.time(), "kinds": ["alert", "audit", "approval", "health", "incident", "deploy"]})}
+            yield {"event": "hello", "data": json.dumps({"server_time": time.time(), "kinds": [k for k in KINDS if k != "hello"]})}
             while True:
                 if await request.is_disconnected():
                     break
@@ -415,6 +479,16 @@ async def events(request: Request, c: Caller = Depends(caller)):
             broker.unsubscribe(q)
             SSE_CLIENTS.dec()
     return EventSourceResponse(stream(), ping=15)
+
+
+@app.get("/api/feed")
+async def feed(limit: int = 40, c: Caller = Depends(caller)):
+    """Day 24: the kept feed, newest first — a fresh tab (or a reload mid-game-day) starts with what
+    already happened, not an empty column. Tool reads are left out: they are the copilot's, not the feed's."""
+    async with db.conn.execute("SELECT id, ts, kind, data FROM feed ORDER BY id DESC LIMIT ?", (min(max(limit, 1), 200) * 2,)) as cur:
+        rows = [{"id": r["id"], "ts": r["ts"], "kind": r["kind"], "data": json.loads(r["data"])} for r in await cur.fetchall()]
+    rows = [r for r in rows if not (r["kind"] == "audit" and str(r["data"].get("action", "")).startswith("tool:"))]
+    return rows[:limit]
 
 
 @app.get("/api/incidents")
@@ -503,15 +577,9 @@ async def kb(c: Caller = Depends(caller)):
     if config.DRY_RUN:
         return []
     files = json.loads(out).get("data", {})
-    entries = []
-    for name, text in sorted(files.items()):
-        if name == "README.md":
-            continue
-        fm = dict(re.findall(r"^(\w+):\s*(.+)$", text.split("---")[1], re.M)) if text.startswith("---") else {}
-        entries.append({"file": name, "id": fm.get("id"), "title": fm.get("title"), "tier": fm.get("tier"),
-                        "fix": fm.get("fix"), "services": [x.strip() for x in fm.get("services", "").strip("[]").split(",") if x.strip()],
-                        "markdown": text})
-    return entries
+    # Day 24: the front matter parsed properly (YAML), so the cards can show symptoms, checks and
+    # learned_from as lists — the Day 22 line regex could only see one-line keys.
+    return [_kb_entry(name, text) for name, text in sorted(files.items()) if name != "README.md"]
 
 
 @app.get("/api/kb/search")
@@ -570,6 +638,15 @@ async def rate(request: Request, c: Caller = Depends(writer)):
         await _audit(operator=c.operator, action="rate_answer", params={"turn_id": turn["id"], "verdict": verdict},
                      tier=1, entrance=c.entrance, result="ok", detail=row["comment"])
         return row
+    if body.get("report"):                     # Day 24: a daily report, graded like a copilot answer
+        day = str(body["report"])
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(-[a-z0-9-]{1,24})?", day):
+            raise HTTPException(422, "report: YYYY-MM-DD[-slug]")
+        row = await db.add_eval(operator=c.operator, incident=f"report:{day}", draft="report", verdict=verdict,
+                                comment=comment, model=body.get("model"))
+        await _audit(operator=c.operator, action="rate_report", params={"report": day, "verdict": verdict},
+                     tier=1, entrance=c.entrance, result="ok", detail=row["comment"])
+        return row
     incident, draft = body.get("incident", ""), body.get("draft")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", incident or ""):
         raise HTTPException(422, "incident: an incident id")
@@ -590,6 +667,7 @@ async def ui_config(c: Caller = Depends(caller)):
             "metric_queries": config.METRIC_QUERIES, "log_reasons_spl": config.LOG_REASONS_SPL,
             "copilot": {"enabled": bool(config.ANTHROPIC_API_KEY), "model": config.COPILOT_MODEL,
                         "tool_budget": copilot.TOOL_CALL_BUDGET, "features": copilot.FEATURES},
+            "repo_url": config.REPO_URL, "annotations": bool(config.GRAFANA_WRITE_TOKEN),
             "dry_run": config.DRY_RUN}
 
 
@@ -743,12 +821,199 @@ async def turns(limit: int = 50, c: Caller = Depends(caller)):
         return [dict(r) for r in await cur.fetchall()]
 
 
-@app.api_route("/api/kpis", methods=["GET"])
-async def later(request: Request, c: Caller = Depends(caller)):
-    return JSONResponse({"detail": "not built yet — Day 24"}, status_code=501)
+# ----------------------------------------------------------------- Day 24 --
+async def _incidents_full(since: float | None = None) -> list:
+    params = {"full": "1"}
+    if since is not None:
+        params["since"] = str(since)
+    try:
+        r = await http.get(f"{config.BOT_URL}/incidents", params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:  # noqa: BLE001
+        UPSTREAM.labels("incident-bot").inc()
+        raise HTTPException(502, f"incident-bot: {type(e).__name__}: {str(e)[:200]}")
 
 
-# ---------------------------------------------------------------- the feed --
+async def _jenkins_builds():
+    if not (config.JENKINS_URL and config.JENKINS_USER and config.JENKINS_TOKEN):
+        return None
+    try:
+        r = await http.get(f"{config.JENKINS_URL}/job/deploy-service/api/json",
+                           params={"tree": "builds[number,result,timestamp]{0,400}"},
+                           auth=(config.JENKINS_USER, config.JENKINS_TOKEN), timeout=8)
+        r.raise_for_status()
+        return r.json().get("builds", [])
+    except Exception:  # noqa: BLE001
+        UPSTREAM.labels("jenkins").inc()
+        return None
+
+
+async def _prom_value(q):
+    try:
+        d = await _prom(q)
+        res = d.get("data", {}).get("result", [])
+        return round(float(res[0]["value"][1]), 1) if res else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _prom_names(q):
+    try:
+        d = await _prom(q)
+        return [r["metric"].get("alertname") for r in d.get("data", {}).get("result", [])]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _off(k):
+    return f" offset {7 * k}d" if k else ""
+
+
+_kpi_cache: dict = {"at": 0.0, "data": None}
+
+
+@app.get("/api/kpis")
+async def kpis_page(fresh: bool = False, c: Caller = Depends(caller)):
+    """The seven Day 18 KPIs with a 4-week trend, and the incident table (kpis.py)."""
+    if not fresh and _kpi_cache["data"] and time.time() - _kpi_cache["at"] < config.KPI_CACHE_S:
+        return _kpi_cache["data"]
+    ks = list(reversed(range(kpi.WEEKS)))           # oldest week first
+    avail = 'clamp_max(100 * (1 - (1 - sum(increase(activation_requests_total{status="ok"}[30d]%s)) / clamp_min(sum(increase(activation_requests_total[30d]%s)), 1)) / 0.005), 100)'
+    lat = 'clamp_max(100 * (1 - (1 - sum(increase(activation_latency_seconds_bucket{le="0.3"}[30d]%s)) / clamp_min(sum(increase(activation_latency_seconds_count[30d]%s)), 1)) / 0.01), 100)'
+    fired_q = 'count by (alertname) (count_over_time(ALERTS{alertstate="firing"}[7d]%s))'
+    incidents, runs, builds, rem, *promres = await asyncio.gather(
+        _incidents_full(), db.runs(limit=200), _jenkins_builds(),
+        _get("remediator", f"{config.REM_URL}/actions"),
+        *[_prom_value(avail % (_off(k), _off(k))) for k in ks], *[_prom_value(lat % (_off(k), _off(k))) for k in ks],
+        *[_prom_names(fired_q % _off(k)) for k in ks], return_exceptions=True)
+    if isinstance(incidents, Exception):
+        raise incidents
+    rem_hist = rem if isinstance(rem, list) else (rem.get("actions") or rem.get("history") or []) if isinstance(rem, dict) else None
+    w = kpi.WEEKS
+    prom = {"eb_avail": promres[:w], "eb_lat": promres[w:2 * w], "fired": promres[2 * w:3 * w]}
+    data = kpi.compute(incidents, runs if isinstance(runs, list) else [], rem_hist,
+                       builds if isinstance(builds, list) else None, prom, await db.kb_feeding())
+    _kpi_cache.update(at=time.time(), data=data)
+    return data
+
+
+# --- Step 1: the Game Day console -----------------------------------------------------------
+@app.get("/api/gameday")
+async def gameday_state(c: Caller = Depends(caller)):
+    """Scenarios (never their steps), runs (sealed until Retro), and the knobs' live values — which
+    are withheld while a sealed run is live: the console's own panel must not give the game away."""
+    scs = gameday.load_scenarios()
+    errors = scs.pop("_errors", {})
+    runs = await db.runs(limit=20)
+    live = await runner.sealed_run()
+    knobs = {"sealed": True, "run": live["id"]} if live else await actions.read_knobs()
+    return {"scenarios": [gameday.public_scenario(x) for x in scs.values()], "scenario_errors": errors,
+            "runs": [gameday.public_run(r) for r in runs], "knobs": knobs, "sealed_run": live["id"] if live else None,
+            "annotations": bool(config.GRAFANA_WRITE_TOKEN)}
+
+
+def _run_id(run_id: str) -> str:
+    if not re.fullmatch(r"run-[0-9TZ]{16}", run_id):
+        raise HTTPException(400, "bad run id")
+    return run_id
+
+
+@app.post("/api/gameday/runs/{run_id}/retro")
+async def gameday_retro(run_id: str, c: Caller = Depends(writer)):
+    try:
+        run = await runner.retro(_run_id(run_id), c.operator)
+    except KeyError:
+        raise HTTPException(404, f"no run {run_id}")
+    return gameday.public_run(run)
+
+
+@app.post("/api/gameday/runs/{run_id}/abort")
+async def gameday_abort(run_id: str, c: Caller = Depends(writer)):
+    n = await runner.abort(c.operator, "aborted from the console", _run_id(run_id))
+    if not n:
+        raise HTTPException(409, f"{run_id} is not running")
+    return {"ok": True, "aborted": run_id}
+
+
+@app.get("/api/gameday/runs/{run_id}/skeleton")
+async def gameday_skeleton(run_id: str, c: Caller = Depends(caller)):
+    """gameday/run-<ts>.md — only after Retro. scripts/245-gameday-run.sh saves it into the repo."""
+    run = await db.run(_run_id(run_id))
+    if not run:
+        raise HTTPException(404, f"no run {run_id}")
+    if not run.get("revealed_at"):
+        raise HTTPException(409, "sealed — press Retro first")
+    t0 = run["started_at"]
+    end = max(run.get("reset_at") or 0, run.get("revealed_at") or 0, time.time() if not run.get("reset_at") else 0)
+    feed = await db.feed_between(t0 - 30, end)
+    incs = [i for i in await _incidents_full(since=t0 - 60) if (i.get("opened_at") or 0) <= end]
+    md = gameday.skeleton(run, feed, sorted(incs, key=lambda i: i.get("opened_at") or 0))
+    return Response(md, media_type="text/markdown; charset=utf-8",
+                    headers={"Content-Disposition": f'inline; filename="{run_id}.md"'})
+
+
+# --- Step 4: the knowledge base as cards, and the feeding rule --------------------------------
+def _kb_entry(name: str, text: str) -> dict:
+    """One card. Parsed like the bot parses it (kbparse); a file the parser refuses is still a card —
+    with the error on it, so a broken entry is visible, not silently missing."""
+    try:
+        e = kbparse.parse(text, name)
+    except kbparse.KBError as err:
+        return {"file": name, "id": None, "title": name, "error": str(err), "tier": "", "services": [], "symptoms": [],
+                "checks": [], "fix": None, "learned_from": [], "notes": "", "markdown": text}
+    return {"file": name, "id": e["id"], "title": e["title"], "tier": str(e["tier"]), "services": e["services"],
+            "symptoms": e["symptoms"], "checks": e["discriminating_checks"], "fix": e["fix"],
+            "learned_from": e["learned_from"], "notes": e["notes"], "markdown": text}
+
+
+@app.post("/api/incidents/{iid}/kb-feeding")
+async def kb_feeding(iid: str, request: Request, c: Caller = Depends(writer)):
+    """Day 17's rule, one click: KB updated (which entry) — or not needed, because … Audited."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", iid):
+        raise HTTPException(400, "bad incident id")
+    body = await request.json() or {}
+    decision, kb_id, reason = body.get("decision"), (body.get("kb_id") or "").strip() or None, (body.get("reason") or "").strip() or None
+    if decision == "updated":
+        if not kb_id or not re.fullmatch(r"kb-[0-9]{3}", kb_id):
+            raise HTTPException(422, "kb_id: the entry you updated or added (kb-NNN)")
+        reason = None
+    elif decision == "not_needed":
+        if not reason or len(reason) < 10:
+            raise HTTPException(422, "reason: why no KB change is needed (10+ characters) — 'because' is the rule")
+        kb_id = None
+    else:
+        raise HTTPException(422, "decision: updated or not_needed")
+    row = await db.set_kb_feeding(incident=iid, operator=c.operator, decision=decision, kb_id=kb_id, reason=reason)
+    await _audit(operator=c.operator, action="kb_feeding", params={"incident": iid, "decision": decision, "kb_id": kb_id},
+                 tier=1, entrance=c.entrance, result="ok", detail=reason or kb_id or "")
+    return row
+
+
+@app.get("/api/kb-feeding")
+async def kb_feeding_all(c: Caller = Depends(caller)):
+    return await db.kb_feeding()
+
+
+async def _needs_human() -> dict:
+    """The Overview's 'needs a human': resolved incidents since the feeding rule started with no KB
+    decision, and open incidents that look stale (open > 30 min, none of their alerts firing)."""
+    since = float(await db.setting("kb_feeding_since", "0") or 0)
+    feeding = await db.kb_feeding()
+    # RESOLVED since the rule started, whenever opened (a week back is plenty: a ticket open longer than
+    # that is a stale-close case, and the bot's since filter is on opened_at).
+    incs = await _incidents_full(since=since - 7 * 86400)
+    unfed = [{"id": i["id"], "service": i.get("service"), "resolved_at_iso": i.get("resolved_at_iso")}
+             for i in incs if i.get("status") == "resolved" and (i.get("resolved_at") or 0) >= since and i["id"] not in feeding]
+    stale = []
+    firing = set(await _prom_names('count by (alertname) (ALERTS{alertstate="firing"})') or [])
+    for i in await _open_incidents():
+        if i.get("opened_at_iso") and i["opened_at_iso"] < time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1800)) \
+                and not (set(i.get("alerts") or []) & firing):
+            stale.append({"id": i["id"], "service": i.get("service"), "alerts": i.get("alerts"), "opened_at_iso": i.get("opened_at_iso")})
+    return {"kb_unfed": unfed, "stale_open": stale, "feeding_since_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since))}
+
+
 @app.post("/hooks/alertmanager")
 async def am_hook(request: Request):
     """Alertmanager's third webhook (k8s/kps-values.yaml). Display only: nothing here can act."""

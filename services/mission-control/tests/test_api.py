@@ -163,10 +163,6 @@ def test_overview_degrades_per_tile(client):
     assert d["ms"] < 5000
 
 
-def test_later_days_say_so(client):
-    assert "Day 24" in client.get("/api/kpis", headers=AUTH).text
-
-
 def test_chat_without_a_key_says_so(client, monkeypatch):
     monkeypatch.setattr(mc.config, "ANTHROPIC_API_KEY", "")
     r = client.post("/api/chat", headers=K, json={"message": "hi"})

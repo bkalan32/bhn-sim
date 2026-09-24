@@ -168,6 +168,8 @@ _PARAM_PROPS = {
     "pod": {"type": "string"},
     "incident": {"type": "string"},
     "text": {"type": "string"},
+    "scenario": {"type": "string", "description": "run_scenario only: a gameday/*.yaml id"},
+    "why": {"type": "string", "description": "close_incident only: why the ticket is stale (10+ chars)"},
 }
 
 TOOLS = [
@@ -234,7 +236,8 @@ TOOLS = [
                      "for a tier-3 situation (the KB says escalate). Parameters per action: rollback {service}; scale "
                      "{service, replicas}; deploy {service, change_cause}; silence_alert {alertname, minutes, service}; "
                      "set_fault {target, knob, value}; rerun_settlement {}; delete_crashlooping_pod {pod}; "
-                     "run_drift_check {}; generate_report {}; note {incident, text}."),
+                     "run_drift_check {}; generate_report {}; note {incident, text}; reset_faults {}; "
+                     "close_incident {incident, why}; run_scenario {scenario}."),
      "input_schema": {"type": "object",
                       "properties": {"action_id": {"type": "string", "enum": sorted(actions.CATALOG)},
                                      "params": {"type": "object", "properties": _PARAM_PROPS},

@@ -62,11 +62,13 @@ and every byte of data behind it is under `/api/`.
 |---|---|---|
 | Overview | 22 | the ten-second screen: scores + 1 h sparklines, critical alerts, open incidents, deploys, settlement age, the live feed, embedded Grafana panels, the last ten audit rows |
 | Incidents | 22 | the list (open first) and the incident page: context with deep links, hypothesis + KB chips, timeline + note box, actions rail, AI drafts with copy and 👍/👎 |
-| Knowledge Base | 22 | where the KB chips land; read-only (the KB is git + `172-kb.sh`) |
+| Knowledge Base | 22, 24 | cards: symptoms, checks with *run in copilot →*, fix, learned-from links; read-only (the KB is git + `172-kb.sh`) |
 | Audit | 22 | every tier 1 / tier 2 attempt, any entrance; from Day 23 also every AI tool call (tier 0, `tool:<name>`) |
 | Copilot | 23 | chat + the tool trail (every query, exactly as run); answers stream with a thinking line; 👍/👎 + note → an eval row; proposals land in the banner |
 | Evals | 23 | every grade of an AI output — copilot answers (question, trail, answer, tokens, cost) and incident drafts |
-| Game Day, KPIs & Reports | 24 | |
+| Game Day | 24 | every fault knob live (tier-2 changes), sealed scenario runs (one approval, steps hidden until Retro), Reset all, run skeletons |
+| KPIs | 24 | the seven Day 18 KPIs with 4-week trends and definitions; MTTD measured from the console's injections; the incident table |
+| Reports | 24 | the daily report archive, Generate now, three days side by side, 👍/👎 per report |
 
 **On every page:** the pending-approvals banner. Approve there is the human's second click for
 anything waiting — requested by you, by the remediator, or (Day 23) by the copilot.
@@ -103,3 +105,14 @@ restart; the token onto the Windows clipboard, never printed; the browser.
 The **command palette** (Ctrl+K / ⌘K) is the `command` entrance: screens, the catalog, the KB,
 and `/drill /revert /rollback /scale /note /report /kb /ask` — each opens the same confirmation
 card as the button.
+
+## The Game Day console (Day 24)
+
+`gameday.py`. Scenarios are `gameday/*.yaml` (ConfigMap `gameday`, `240-gameday.sh`); a run is one
+tier-2 approval (`run_scenario`), executed server-side through the `set_fault` executor, resumed
+after a restart. **Sealed** = not revealed, not reset, not aborted — and while sealed, nothing shows
+the plan: not the page, not the knob panel, not the audit (`scenario_step` rows carry run + step and
+the approval token, never the knob), not the feed, not the Grafana markers (tags `gameday` + run id,
+never a service name — the bot's deploy collector reads by service tag). Retro appends the real
+audit rows, PATCHes the markers and unlocks the run skeleton (`245-gameday-run.sh` saves it). Reset
+all (`reset_faults`, tier 1) aborts a running schedule, then returns every off-baseline knob.

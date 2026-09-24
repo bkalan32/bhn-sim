@@ -16,6 +16,9 @@ import { KB } from "./pages/KB";
 import { Login } from "./pages/Login";
 import { Copilot } from "./pages/Copilot";
 import { Evals } from "./pages/Evals";
+import { GameDay } from "./pages/GameDay";
+import { KPIs } from "./pages/KPIs";
+import { Reports } from "./pages/Reports";
 import { PaletteProvider, usePalette } from "./components/palette";
 import { ErrorBoundary } from "./components/boundary";
 
@@ -23,8 +26,9 @@ const NAV: { key: string; label: string; day?: number }[] = [
   { key: "", label: "Overview" },
   { key: "incidents", label: "Incidents" },
   { key: "copilot", label: "Copilot" },
-  { key: "gameday", label: "Game Day", day: 24 },
-  { key: "kpis", label: "KPIs & Reports", day: 24 },
+  { key: "gameday", label: "Game Day" },
+  { key: "kpis", label: "KPIs" },
+  { key: "reports", label: "Reports" },
   { key: "kb", label: "Knowledge Base" },
   { key: "evals", label: "Evals" },
   { key: "audit", label: "Audit" },
@@ -114,6 +118,12 @@ function Page({ route }: { route: string[] }) {
       return <Copilot incident={id} key={id ?? "_page"} />;
     case "evals":
       return <Evals />;
+    case "gameday":
+      return <GameDay />;
+    case "kpis":
+      return <KPIs />;
+    case "reports":
+      return <Reports />;
     default: {
       const n = NAV.find((x) => x.key === section);
       return (

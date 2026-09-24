@@ -288,3 +288,24 @@ def test_list_since_filter_and_bad_since(base_url_noai):
     st, ready = call(base_url_noai, "GET", "/readyz")
     assert st == 200 and ready["store"] == "sqlite"
     call(base_url_noai, "DELETE", f"/incidents/{iid}")
+
+
+def test_a_human_closes_a_stale_incident_and_the_record_says_so(base_url_noai):
+    # Day 24: the resolved webhook was lost to a restart; a human closes it with a reason.
+    st, r = call(base_url_noai, "POST", "/alertmanager",
+                 am_payload("firing", G_WARN, [("PlatformPodRestarting", "warning")]))
+    iid = r["incident"]
+    st, _ = call(base_url_noai, "POST", f"/incidents/{iid}/close", {"by": "K", "reason": "short"})
+    assert st == 400                                           # a reason, not a shrug
+    st, out = call(base_url_noai, "POST", f"/incidents/{iid}/close", {"by": "K", "reason": "reboot lost the resolved webhook"})
+    assert st == 200 and out["closed_by_human"]["by"] == "K"
+    st, inc = call(base_url_noai, "GET", f"/incidents/{iid}")
+    assert inc["status"] == "resolved" and inc["timeline"][-1]["event"] == "incident_closed"
+    st, _ = call(base_url_noai, "POST", f"/incidents/{iid}/close", {"by": "K", "reason": "reboot lost the resolved webhook"})
+    assert st == 409                                           # once
+    st, full = call(base_url_noai, "GET", "/incidents?full=1")
+    rec = next(i for i in full if i["id"] == iid)
+    assert rec["closed_by_human"]["reason"].startswith("reboot") and "timeline" in rec and "ai_open_draft" not in rec
+    st, summ = call(base_url_noai, "GET", "/incidents")
+    assert next(i for i in summ if i["id"] == iid)["closed_by_human"]
+    call(base_url_noai, "DELETE", f"/incidents/{iid}")

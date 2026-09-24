@@ -29,8 +29,8 @@ export const useFeed = () => useContext(FeedContext);
 const MAX_ITEMS = 200;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function toItem(kind: string, d: any, id: string): FeedItem | null {
-  const now = Date.now() / 1000;
+export function toItem(kind: string, d: any, id: string, at?: number): FeedItem | null {
+  const now = at ?? Date.now() / 1000;
   switch (kind) {
     case "alert": {
       const resolved = d.status === "resolved";
@@ -92,6 +92,34 @@ export function toItem(kind: string, d: any, id: string): FeedItem | null {
         title: `${d.kind} · ${d.service ?? "?"}`,
         detail: d.text ?? "",
       };
+    case "gameday": {
+      // Day 24: what a sealed run is allowed to say — that something happened, never what.
+      const what: Record<string, string> = {
+        started: `game day ${d.run} started — ${d.scenario}, sealed`,
+        step: d.ok ? `game day ${d.run}: a sealed step fired` : `game day ${d.run}: a sealed step FAILED to inject`,
+        schedule_complete: `game day ${d.run}: schedule complete`,
+        aborted: `game day ${d.run} aborted${d.by ? ` by ${d.by}` : ""}`,
+        revealed: `game day ${d.run} revealed at Retro${d.by ? ` by ${d.by}` : ""}`,
+      };
+      return {
+        key: `gameday-${id}`,
+        kind: "system",
+        ts: now,
+        tone: d.event === "step" && !d.ok ? "critical" : d.event === "revealed" ? "info" : "warning",
+        title: what[d.event] ?? `game day ${d.run} ${d.event}`,
+        link: href("gameday"),
+      };
+    }
+    case "report":
+      return {
+        key: `report-${id}`,
+        kind: "system",
+        ts: now,
+        tone: d.event === "arrived" ? "good" : "warning",
+        title: d.event === "arrived" ? `daily report ${d.day} arrived (${d.words} words)` : "daily report did not arrive",
+        detail: d.note ?? d.model ?? "",
+        link: href("reports"),
+      };
     default:
       return null;
   }
@@ -104,11 +132,13 @@ export function FeedProvider({ children }: { children: ReactNode }) {
   const [lastHealthAt, setLastHealthAt] = useState<number | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
-  // Seed with the recent audit log, so a fresh tab is not an empty column.
+  // Seed with the kept feed (Day 24: every kind, with its real time), so a fresh tab — or a reload
+  // in the middle of a game day — is not an empty column. Feed ids are the server's, not the stream's,
+  // so a seeded item and a live one can never collide.
   useEffect(() => {
-    api<AuditRow[]>("/api/audit?limit=15")
+    api<{ id: number; ts: number; kind: string; data: unknown }[]>("/api/feed?limit=40")
       .then((rows) => {
-        const seeded = rows.map((r) => toItem("audit", r, String(r.id))).filter(Boolean) as FeedItem[];
+        const seeded = rows.map((r) => toItem(r.kind, r.data, `kept-${r.id}`, r.ts)).filter(Boolean) as FeedItem[];
         setItems((cur) => (cur.length ? cur : seeded));
       })
       .catch(() => undefined);
@@ -168,6 +198,16 @@ export function FeedProvider({ children }: { children: ReactNode }) {
         const m = e as MessageEvent;
         push(toItem("deploy", JSON.parse(m.data), m.lastEventId));
         qc.invalidateQueries({ queryKey: ["overview"] });
+      });
+      es.addEventListener("gameday", (e) => {
+        const m = e as MessageEvent;
+        push(toItem("gameday", JSON.parse(m.data), m.lastEventId));
+        qc.invalidateQueries({ queryKey: ["gameday"] });
+      });
+      es.addEventListener("report", (e) => {
+        const m = e as MessageEvent;
+        push(toItem("report", JSON.parse(m.data), m.lastEventId));
+        qc.invalidateQueries({ queryKey: ["reports"] });
       });
       es.onerror = () => {
         setStatus("reconnecting");

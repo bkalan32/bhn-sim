@@ -11,7 +11,7 @@ import { Badge, Card, Skeleton, Status, Unavailable } from "../components/ui";
 export function Evals() {
   const { data, isLoading, error } = useEvalRows();
   const [kind, setKind] = useState("all");
-  const rows = useMemo(() => (data ?? []).filter((r) => kind === "all" || (kind === "copilot" ? r.draft === "copilot" : r.draft !== "copilot")), [data, kind]);
+  const rows = useMemo(() => (data ?? []).filter((r) => kind === "all" || (kind === "copilot" ? r.draft === "copilot" : kind === "reports" ? r.draft === "report" : r.draft !== "copilot" && r.draft !== "report")), [data, kind]);
   const stats = useMemo(() => {
     const by = (f: (r: EvalRow) => boolean) => {
       const s = (data ?? []).filter(f);
@@ -19,7 +19,7 @@ export function Evals() {
       return { n: s.length, up, pct: s.length ? Math.round((100 * up) / s.length) : null };
     };
     const cost = (data ?? []).reduce((a, r) => a + (r.cost_usd ?? 0), 0);
-    return { copilot: by((r) => r.draft === "copilot"), drafts: by((r) => r.draft !== "copilot"), cost };
+    return { copilot: by((r) => r.draft === "copilot"), drafts: by((r) => r.draft !== "copilot" && r.draft !== "report"), cost };
   }, [data]);
 
   return (
@@ -39,6 +39,7 @@ export function Evals() {
             <option value="all">all</option>
             <option value="copilot">copilot answers</option>
             <option value="drafts">incident drafts</option>
+            <option value="reports">daily reports</option>
           </select>
         }
       >
@@ -71,8 +72,9 @@ function EvalItem({ r }: { r: EvalRow }) {
     <li className="py-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Status tone={r.verdict === "up" ? "good" : "critical"} label={r.verdict === "up" ? "good" : "wrong"} />
-        <Badge>{r.draft === "copilot" ? `copilot${r.turn_entrance && r.turn_entrance !== "copilot" ? ` (${r.turn_entrance})` : ""}` : `${r.draft} draft`}</Badge>
-        {r.incident && r.incident !== "-" && (
+        <Badge>{r.draft === "copilot" ? `copilot${r.turn_entrance && r.turn_entrance !== "copilot" ? ` (${r.turn_entrance})` : ""}` : r.draft === "report" ? "daily report" : `${r.draft} draft`}</Badge>
+        {r.draft === "report" && <a href={href("reports")} className="font-mono text-xs text-info hover:underline">{r.incident.replace("report:", "")}</a>}
+        {r.incident && r.incident !== "-" && r.draft !== "report" && (
           <a href={href("incidents", r.incident)} className="font-mono text-xs text-info hover:underline">{r.incident}</a>
         )}
         <span className="tabular font-mono text-xs text-ink-3">{utcDateTime(r.ts_iso)}</span>

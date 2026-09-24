@@ -105,6 +105,11 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim: {claimName: mission-control-data}
+        # Day 24: the game-day scenarios (gameday/*.yaml) — scripts/240-gameday.sh. Optional: the
+        # console starts without them and says "none loaded". A mount, not a kubectl read, so the
+        # ServiceAccount's ConfigMap access stays exactly `kb` (CORRECTIONS-DAY24 D3).
+        - name: gameday
+          configMap: {name: gameday, optional: true}
       containers:
         - name: mission-control
           image: mission-control:0.1
@@ -133,6 +138,7 @@ spec:
             - {name: COPILOT_MODEL, value: claude-opus-5-5}
           volumeMounts:
             - {name: data, mountPath: /data}
+            - {name: gameday, mountPath: /gameday, readOnly: true}
           readinessProbe:
             httpGet: {path: /readyz, port: 8040}
             periodSeconds: 10

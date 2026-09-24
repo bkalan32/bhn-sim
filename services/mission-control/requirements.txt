@@ -5,3 +5,4 @@ sse-starlette
 aiosqlite
 prometheus-client
 mcp>=2.2,<3
+pyyaml
