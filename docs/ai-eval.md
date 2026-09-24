@@ -604,3 +604,22 @@ hallucination with its cause is what "evaluating AI systems" looks like in pract
 | Draft | Model | Verdict | Note |
 |---|---|---|---|
 | resolved | claude-sonnet-4-5 (24.5 s) | **pass, one factual error** | Every claim traces to the record; "Follow-up actions: Not yet known" instead of inventing. **Error:** "fix within 35 minutes" — the fix was ~16:58Z (3 min after open); the model read the NOTE's timestamp (17:30Z) as the fix time. Also 8 restarts (alert) vs 7 (note) left unreconciled. **Cause is the record, not the model:** the note said what was fixed, not when. Habit: notes carry the event time ("fixed at 16:58Z"). Day 22: the note box gets an optional "happened at" field. |
+
+## Eval 12 — the first drill on the incident page: two hypotheses with the logs missing, INC-0023 (Day 22, 23 Sep 2026)
+
+The context carried a false negative the model could not know about: the logs collector
+succeeded and returned **no error events** while activation failed ~7 requests/s (Fluent Bit had
+been sending to a dead address since the power cut — CORRECTIONS-REBUILD B10/B11). A good
+diagnostician should notice the contradiction, say so, and not invent the missing evidence.
+
+| Draft | Model | Verdict | Note |
+|---|---|---|---|
+| hypothesis, activation `INC-1790202492-db22` | claude-sonnet-4-5 | **pass** — graded 👍 in the UI (22:34:33Z) | kb-001, **medium**. Named the contradiction ("contradicts kb-001's expected fraud_service_timeout histogram") and kept the call on the agreeing evidence: p95 0.48 s = the fail-fast cap, no deploy in 6 h, burn 16.72×. Rejected kb-002 on the missing deploy. kb-001's `learned_from` quoted exactly (seven incidents). Numbers match the record (100 % in the alert's 2 m window vs 66.03 % in the 5 m snapshot — both stated, correctly attributed). **One wrong guess:** "may be a Splunk ingestion lag or query timing issue" — it was an ingestion *outage*; but it was offered as a hypothesis with a check (the manual Splunk search), not asserted. **One lab-ism:** next check 3 reads `FRAUD_SVC_DOWN` — valid here because kb-001's fix names the knob; meaningless in production, where the check is the provider's status. |
+| hypothesis, egift `INC-1790202504-51ea` | claude-sonnet-4-5 | **pass** | The cascade, by the right discriminator: activate-step p95 0.49 s carries the whole order latency; kb-003 (email partner) rejected because its signature is send_email latency with activate unchanged. Quoted the alert runbook's "look at activation first". Flagged the same missing logs independently. This is the Day 14/19 trap, avoided by the AI instead of by the human. |
+| resolution drafts (both) | claude-sonnet-4-5 | graded in the UI (`/api/eval`) | Written at the artificial 02:16Z resolve (the platform restarted; INC-0023 *Durations*). Check each for `duration_min` 227.9 presented as the outage length — the Eval 11 lesson again: the record's clock, not the model, is wrong. |
+
+**What the eval says about the design:** the confidence field earned its place. A missing source
+turned "high" into "medium" with a stated reason, and the responder's first note repeated the
+model's concern — the note and the hypothesis agreed because both read the same gap. The
+platform's failure (no alert for a dead log pipeline) was surfaced by the AI's honesty about its
+input, which is the argument for making every collector's *emptiness* visible, not just its errors.
