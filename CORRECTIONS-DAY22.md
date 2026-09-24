@@ -176,3 +176,11 @@ contradiction, said so, and lowered their confidence to medium instead of invent
 — the Day 10 rule working as designed. The cause was two restarts' worth of drift
 (CORRECTIONS-REBUILD B10, B11). What did not work: nothing paged. A log pipeline down for five
 hours is an incident; Day 24 adds the alert.
+
+### [NOTE] N7 — The checkpoint counted history, not the range
+
+`228` first failed with "sparklines: 41 points (want ~61)". The overview asks Prometheus for one
+hour at one point a minute; Prometheus answers with the points it *has*, and after the restart it
+had 41 minutes of unbroken `activation:health_score`. The check was testing the lab's uptime,
+not the code. It now tests what Day 22 changed — more than 31 points, which a 30-minute range
+cannot return — and the tile fills back to 61 on its own.

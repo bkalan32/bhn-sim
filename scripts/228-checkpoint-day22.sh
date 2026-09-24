@@ -27,7 +27,10 @@ ASSET=$(curl -s -m 5 "$B/" | grep -o '/assets/[^"]*\.js' | head -1 || true)
 step "Overview — live scores, a live feed, embedded Grafana"
 OV=$(mc "$B/api/overview" || true)
 N=$(echo "$OV" | jq_py 'print(len(d["sparklines"]["data"].get("activation", [])))' || echo 0)
-(( N >= 55 )) && t_ok "1-hour sparklines ($N points a series)" || t_fail "sparklines: $N points (want ~61: one hour, a point a minute)"
+# The range, not the point count, is what Day 22 changed: a 30-minute query can return at most 31
+# points, so > 31 proves the hour. The count itself is only as long as Prometheus's unbroken
+# history — after a restart it grows back one point a minute (CORRECTIONS-DAY22 N7).
+(( N > 31 )) && t_ok "1-hour sparklines ($N points; 61 once Prometheus has an unbroken hour)" || t_fail "sparklines: $N points — the overview still asks for 30 minutes (want a 1 h range)"
 EV=$(curl -s -N -m 20 "$B/api/events?access_token=$(cat "$TOKF")" 2>/dev/null || true)
 echo "$EV" | grep -q '^event: hello' && echo "$EV" | grep -q '^event: health' && t_ok "the feed streams (hello + a health push within 20 s) — updates without reload" \
   || t_fail "no health event on /api/events within 20 s"
