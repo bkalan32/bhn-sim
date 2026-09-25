@@ -61,6 +61,9 @@ export function Incidents() {
                   </td>
                   <td className="py-2 pr-3">
                     <Status tone={i.status === "open" ? "warning" : "good"} label={i.status} />
+                    {i.closed_by_human && (
+                      <Badge className="ml-1" tone="neutral" title={`${i.closed_by_human.by}: ${i.closed_by_human.reason}`}>closed by hand</Badge>
+                    )}
                   </td>
                   <td className="py-2 pr-3">
                     <Badge tone={severityTone(i.severity)}>{i.severity}</Badge>

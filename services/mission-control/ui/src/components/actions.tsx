@@ -7,6 +7,7 @@ import type { Entrance } from "../lib/api";
 import { useRunAction } from "../lib/queries";
 import type { Action } from "../lib/types";
 import { Button, TierBadge } from "./ui";
+import { reasonCheck } from "../lib/reason";
 
 export function ActionButton({ action, fixed = {}, label }: { action: Action; fixed?: Record<string, unknown>; label?: string }) {
   const run = useRunAction("button");
@@ -40,8 +41,16 @@ export function ConfirmCard({ action, fixed = {}, onClose, entrance = "button", 
   const [reason, setReason] = useState(reasonDefault);
   const all = { ...fixed, ...values };
   const tier2 = action.tier === 2;
-  const ready = free.every((p) => (values[p] ?? "").trim() !== "") && (!tier2 || reason.trim().length >= 3);
-  const submit = () => run.mutate({ id: action.id, params: all, reason }, { onSuccess: onClose });
+  // An action whose own parameter is the reason (close_incident's "why") gets ONE box, not two:
+  // a second, optional "Reason" beside it read as the place to write it (CORRECTIONS-DAY24 B5).
+  const whyParam = free.includes("why");
+  const why = reasonCheck(values.why ?? "");
+  const ready =
+    free.every((p) => (values[p] ?? "").trim() !== "") &&
+    (!whyParam || why.ok) &&
+    (whyParam || !tier2 || reason.trim().length >= 3);
+  const submit = () =>
+    run.mutate({ id: action.id, params: all, reason: whyParam ? (values.why ?? "").trim() : reason }, { onSuccess: onClose });
 
   return (
     <form
@@ -66,16 +75,17 @@ export function ConfirmCard({ action, fixed = {}, onClose, entrance = "button", 
       </dl>
       {free.map((p, i) => (
         <label key={p} className="mt-2 block text-xs text-ink-3">
-          {p}
+          {p === "why" ? <>Why — goes in the ticket and the audit row <span className={why.ok ? "" : "text-warning"}>({why.hint})</span></> : p}
           <input
             autoFocus={autoFocus && i === 0}
             className="mt-1 block w-full rounded border border-line bg-surface px-2 py-1 font-mono text-sm text-ink"
             value={values[p] ?? ""}
+            placeholder={p === "why" ? "e.g. opened during the reboot, resolved webhook lost, no fault" : undefined}
             onChange={(e) => setValues((v) => ({ ...v, [p]: e.target.value }))}
           />
         </label>
       ))}
-      <label className="mt-2 block text-xs text-ink-3">
+      {!whyParam && <label className="mt-2 block text-xs text-ink-3">
         Reason (goes in the audit row){tier2 ? "" : " — optional"}
         <input
           autoFocus={autoFocus && free.length === 0}
@@ -84,7 +94,7 @@ export function ConfirmCard({ action, fixed = {}, onClose, entrance = "button", 
           placeholder="why, in one line"
           onChange={(e) => setReason(e.target.value)}
         />
-      </label>
+      </label>}
       <div className="mt-3 flex gap-2">
         <Button type="submit" variant="primary" size="sm" disabled={!ready || run.isPending}>
           {run.isPending ? (tier2 ? "Requesting…" : "Running…") : tier2 ? "Request — needs approval" : "Run"}

@@ -88,9 +88,9 @@ export function Status({ tone, label, className }: { tone: Tone; label: string; 
   );
 }
 
-export function Badge({ children, tone = "neutral", className }: { children: ReactNode; tone?: Tone; className?: string }) {
+export function Badge({ children, tone = "neutral", className, title }: { children: ReactNode; tone?: Tone; className?: string; title?: string }) {
   return (
-    <span className={cx("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-ink-2", TONE_BORDER[tone], className)}>
+    <span title={title} className={cx("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-ink-2", TONE_BORDER[tone], className)}>
       {tone !== "neutral" && <span aria-hidden className={cx("h-1.5 w-1.5 rounded-full", TONE_BG[tone])} />}
       {children}
     </span>

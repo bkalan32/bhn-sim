@@ -16,6 +16,7 @@ import { ActionButton } from "../components/actions";
 import { useToast } from "../components/toast";
 import { Markdown } from "../components/markdown";
 import { Badge, Button, Card, CopyButton, ExtLink, Skeleton, Status, TierBadge, Unavailable, cx } from "../components/ui";
+import { reasonCheck } from "../lib/reason";
 
 export function Incident({ id }: { id: string }) {
   const { data: inc, isLoading, error } = useIncident(id);
@@ -54,6 +55,9 @@ function Header({ inc }: { inc: Inc }) {
         <a href={href("incidents")} className="text-sm text-ink-3 hover:text-ink">← Incidents</a>
         <h1 className="font-mono text-xl font-semibold">{inc.id}</h1>
         <Status tone={inc.status === "open" ? "warning" : "good"} label={inc.status} />
+        {inc.closed_by_human && (
+          <Badge tone="neutral" title={`${inc.closed_by_human.by} · ${inc.closed_by_human.reason}`}>closed by hand — kept out of MTTR</Badge>
+        )}
         <Badge tone={severityTone(inc.severity)}>{inc.severity}</Badge>
         <Badge>{inc.service ?? "?"}</Badge>
         <a href={href("copilot", inc.id)} className="ml-auto rounded-md border border-info px-2.5 py-1 text-xs text-ink hover:bg-surface-3">
@@ -540,9 +544,10 @@ function KBFeeding({ inc }: { inc: Inc }) {
         </label>
         <input className="w-full rounded border border-line bg-surface px-2 py-1 text-xs" value={reason} disabled={decision !== "not_needed"}
           placeholder="e.g. a drill of kb-001 — the entry matched, nothing new learned" onChange={(e) => setReason(e.target.value)} />
-        <Button size="sm" variant="primary" disabled={busy || (decision === "updated" ? !kbId : reason.trim().length < 10)} onClick={() => void save()}>
+        <Button size="sm" variant="primary" disabled={busy || (decision === "updated" ? !kbId : !reasonCheck(reason).ok)} onClick={() => void save()}>
           {cur ? "Change" : "Record"}
         </Button>
+        {decision === "not_needed" && !reasonCheck(reason).ok && <span className="ml-2 text-[11px] text-warning">{reasonCheck(reason).hint}</span>}
       </div>
       <p className="mt-2 text-[11px] text-ink-3">An unchecked resolved incident shows on the Overview as "needs a human".</p>
     </Card>

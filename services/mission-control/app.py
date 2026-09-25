@@ -979,8 +979,10 @@ async def kb_feeding(iid: str, request: Request, c: Caller = Depends(writer)):
             raise HTTPException(422, "kb_id: the entry you updated or added (kb-NNN)")
         reason = None
     elif decision == "not_needed":
-        if not reason or len(reason) < 10:
-            raise HTTPException(422, "reason: why no KB change is needed (10+ characters) — 'because' is the rule")
+        try:
+            reason = actions.prose_reason(reason, "reason")
+        except actions.ParamError as e:
+            raise HTTPException(422, f"{e} — why no KB change is needed ('because' is the rule)")
         kb_id = None
     else:
         raise HTTPException(422, "decision: updated or not_needed")

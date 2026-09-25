@@ -282,6 +282,7 @@ def test_kb_cards_have_lists_even_where_yaml_would_choke(client, cluster, monkey
 def test_the_feeding_rule_needs_an_entry_or_a_reason(client):
     assert client.post("/api/incidents/INC-1-a/kb-feeding", headers=K, json={"decision": "updated"}).status_code == 422
     assert client.post("/api/incidents/INC-1-a/kb-feeding", headers=K, json={"decision": "not_needed", "reason": "meh"}).status_code == 422
+    assert client.post("/api/incidents/INC-1-a/kb-feeding", headers=K, json={"decision": "not_needed", "reason": "ghttrrtrtghttrrtrt"}).status_code == 422
     ok = client.post("/api/incidents/INC-1-a/kb-feeding", headers=K, json={"decision": "not_needed", "reason": "stale reboot ticket, no fault"}).json()
     assert ok["decision"] == "not_needed"
     assert client.get("/api/kb-feeding", headers=AUTH).json()["INC-1-a"]["reason"].startswith("stale")
@@ -333,6 +334,18 @@ def test_closing_is_refused_while_its_alert_fires(monkeypatch):
     assert ok
     with pytest.raises(actions.ParamError):
         actions.validate("close_incident", {"incident": "INC-3-c", "why": "stale"})
+
+
+@pytest.mark.parametrize("why", ["stale", "ghttrrtrt", "ljkbhjkfbhksdjfsfsesdfsdgfsgsf", "asdfasdfasdfasdfasdfasdfasdf sd fg", "x" * 301])
+def test_a_close_reason_must_be_readable(why):
+    # B7: the lab's audit log got 'ghttrrtrt' four times and a keyboard-mash once — length alone is not a reason
+    with pytest.raises(actions.ParamError):
+        actions.validate("close_incident", {"incident": "INC-3-c", "why": why})
+
+
+def test_a_real_close_reason_passes():
+    p = actions.validate("close_incident", {"incident": "INC-3-c", "why": " opened during the reboot, resolved webhook lost, no fault "})
+    assert p["why"] == "opened during the reboot, resolved webhook lost, no fault"
 
 
 # ------------------------------------------------------------------ reports --

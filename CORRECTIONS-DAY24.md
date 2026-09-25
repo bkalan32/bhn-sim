@@ -141,6 +141,31 @@ The unfed list asked the bot for incidents *opened* since the rule started — s
 ago and closed today never qualified. **Fix:** incidents *resolved* since the rule started (the
 query reaches a week back on open time). Found in the browser render.
 
+### [BUG] B5 — Close as stale asked for the reason twice (found on the lab)
+
+The confirmation card showed the action's own `why` field **and** the generic "Reason (goes in the
+audit row) — optional" box under it. The longer box read as the place to write the reason; `why` got
+a word or two and the server refused it: `422: why: 10-300 characters`. **Fix:** an action whose
+parameter *is* the reason gets one box — "Why — goes in the ticket and the audit row (n/10–300)" —
+with a counter and Run disabled until it is long enough; its text is also the audit row's reason.
+
+### [BUG] B6 — A ticket closed by hand looked like any other resolved one (found on the lab)
+
+After INC-1790279785-a512 was closed as stale, the Incidents list showed it as `resolved · 1h 17m`,
+the same as a real recovery: its 77 minutes read as an outage. Only the KPI table said "closed by
+hand". **Fix:** a *closed by hand* badge (hover: who and why) in the list and on the incident page,
+which also says it is kept out of MTTR.
+
+### [BUG] B7 — "10 characters" let a keyboard-mash into the append-only log (found on the lab)
+
+The audit log for the first real use: `why=ghttrrtrt` four times (9 characters — refused by one), then
+`why=ljkbhjkfbhksdjfsfsesdfsdgfsgsf` on a live incident (refused only because its alert still fired).
+Had that incident been quiet, the ticket would be closed for ever with a reason nobody can read — the
+log is append-only. A length is not a reason. **Fix:** `actions.prose_reason` — 10–300 characters
+**and** three or more words, no 25-letter "word" — for `close_incident`'s `why` and the KB "not needed
+because"; the UI shows the same rule as a hint (`lib/reason.ts`) so a disabled button says why. It
+will not stop a determined typist; it stops the reflex. Tests: the lab's own strings.
+
 ---
 
 ### [NOTE] N1 — The KB front matter is not YAML

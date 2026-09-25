@@ -90,3 +90,19 @@ Reset all used, scenario-1 run sealed and revealed with both steps fired, its sk
 and its Grafana markers written (never with a service tag), the KPI page measuring MTTD from the
 run, reports generated and graded, the KB rendering with the feeding checkbox used, no stale open
 incidents, INC-0024/0025 and the gap list committed, plan clean.
+
+## Where it stopped (25 Sep 2026) — the lab was destroyed before step 10
+
+Done on the lab: steps 1–9 — both images shipped by Jenkins (`mission-control:70`, `incident-bot:69`),
+the scenarios loaded and the Grafana writer minted; a knob changed from the console (tier 2, approved)
+and **Reset all**; the reboot ticket INC-1790279785-a512 closed as stale with a reason and its KB
+decision recorded; a report generated on demand and graded; a KB check run in the copilot. Three
+bugs found by using it — fixed and tested (84 Mission Control tests), not deployed: B5–B7 in
+`CORRECTIONS-DAY24.md` (the reason asked for twice; a hand-closed ticket that looked like an outage;
+a keyboard-mash that a length check let into the append-only log).
+
+Not done: step 10 (scenario-1 sealed, from the console), 11 (INC-0024/0025, the gap list) and 12
+(`248`). Before teardown `./scripts/249-export-record.sh` wrote Mission Control's tables and the
+bot's incidents and reports to `records/2026-09-25/`; `./scripts/99-teardown.sh` (rewritten: the
+cluster, Splunk, Jenkins, their data, the local Terraform state and credentials) destroyed the rest.
+To finish Day 24 later: rebuild from the repo, then steps 3–12 here.

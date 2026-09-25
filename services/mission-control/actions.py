@@ -167,11 +167,21 @@ def _v_run_scenario(p):
     return {"scenario": sid}
 
 
+def prose_reason(text, field, lo=10, hi=300):
+    """A reason a person can read later: lo-hi characters AND three or more words. The length
+    alone let 'ghttrrtrt' and a keyboard-mash through to the audit log (CORRECTIONS-DAY24 B7) —
+    the log is append-only, so an unreadable reason stays unreadable for ever."""
+    t = text.strip() if isinstance(text, str) else ""
+    words = [w for w in re.findall(r"[A-Za-z0-9'-]+", t) if re.search(r"[A-Za-z]{2}", w)]
+    if not (lo <= len(t) <= hi) or len(words) < 3 or max(map(len, words)) > 25:
+        raise ParamError(f"{field}: {lo}-{hi} characters, three or more words — say what happened, "
+                         "it goes in the ticket and the append-only audit log")
+    return t
+
+
 def _v_close(p):
-    why = p.get("why")
-    if not isinstance(why, str) or len(why.strip()) < 10 or len(why) > 300:
-        raise ParamError("why: 10-300 characters — a closed incident without a reason is a deleted one")
-    return {"incident": _str(p.get("incident"), "incident", r"^[A-Za-z0-9_.-]{1,80}$"), "why": why.strip()}
+    return {"incident": _str(p.get("incident"), "incident", r"^[A-Za-z0-9_.-]{1,80}$"),
+            "why": prose_reason(p.get("why"), "why")}
 
 
 def _v_fault(p):
