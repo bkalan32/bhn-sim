@@ -1,0 +1,16 @@
+[
+ {
+  "id": "run-20260924T213021Z",
+  "scenario": "scenario-1",
+  "title": "Game day 1 \u2014 the friday afternoon special",
+  "started_at": 1790285421.0510242,
+  "operator": "bkalan32",
+  "requested_by": null,
+  "token": "run_scenario-G9q31WpQniA",
+  "status": "done",
+  "steps": "[{\"n\": 1, \"at_seconds\": 0, \"jitter_seconds\": 0, \"action\": \"set_fault\", \"params\": {\"target\": \"egift\", \"knob\": \"EMAIL_FAIL_RATE\", \"value\": \"0.35\"}, \"note\": \"Loud: a partner's email delivery degrades \\u2014 35% of eGift orders fail at send_email. Activation is fine, no deploy happened. The trap is to look at activation, because that is where every earlier egift incident came from. kb-003: escalate to the partner.\", \"due_at\": 1790285421.0510242, \"state\": \"fired\", \"start_annotation\": 18, \"fired_at\": 1790285421.2079887, \"late_s\": 0.2, \"ok\": true, \"detail\": \"deployment.apps/egift env updated\", \"annotation\": 19}, {\"n\": 2, \"at_seconds\": 180, \"jitter_seconds\": 0, \"action\": \"set_fault\", \"params\": {\"target\": \"settlement\", \"knob\": \"SETTLEMENT_FAIL_MODE\", \"value\": \"silent\"}, \"note\": \"Quiet and unrelated: settlement reconciles zero records. Since Day 8 the job self-checks and exits 2 \\u2192 SettlementJobFailed \\u2192 the remediator re-runs it \\u2192 it fails again \\u2192 \\\"human required\\\"; SettlementStale follows at 15 min. Nothing about it is in the egift ticket. The trap is anchoring on fault 1 and never noticing the second row on the overview.\", \"due_at\": 1790285601.0510242, \"state\": \"fired\", \"fired_at\": 1790285601.0662446, \"late_s\": 0.0, \"ok\": true, \"detail\": \"cronjob.batch/settlement env updated\", \"annotation\": 20}]",
+  "revealed_at": null,
+  "ended_at": 1790285601.214386,
+  "reset_at": null
+ }
+]

@@ -1,0 +1,11 @@
+[
+ {
+  "incident": "INC-1790279785-a512",
+  "ts": 1790284560.9833653,
+  "ts_iso": "2026-09-24T21:16:00Z",
+  "operator": "bkalan32",
+  "decision": "not_needed",
+  "kb_id": null,
+  "reason": "stale ticket from a reboot, no fault"
+ }
+]

@@ -1,0 +1,1335 @@
+[
+ {
+  "id": 1,
+  "ts": 1790283518.480717,
+  "kind": "deploy",
+  "data": {
+   "kind": "deploy",
+   "time_ms": 1790283514699,
+   "service": "mission-control",
+   "text": "build 70: routine release"
+  }
+ },
+ {
+  "id": 2,
+  "ts": 1790284120.3833668,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284120.378104,
+   "ts_iso": "2026-09-24T21:08:40Z",
+   "operator": "bkalan32",
+   "action": "set_fault",
+   "params": {
+    "target": "loadgen-egift",
+    "knob": "RATE_MULTIPLIER",
+    "value": "2"
+   },
+   "tier": 2,
+   "approval_token": "set_fault-aH6Kl-3hqiE",
+   "entrance": "button",
+   "result": "pending",
+   "detail": "dfdfgh",
+   "id": 130
+  }
+ },
+ {
+  "id": 3,
+  "ts": 1790284120.3835416,
+  "kind": "approval",
+  "data": {
+   "event": "created",
+   "token": "set_fault-aH6Kl-3hqiE",
+   "action": "set_fault",
+   "params": {
+    "target": "loadgen-egift",
+    "knob": "RATE_MULTIPLIER",
+    "value": "2"
+   },
+   "reason": "dfdfgh",
+   "tier": 2,
+   "entrance": "button",
+   "operator": "bkalan32",
+   "created_at_iso": "2026-09-24T21:08:40Z",
+   "expires_at_iso": "2026-09-24T21:38:40Z",
+   "source": "mission-control",
+   "blast_radius": "the target restarts with the new value; a fault is a production change",
+   "rationale": "Game days (Day 24): breaking on purpose has the same ceremony as fixing."
+  }
+ },
+ {
+  "id": 4,
+  "ts": 1790284129.4236693,
+  "kind": "approval",
+  "data": {
+   "event": "approved",
+   "by": "bkalan32",
+   "token": "set_fault-aH6Kl-3hqiE",
+   "action": "set_fault",
+   "params": {
+    "knob": "RATE_MULTIPLIER",
+    "target": "loadgen-egift",
+    "value": "2"
+   },
+   "reason": "dfdfgh",
+   "tier": 2,
+   "entrance": "button",
+   "operator": "bkalan32",
+   "created_at_iso": "2026-09-24T21:08:40Z",
+   "expires_at_iso": "2026-09-24T21:38:40Z",
+   "source": "mission-control"
+  }
+ },
+ {
+  "id": 5,
+  "ts": 1790284129.5112536,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284129.5057068,
+   "ts_iso": "2026-09-24T21:08:49Z",
+   "operator": "bkalan32",
+   "action": "set_fault",
+   "params": {
+    "knob": "RATE_MULTIPLIER",
+    "target": "loadgen-egift",
+    "value": "2"
+   },
+   "tier": 2,
+   "approval_token": "set_fault-aH6Kl-3hqiE",
+   "entrance": "button",
+   "result": "ok",
+   "detail": "deployment.apps/loadgen env updated",
+   "id": 131
+  }
+ },
+ {
+  "id": 6,
+  "ts": 1790284151.6476445,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284151.6375763,
+   "ts_iso": "2026-09-24T21:09:11Z",
+   "operator": "bkalan32",
+   "action": "reset_faults",
+   "params": {},
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "ok",
+   "detail": "reset: loadgen-egift RATE_MULTIPLIER 2\u21921",
+   "id": 132
+  }
+ },
+ {
+  "id": 7,
+  "ts": 1790284206.1616883,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284206.1533642,
+   "ts_iso": "2026-09-24T21:10:06Z",
+   "operator": "bkalan32",
+   "action": "close_incident",
+   "params": {
+    "incident": "INC-1790279785-a512",
+    "why": "ghttrrtrt"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "rejected",
+   "detail": "why: 10-300 characters \u2014 a closed incident without a reason is a deleted one",
+   "id": 133
+  }
+ },
+ {
+  "id": 8,
+  "ts": 1790284214.726018,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284214.717553,
+   "ts_iso": "2026-09-24T21:10:14Z",
+   "operator": "bkalan32",
+   "action": "close_incident",
+   "params": {
+    "incident": "INC-1790279785-a512",
+    "why": "ghttrrtrt"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "rejected",
+   "detail": "why: 10-300 characters \u2014 a closed incident without a reason is a deleted one",
+   "id": 134
+  }
+ },
+ {
+  "id": 9,
+  "ts": 1790284216.082777,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284216.0750642,
+   "ts_iso": "2026-09-24T21:10:16Z",
+   "operator": "bkalan32",
+   "action": "close_incident",
+   "params": {
+    "incident": "INC-1790279785-a512",
+    "why": "ghttrrtrt"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "rejected",
+   "detail": "why: 10-300 characters \u2014 a closed incident without a reason is a deleted one",
+   "id": 135
+  }
+ },
+ {
+  "id": 10,
+  "ts": 1790284317.471789,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284317.4676495,
+   "ts_iso": "2026-09-24T21:11:57Z",
+   "operator": "bkalan32",
+   "action": "close_incident",
+   "params": {
+    "incident": "INC-1790279785-a512",
+    "why": "ghttrrtrt"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "rejected",
+   "detail": "why: 10-300 characters \u2014 a closed incident without a reason is a deleted one",
+   "id": 136
+  }
+ },
+ {
+  "id": 11,
+  "ts": 1790284421.744821,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284421.7414494,
+   "ts_iso": "2026-09-24T21:13:41Z",
+   "operator": "bkalan32",
+   "action": "close_incident",
+   "params": {
+    "incident": "INC-1790279785-a512",
+    "why": "opened during the reboot, resolved webhook lost, no fault"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "ok",
+   "detail": "{\"ok\":true,\"incident\":\"INC-1790279785-a512\",\"status\":\"resolved\",\"closed_by_human\":{\"by\":\"bkalan32\",\"reason\":\"opened during the reboot, resolved webhook lost, no fault\",\"at_iso\":\"2026-09-24T21:13:41Z\"}}",
+   "id": 137
+  }
+ },
+ {
+  "id": 12,
+  "ts": 1790284430.7643223,
+  "kind": "incident",
+  "data": {
+   "event": "resolved",
+   "id": "INC-1790279785-a512",
+   "status": "resolved",
+   "service": "activation",
+   "severity": "warning",
+   "alerts": [
+    "ActivationLatencyBudgetBurn"
+   ],
+   "resolved_at_iso": "2026-09-24T21:13:41Z",
+   "duration_min": 77.3
+  }
+ },
+ {
+  "id": 13,
+  "ts": 1790284486.3589892,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284486.3554783,
+   "ts_iso": "2026-09-24T21:14:46Z",
+   "operator": "bkalan32",
+   "action": "kb_feeding",
+   "params": {
+    "incident": "INC-1790279785-a512",
+    "decision": "not_needed",
+    "kb_id": null
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "ok",
+   "detail": "stale ticket from a reboot, no fault",
+   "id": 138
+  }
+ },
+ {
+  "id": 14,
+  "ts": 1790284560.9901917,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284560.9869876,
+   "ts_iso": "2026-09-24T21:16:00Z",
+   "operator": "bkalan32",
+   "action": "kb_feeding",
+   "params": {
+    "incident": "INC-1790279785-a512",
+    "decision": "not_needed",
+    "kb_id": null
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "ok",
+   "detail": "stale ticket from a reboot, no fault",
+   "id": 139
+  }
+ },
+ {
+  "id": 15,
+  "ts": 1790284576.1392925,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284576.1357687,
+   "ts_iso": "2026-09-24T21:16:16Z",
+   "operator": "bkalan32",
+   "action": "generate_report",
+   "params": {},
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "ok",
+   "detail": "queued daily-ops-report: http://172.19.255.11:8080/queue/item/36/",
+   "id": 140
+  }
+ },
+ {
+  "id": 16,
+  "ts": 1790284655.9816413,
+  "kind": "report",
+  "data": {
+   "event": "arrived",
+   "day": "2026-09-24",
+   "words": 202,
+   "stored_at_iso": "2026-09-24T21:17:30Z",
+   "model": "claude-sonnet-4-5-20250929"
+  }
+ },
+ {
+  "id": 17,
+  "ts": 1790284774.0134084,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284774.0042584,
+   "ts_iso": "2026-09-24T21:19:34Z",
+   "operator": "bkalan32",
+   "action": "tool:get_incident",
+   "params": {
+    "incident_id": "INC-1790283153-51c9"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "{\"id\": \"INC-1790283153-51c9\", \"status\": \"open\", \"service\": \"platform\", \"join_key\": \"platform\", \"severity\": \"warning\", \"opened_at\": 1790283153.1964312, \"opened_a",
+   "id": 141
+  }
+ },
+ {
+  "id": 18,
+  "ts": 1790284774.4086783,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284774.4000072,
+   "ts_iso": "2026-09-24T21:19:34Z",
+   "operator": "bkalan32",
+   "action": "tool:firing_alerts",
+   "params": {},
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "6 alert(s) in 5 group(s): KubeJobFailed\u00d72, PlatformPodRestarting, KubeAPIErrorBudgetBurn, CPUThrottlingHigh",
+   "id": 142
+  }
+ },
+ {
+  "id": 19,
+  "ts": 1790284777.9740489,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284777.9656022,
+   "ts_iso": "2026-09-24T21:19:37Z",
+   "operator": "bkalan32",
+   "action": "tool:kubectl_get",
+   "params": {
+    "args": "describe pod prometheus-kps-kube-prometheus-stack-prometheus-0 -n monitoring"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "exit 0, 6000 chars",
+   "id": 143
+  }
+ },
+ {
+  "id": 20,
+  "ts": 1790284778.2408397,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284778.2318535,
+   "ts_iso": "2026-09-24T21:19:38Z",
+   "operator": "bkalan32",
+   "action": "tool:kubectl_get",
+   "params": {
+    "args": "logs prometheus-kps-kube-prometheus-stack-prometheus-0 -n monitoring -c prometheus --previous --tail=30"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "exit 0, 6000 chars",
+   "id": 144
+  }
+ },
+ {
+  "id": 21,
+  "ts": 1790284778.2508051,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284778.244639,
+   "ts_iso": "2026-09-24T21:19:38Z",
+   "operator": "bkalan32",
+   "action": "tool:query_prometheus",
+   "params": {
+    "query": "ALERTS{alertname=\"KubeJobFailed\"}"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "2 series: 1.0, 1.0",
+   "id": 145
+  }
+ },
+ {
+  "id": 22,
+  "ts": 1790284778.3211808,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284778.3155787,
+   "ts_iso": "2026-09-24T21:19:38Z",
+   "operator": "bkalan32",
+   "action": "tool:kubectl_get",
+   "params": {
+    "args": "get jobs -n payments"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "exit 0, 376 chars",
+   "id": 146
+  }
+ },
+ {
+  "id": 23,
+  "ts": 1790284783.0422797,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284783.0342126,
+   "ts_iso": "2026-09-24T21:19:43Z",
+   "operator": "bkalan32",
+   "action": "tool:search_kb",
+   "params": {
+    "symptoms": "PlatformPodRestarting prometheus restarting liveness probe failed context deadline exceeded exit code 255 SandboxChanged monitoring; KubeJobFailed old settlement jobs failed"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "kb-004 (6.5)",
+   "id": 147
+  }
+ },
+ {
+  "id": 24,
+  "ts": 1790284783.0556605,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284783.0452812,
+   "ts_iso": "2026-09-24T21:19:43Z",
+   "operator": "bkalan32",
+   "action": "tool:query_prometheus",
+   "params": {
+    "query": "settlement_last_run_status"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "1 series: 1.0",
+   "id": 148
+  }
+ },
+ {
+  "id": 25,
+  "ts": 1790284835.7364495,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284835.73109,
+   "ts_iso": "2026-09-24T21:20:35Z",
+   "operator": "bkalan32",
+   "action": "rate_answer",
+   "params": {
+    "turn_id": 32,
+    "verdict": "down"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "ok",
+   "detail": "",
+   "id": 149
+  }
+ },
+ {
+  "id": 26,
+  "ts": 1790284919.334738,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284919.3296223,
+   "ts_iso": "2026-09-24T21:21:59Z",
+   "operator": "bkalan32",
+   "action": "rate_report",
+   "params": {
+    "report": "2026-09-24",
+    "verdict": "up"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "ok",
+   "detail": "",
+   "id": 150
+  }
+ },
+ {
+  "id": 27,
+  "ts": 1790284960.0115497,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284960.0022824,
+   "ts_iso": "2026-09-24T21:22:40Z",
+   "operator": "bkalan32",
+   "action": "tool:recent_deploys",
+   "params": {
+    "service": "activation"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "{\"service\": \"activation\", \"window_hours\": 6, \"source\": \"Grafana annotations written by the deploy pipeline\", \"changes\": [{\"note\": \"no deploys or rollbacks of ac",
+   "id": 151
+  }
+ },
+ {
+  "id": 28,
+  "ts": 1790284960.0967116,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284960.0913117,
+   "ts_iso": "2026-09-24T21:22:40Z",
+   "operator": "bkalan32",
+   "action": "tool:search_kb",
+   "params": {
+    "symptoms": "bad release new build raises activation error rate deploy"
+   },
+   "tier": 0,
+   "approval_token": null,
+   "entrance": "copilot",
+   "result": "ok",
+   "detail": "kb-002 (5.5), kb-001 (2.5)",
+   "id": 152
+  }
+ },
+ {
+  "id": 29,
+  "ts": 1790284971.6007724,
+  "kind": "audit",
+  "data": {
+   "ts": 1790284971.5926254,
+   "ts_iso": "2026-09-24T21:22:51Z",
+   "operator": "bkalan32",
+   "action": "close_incident",
+   "params": {
+    "incident": "INC-1790283153-51c9",
+    "why": "ljkbhjkfbhksdjfsfsesdfsdgfsgsf"
+   },
+   "tier": 1,
+   "approval_token": null,
+   "entrance": "button",
+   "result": "failed",
+   "detail": "refused: PlatformPodRestarting still firing \u2014 this incident is not stale",
+   "id": 153
+  }
+ },
+ {
+  "id": 30,
+  "ts": 1790285419.9777849,
+  "kind": "audit",
+  "data": {
+   "ts": 1790285419.9726138,
+   "ts_iso": "2026-09-24T21:30:19Z",
+   "operator": "bkalan32",
+   "action": "run_scenario",
+   "params": {
+    "scenario": "scenario-1"
+   },
+   "tier": 2,
+   "approval_token": "run_scenario-G9q31WpQniA",
+   "entrance": "button",
+   "result": "pending",
+   "detail": "game day: scenario-1",
+   "id": 154
+  }
+ },
+ {
+  "id": 31,
+  "ts": 1790285419.977979,
+  "kind": "approval",
+  "data": {
+   "event": "created",
+   "token": "run_scenario-G9q31WpQniA",
+   "action": "run_scenario",
+   "params": {
+    "scenario": "scenario-1"
+   },
+   "reason": "game day: scenario-1",
+   "tier": 2,
+   "entrance": "button",
+   "operator": "bkalan32",
+   "created_at_iso": "2026-09-24T21:30:19Z",
+   "expires_at_iso": "2026-09-24T22:00:19Z",
+   "source": "mission-control",
+   "blast_radius": "a schedule of fault knobs injected server-side, hidden until Retro; Reset all ends it",
+   "rationale": "Day 14's rule as a feature: write it, seal it, walk away. One approval for the whole run."
+  }
+ },
+ {
+  "id": 32,
+  "ts": 1790285421.0425432,
+  "kind": "approval",
+  "data": {
+   "event": "approved",
+   "by": "bkalan32",
+   "token": "run_scenario-G9q31WpQniA",
+   "action": "run_scenario",
+   "params": {
+    "scenario": "scenario-1"
+   },
+   "reason": "game day: scenario-1",
+   "tier": 2,
+   "entrance": "button",
+   "operator": "bkalan32",
+   "created_at_iso": "2026-09-24T21:30:19Z",
+   "expires_at_iso": "2026-09-24T22:00:19Z",
+   "source": "mission-control"
+  }
+ },
+ {
+  "id": 33,
+  "ts": 1790285421.1990583,
+  "kind": "gameday",
+  "data": {
+   "event": "started",
+   "run": "run-20260924T213021Z",
+   "scenario": "scenario-1",
+   "by": "bkalan32"
+  }
+ },
+ {
+  "id": 34,
+  "ts": 1790285421.2070374,
+  "kind": "audit",
+  "data": {
+   "ts": 1790285421.199107,
+   "ts_iso": "2026-09-24T21:30:21Z",
+   "operator": "bkalan32",
+   "action": "run_scenario",
+   "params": {
+    "scenario": "scenario-1"
+   },
+   "tier": 2,
+   "approval_token": "run_scenario-G9q31WpQniA",
+   "entrance": "button",
+   "result": "ok",
+   "detail": "run-20260924T213021Z started \u2014 scenario-1 is sealed until Retro",
+   "id": 155
+  }
+ },
+ {
+  "id": 35,
+  "ts": 1790285421.5015388,
+  "kind": "audit",
+  "data": {
+   "ts": 1790285421.4961593,
+   "ts_iso": "2026-09-24T21:30:21Z",
+   "operator": "bkalan32",
+   "action": "scenario_step",
+   "params": {
+    "run": "run-20260924T213021Z",
+    "step": 1
+   },
+   "tier": 2,
+   "approval_token": "run_scenario-G9q31WpQniA",
+   "entrance": "scenario",
+   "result": "ok",
+   "detail": "sealed until Retro",
+   "id": 156
+  }
+ },
+ {
+  "id": 36,
+  "ts": 1790285421.5016973,
+  "kind": "gameday",
+  "data": {
+   "event": "step",
+   "run": "run-20260924T213021Z",
+   "step": 1,
+   "ok": true,
+   "sealed": true
+  }
+ },
+ {
+  "id": 37,
+  "ts": 1790285601.2050798,
+  "kind": "audit",
+  "data": {
+   "ts": 1790285601.1998975,
+   "ts_iso": "2026-09-24T21:33:21Z",
+   "operator": "bkalan32",
+   "action": "scenario_step",
+   "params": {
+    "run": "run-20260924T213021Z",
+    "step": 2
+   },
+   "tier": 2,
+   "approval_token": "run_scenario-G9q31WpQniA",
+   "entrance": "scenario",
+   "result": "ok",
+   "detail": "sealed until Retro",
+   "id": 157
+  }
+ },
+ {
+  "id": 38,
+  "ts": 1790285601.2052543,
+  "kind": "gameday",
+  "data": {
+   "event": "step",
+   "run": "run-20260924T213021Z",
+   "step": 2,
+   "ok": true,
+   "sealed": true
+  }
+ },
+ {
+  "id": 39,
+  "ts": 1790285601.2197118,
+  "kind": "gameday",
+  "data": {
+   "event": "schedule_complete",
+   "run": "run-20260924T213021Z",
+   "sealed": true
+  }
+ },
+ {
+  "id": 40,
+  "ts": 1790285635.0150192,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "EgiftHighErrorRate",
+   "service": "egift",
+   "severity": "critical",
+   "summary": "eGift order error rate above 10%",
+   "startsAt": "2026-09-24T21:33:26.354Z",
+   "endsAt": null,
+   "fingerprint": "0113b219e06c46eb"
+  }
+ },
+ {
+  "id": 41,
+  "ts": 1790285647.476408,
+  "kind": "incident",
+  "data": {
+   "event": "opened",
+   "id": "INC-1790285635-a088",
+   "status": "open",
+   "service": "egift",
+   "severity": "critical",
+   "alerts": [
+    "EgiftHighErrorRate"
+   ],
+   "opened_at_iso": "2026-09-24T21:33:55Z",
+   "resolved_at_iso": null,
+   "duration_min": null,
+   "closed_by_human": null
+  }
+ },
+ {
+  "id": 42,
+  "ts": 1790285821.519292,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementZeroRecords",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "Settlement ran but reconciled zero records",
+   "startsAt": "2026-09-24T21:36:33.026Z",
+   "endsAt": null,
+   "fingerprint": "230807bea0cf96f4"
+  }
+ },
+ {
+  "id": 43,
+  "ts": 1790285827.8052454,
+  "kind": "incident",
+  "data": {
+   "event": "opened",
+   "id": "INC-1790285821-670c",
+   "status": "open",
+   "service": "settlement",
+   "severity": "critical",
+   "alerts": [
+    "SettlementZeroRecords"
+   ],
+   "opened_at_iso": "2026-09-24T21:37:01Z",
+   "resolved_at_iso": null,
+   "duration_min": null,
+   "closed_by_human": null
+  }
+ },
+ {
+  "id": 44,
+  "ts": 1790285941.607916,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838095)",
+   "startsAt": "2026-09-24T21:37:33.026Z",
+   "endsAt": null,
+   "fingerprint": "eb2c0f1850bfaba2"
+  }
+ },
+ {
+  "id": 45,
+  "ts": 1790285941.607934,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementZeroRecords",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "Settlement ran but reconciled zero records",
+   "startsAt": "2026-09-24T21:36:33.026Z",
+   "endsAt": null,
+   "fingerprint": "230807bea0cf96f4"
+  }
+ },
+ {
+  "id": 46,
+  "ts": 1790286181.7928047,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838095)",
+   "startsAt": "2026-09-24T21:37:33.026Z",
+   "endsAt": null,
+   "fingerprint": "eb2c0f1850bfaba2"
+  }
+ },
+ {
+  "id": 47,
+  "ts": 1790286181.7928185,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838100)",
+   "startsAt": "2026-09-24T21:42:03.026Z",
+   "endsAt": null,
+   "fingerprint": "a6ef18eeef1b9b31"
+  }
+ },
+ {
+  "id": 48,
+  "ts": 1790286181.7928202,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-remediator-1790285944)",
+   "startsAt": "2026-09-24T21:41:33.026Z",
+   "endsAt": null,
+   "fingerprint": "05e6694f2cf17460"
+  }
+ },
+ {
+  "id": 49,
+  "ts": 1790286181.7928212,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementZeroRecords",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "Settlement ran but reconciled zero records",
+   "startsAt": "2026-09-24T21:36:33.026Z",
+   "endsAt": null,
+   "fingerprint": "230807bea0cf96f4"
+  }
+ },
+ {
+  "id": 50,
+  "ts": 1790286301.9180343,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838095)",
+   "startsAt": "2026-09-24T21:37:33.026Z",
+   "endsAt": "2026-09-24T21:44:03.026Z",
+   "fingerprint": "eb2c0f1850bfaba2"
+  }
+ },
+ {
+  "id": 51,
+  "ts": 1790286301.9180465,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838100)",
+   "startsAt": "2026-09-24T21:42:03.026Z",
+   "endsAt": null,
+   "fingerprint": "a6ef18eeef1b9b31"
+  }
+ },
+ {
+  "id": 52,
+  "ts": 1790286301.918048,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-remediator-1790285944)",
+   "startsAt": "2026-09-24T21:41:33.026Z",
+   "endsAt": null,
+   "fingerprint": "05e6694f2cf17460"
+  }
+ },
+ {
+  "id": 53,
+  "ts": 1790286301.9180493,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementZeroRecords",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "Settlement ran but reconciled zero records",
+   "startsAt": "2026-09-24T21:36:33.026Z",
+   "endsAt": null,
+   "fingerprint": "230807bea0cf96f4"
+  }
+ },
+ {
+  "id": 54,
+  "ts": 1790286421.9460373,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838095)",
+   "startsAt": "2026-09-24T21:37:33.026Z",
+   "endsAt": "2026-09-24T21:44:03.026Z",
+   "fingerprint": "eb2c0f1850bfaba2"
+  }
+ },
+ {
+  "id": 55,
+  "ts": 1790286421.9460506,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838100)",
+   "startsAt": "2026-09-24T21:42:03.026Z",
+   "endsAt": null,
+   "fingerprint": "a6ef18eeef1b9b31"
+  }
+ },
+ {
+  "id": 56,
+  "ts": 1790286421.9460528,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-remediator-1790285944)",
+   "startsAt": "2026-09-24T21:41:33.026Z",
+   "endsAt": "2026-09-24T21:46:03.026Z",
+   "fingerprint": "05e6694f2cf17460"
+  }
+ },
+ {
+  "id": 57,
+  "ts": 1790286421.946054,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-remediator-1790286177)",
+   "startsAt": "2026-09-24T21:45:03.026Z",
+   "endsAt": null,
+   "fingerprint": "a91c1ba06c25e0bb"
+  }
+ },
+ {
+  "id": 58,
+  "ts": 1790286421.9460552,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementStale",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "No successful settlement in 15 minutes (expected every 5)",
+   "startsAt": "2026-09-24T21:46:33.026Z",
+   "endsAt": null,
+   "fingerprint": "939f1cb9284899a1"
+  }
+ },
+ {
+  "id": 59,
+  "ts": 1790286421.9460564,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementZeroRecords",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "Settlement ran but reconciled zero records",
+   "startsAt": "2026-09-24T21:36:33.026Z",
+   "endsAt": null,
+   "fingerprint": "230807bea0cf96f4"
+  }
+ },
+ {
+  "id": 60,
+  "ts": 1790286511.2018917,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "PlatformPodRestarting",
+   "service": "platform",
+   "severity": "warning",
+   "summary": "prometheus-kps-kube-prometheus-stack-prometheus-0 restarted 4x in the last hour",
+   "startsAt": "2026-09-24T20:52:02.165Z",
+   "endsAt": "2026-09-24T21:46:32.165Z",
+   "fingerprint": "17160a23ddc78325"
+  }
+ },
+ {
+  "id": 61,
+  "ts": 1790286520.5118415,
+  "kind": "incident",
+  "data": {
+   "event": "resolved",
+   "id": "INC-1790283153-51c9",
+   "status": "resolved",
+   "service": "platform",
+   "severity": "warning",
+   "alerts": [
+    "PlatformPodRestarting"
+   ],
+   "resolved_at_iso": "2026-09-24T21:48:31Z",
+   "duration_min": 56.0
+  }
+ },
+ {
+  "id": 62,
+  "ts": 1790288946.753464,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838095)",
+   "startsAt": "2026-09-24T21:37:33.026Z",
+   "endsAt": "2026-09-24T21:44:03.026Z",
+   "fingerprint": "eb2c0f1850bfaba2"
+  }
+ },
+ {
+  "id": 63,
+  "ts": 1790288946.753477,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838100)",
+   "startsAt": "2026-09-24T21:42:03.026Z",
+   "endsAt": null,
+   "fingerprint": "a6ef18eeef1b9b31"
+  }
+ },
+ {
+  "id": 64,
+  "ts": 1790288946.7534783,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838105)",
+   "startsAt": "2026-09-24T21:47:03.026Z",
+   "endsAt": null,
+   "fingerprint": "9cdad1e763efaecc"
+  }
+ },
+ {
+  "id": 65,
+  "ts": 1790288946.7534807,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-remediator-1790285944)",
+   "startsAt": "2026-09-24T21:41:33.026Z",
+   "endsAt": "2026-09-24T21:46:03.026Z",
+   "fingerprint": "05e6694f2cf17460"
+  }
+ },
+ {
+  "id": 66,
+  "ts": 1790288946.7534814,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-remediator-1790286177)",
+   "startsAt": "2026-09-24T21:45:03.026Z",
+   "endsAt": null,
+   "fingerprint": "a91c1ba06c25e0bb"
+  }
+ },
+ {
+  "id": 67,
+  "ts": 1790288946.7534826,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementStale",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "No successful settlement in 15 minutes (expected every 5)",
+   "startsAt": "2026-09-24T21:46:33.026Z",
+   "endsAt": null,
+   "fingerprint": "939f1cb9284899a1"
+  }
+ },
+ {
+  "id": 68,
+  "ts": 1790288946.753484,
+  "kind": "alert",
+  "data": {
+   "status": "firing",
+   "alertname": "SettlementZeroRecords",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "Settlement ran but reconciled zero records",
+   "startsAt": "2026-09-24T21:36:33.026Z",
+   "endsAt": null,
+   "fingerprint": "230807bea0cf96f4"
+  }
+ },
+ {
+  "id": 69,
+  "ts": 1790288957.042104,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "EgiftHighErrorRate",
+   "service": "egift",
+   "severity": "critical",
+   "summary": "eGift order error rate above 10%",
+   "startsAt": "2026-09-24T21:33:26.354Z",
+   "endsAt": "2026-09-24T21:52:26.354Z",
+   "fingerprint": "0113b219e06c46eb"
+  }
+ },
+ {
+  "id": 70,
+  "ts": 1790289016.426893,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838095)",
+   "startsAt": "2026-09-24T21:37:33.026Z",
+   "endsAt": "2026-09-24T21:44:03.026Z",
+   "fingerprint": "eb2c0f1850bfaba2"
+  }
+ },
+ {
+  "id": 71,
+  "ts": 1790289016.4269397,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838100)",
+   "startsAt": "2026-09-24T21:42:03.026Z",
+   "endsAt": "2026-09-24T21:52:03.026Z",
+   "fingerprint": "a6ef18eeef1b9b31"
+  }
+ },
+ {
+  "id": 72,
+  "ts": 1790289016.4269423,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-29838105)",
+   "startsAt": "2026-09-24T21:47:03.026Z",
+   "endsAt": "2026-09-24T21:52:33.026Z",
+   "fingerprint": "9cdad1e763efaecc"
+  }
+ },
+ {
+  "id": 73,
+  "ts": 1790289016.426944,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementJobFailed",
+   "service": "settlement",
+   "severity": "warning",
+   "summary": "Settlement job crashed (settlement-remediator-1790286177)",
+   "startsAt": "2026-09-24T21:45:03.026Z",
+   "endsAt": "2026-09-24T21:52:03.026Z",
+   "fingerprint": "a91c1ba06c25e0bb"
+  }
+ },
+ {
+  "id": 74,
+  "ts": 1790289016.4269452,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementStale",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "No successful settlement in 15 minutes (expected every 5)",
+   "startsAt": "2026-09-24T21:46:33.026Z",
+   "endsAt": "2026-09-24T21:52:03.026Z",
+   "fingerprint": "939f1cb9284899a1"
+  }
+ },
+ {
+  "id": 75,
+  "ts": 1790289016.4269469,
+  "kind": "alert",
+  "data": {
+   "status": "resolved",
+   "alertname": "SettlementZeroRecords",
+   "service": "settlement",
+   "severity": "critical",
+   "summary": "Settlement ran but reconciled zero records",
+   "startsAt": "2026-09-24T21:36:33.026Z",
+   "endsAt": "2026-09-24T21:52:33.026Z",
+   "fingerprint": "230807bea0cf96f4"
+  }
+ },
+ {
+  "id": 76,
+  "ts": 1790289026.5473902,
+  "kind": "incident",
+  "data": {
+   "event": "resolved",
+   "id": "INC-1790285821-670c",
+   "status": "resolved",
+   "service": "settlement",
+   "severity": "critical",
+   "alerts": [
+    "SettlementJobFailed",
+    "SettlementStale",
+    "SettlementZeroRecords"
+   ],
+   "resolved_at_iso": "2026-09-24T22:30:16Z",
+   "duration_min": 53.2
+  }
+ },
+ {
+  "id": 77,
+  "ts": 1790289026.549486,
+  "kind": "incident",
+  "data": {
+   "event": "resolved",
+   "id": "INC-1790285635-a088",
+   "status": "resolved",
+   "service": "egift",
+   "severity": "critical",
+   "alerts": [
+    "EgiftHighErrorRate"
+   ],
+   "resolved_at_iso": "2026-09-24T22:29:47Z",
+   "duration_min": 55.9
+  }
+ }
+]
