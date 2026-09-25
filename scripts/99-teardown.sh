@@ -16,9 +16,13 @@
 # What stays: the repo and git history; AWS is NOT touched (see the end).
 source "$(dirname "$0")/lib.sh"
 cd "$LAB_ROOT" || exit 1
-IMAGES=0; [[ "${1:-}" == "--images" ]] && IMAGES=1
+IMAGES=0; NOREC=0
+for a in "$@"; do case "$a" in --images) IMAGES=1 ;; --no-record) NOREC=1 ;; esac; done
 
-[[ -d records ]] || warn "no records/ — run ./scripts/249-export-record.sh first, or the audit log dies with the cluster"
+# The record first — a warning here was scrolled past once (the export then found the cluster gone).
+if ! ls records/*/mc-audit.json >/dev/null 2>&1 && (( ! NOREC )); then
+  die "no records/*/mc-audit.json — ./scripts/249-export-record.sh first (or --no-record to lose it on purpose)"
+fi
 say "This DELETES the '${CLUSTER_NAME}' cluster, the splunk and jenkins containers and their data,"
 say "the local Terraform state and your local lab credentials.$( ((IMAGES)) && echo ' And the lab images.')"
 read -rp "Type the cluster name to confirm: " a
@@ -30,14 +34,22 @@ pkill -f "kubectl.*port-forward" 2>/dev/null || true
 ok "stopped"
 
 step "2 · The kind cluster"
+# `cmd && ok` swallowed a failed delete under set -e (the first run said nothing and went on).
+# Every destructive step is if/else now, and step 7 checks the result.
 if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
-  kind delete cluster --name "$CLUSTER_NAME" && ok "cluster $CLUSTER_NAME deleted (and its kube context)"
+  if kind delete cluster --name "$CLUSTER_NAME"; then ok "cluster $CLUSTER_NAME deleted (and its kube context)"
+  else warn "kind delete failed — removing its node containers directly"; fi
 else ok "no cluster $CLUSTER_NAME"; fi
+NODES=$(docker ps -aq --filter "label=io.x-k8s.kind.cluster=$CLUSTER_NAME" || true)
+if [[ -n "$NODES" ]]; then
+  if docker rm -fv $NODES >/dev/null; then ok "kind node container(s) removed"; else warn "could not remove the kind node container(s)"; fi
+fi
 
 step "3 · Splunk and Jenkins, with their data"
 for c in splunk jenkins; do
-  if docker inspect "$c" >/dev/null 2>&1; then docker rm -fv "$c" >/dev/null && ok "$c removed (with its anonymous volumes)"
-  else ok "no $c container"; fi
+  if ! docker inspect "$c" >/dev/null 2>&1; then ok "no $c container"
+  elif docker rm -fv "$c" >/dev/null; then ok "$c removed (with its anonymous volumes)"
+  else warn "$c could NOT be removed"; fi
 done
 docker volume rm jenkins_home >/dev/null 2>&1 && ok "volume jenkins_home removed (the jobs are in ci/*.job.xml)" || ok "no jenkins_home volume"
 docker network rm kind >/dev/null 2>&1 && ok "docker network kind removed" || true
@@ -61,6 +73,14 @@ if (( IMAGES )); then
   [[ -n "$IDS" ]] && docker rmi -f $IDS >/dev/null 2>&1; ok "$(echo -n "$IDS" | grep -c . || true) image(s) removed"
   docker builder prune -af >/dev/null 2>&1 && ok "build cache pruned"
 fi
+
+step "7 · Is it gone?"
+LEFT=0
+kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME" && { warn "kind still lists $CLUSTER_NAME"; LEFT=1; }
+for c in $(docker ps -a --format '{{.Names}}' | grep -E "^($CLUSTER_NAME-|splunk$|jenkins$)" || true); do warn "container $c still exists"; LEFT=1; done
+docker volume inspect jenkins_home >/dev/null 2>&1 && { warn "volume jenkins_home still exists"; LEFT=1; }
+(( LEFT )) && die "not fully destroyed — fix the above (is Docker Desktop running?) and run this again; it is safe to repeat"
+ok "no cluster, no lab containers, no jenkins_home"
 
 step "Left to check by hand"
 dim "  git status                          — records/ committed? nothing else pending?"

@@ -166,6 +166,16 @@ log is append-only. A length is not a reason. **Fix:** `actions.prose_reason` �
 because"; the UI shows the same rule as a hint (`lib/reason.ts`) so a disabled button says why. It
 will not stop a determined typist; it stops the reflex. Tests: the lab's own strings.
 
+### [BUG] B8 — The teardown said nothing when the cluster delete failed (found on the lab)
+
+`99-teardown.sh` ran `kind delete cluster && ok …`. Under `set -e` a failure inside an `&&` list does
+not stop the script — so the delete failed silently and the script went on: Jenkins, the `kind`
+network and the local token were removed, the cluster and Splunk were not, and with its network gone
+the node could no longer start. **Fix:** every destructive step is `if/else` with a warning; a failed
+`kind delete` falls back to removing the node containers by their kind label; a final step checks
+that nothing is left and fails loudly if it is (safe to re-run). And it now refuses to start without
+`records/*/mc-audit.json` (`--no-record` to override) — a warning about the export was scrolled past.
+
 ---
 
 ### [NOTE] N1 — The KB front matter is not YAML
